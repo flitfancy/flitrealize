@@ -1,9 +1,9 @@
 ---
-name: skywork-e
-description: Advance stateful electronics hardware projects through requirements, schematic, PCB, prototype ordering, bring-up, and revision with project isolation and evidence-based decisions. Use for project-level EDA work or cross-chat continuation; do not use for isolated component facts, textbook questions, or one-step EDA guidance that needs no project state.
+name: flitrealize
+description: Advance stateful electronics hardware projects through requirements, schematic, PCB, prototype ordering, bring-up, and revision with project isolation and evidence-based decisions. Use for project-level EDA work or cross-chat continuation; do not use for software-only work, isolated component facts, textbook questions, or one-step EDA guidance that needs no project state.
 ---
 
-# skywork-e
+# FlitRealize
 
 ## Objective
 
@@ -124,10 +124,12 @@ coverage justified by the prototype's risk and acceptance goal. Read
   [debug-loop.md](references/debug-loop.md); do not create a battle log for
   ordinary implementation or a completed task.
 
-When useful, query `S:\SkyWorks\hardware-knowledge\catalog.csv` and
-`S:\SkyWorks\hardware-knowledge\USER.md`. Single-project methods remain
-candidates until a materially different project supplies realistic supporting
-evidence; knowledge-layer promotion also needs writable scope there.
+If the host explicitly provides a workspace-local hardware-knowledge catalog or
+user-preference file, query it only when relevant and within readable scope. Its
+absence must not block the core workflow; never assume an author-specific path.
+Single-project methods remain candidates until a materially different project
+supplies realistic supporting evidence; knowledge-layer promotion also needs
+writable scope there.
 
 ## Preserve current state
 

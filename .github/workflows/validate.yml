@@ -1,0 +1,19 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  skill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate repository
+        run: python3 scripts/validate.py
+      - name: Build release artifact
+        run: python3 scripts/package_release.py

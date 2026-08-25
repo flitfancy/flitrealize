@@ -1,4 +1,4 @@
 interface:
-  display_name: "skywork-e"
-  short_description: "Build and verify project-isolated hardware prototypes"
-  default_prompt: "Use $skywork-e to lock project identity and authorized scope, classify intent and evidence, then advance the next hardware decision with the lightest reliable process."
+  display_name: "FlitRealize"
+  short_description: "Advance and verify electronics hardware projects"
+  default_prompt: "Use $flitrealize to lock project identity and authorized scope, classify intent and evidence, then advance the next hardware decision with the lightest reliable process."

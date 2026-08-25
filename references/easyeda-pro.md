@@ -69,11 +69,11 @@ bulk rule changes need a recoverable source checkpoint.
 
 ## Keep platform methods outside the governance reference
 
-Use `MTH-NETCLS-001` in the local hardware-knowledge catalog for the candidate
-network-class helper, palette, adapter facts, and tested limits. Helper limits
-must not be presented as undocumented EasyEDA platform limits. Other drifting
-API facts and proven traps belong in the same catalog, where evidence status and
-cross-project promotion can be tracked.
+When the host or project provides a reusable network-class helper, palette, or
+adapter record, treat only its tested behavior as implementation evidence.
+Helper limits must not be presented as undocumented EasyEDA platform limits.
+Keep other drifting API facts and proven traps in the configured knowledge
+catalog when one exists, or in project-local evidence otherwise.
 
 Official documentation, a verified local Bridge, console scripts, and
 third-party assistants are transports rather than evidence authorities. The same

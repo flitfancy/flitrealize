@@ -8,8 +8,10 @@ manufacturing/order candidate. Cross-chat state ownership lives in
 
 A concept discussion does not create files. When initialization is requested:
 
-1. Apply the full root/scope lock from `SKILL.md`. Use the configured workspace
-   parent (`S:\SkyWorks` in this local environment) and protect any source project.
+1. Apply the full root/scope lock from `SKILL.md`. Use the workspace parent
+   explicitly provided by the user or host. If none is available and the
+   destination would change the result, ask one narrow location question.
+   Protect any source project.
 2. Choose a descriptive non-colliding child directory. Stop rather than merge
    into an existing directory that may contain work.
 3. Create only the files needed now: normally a short `README.md` pointing to
