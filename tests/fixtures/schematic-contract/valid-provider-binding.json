@@ -1,0 +1,39 @@
+{
+  "kind": "flitrealize.schematic-contract",
+  "schemaVersion": 1,
+  "project": { "id": "fixture-binding", "revision": "A" },
+  "blocks": [
+    { "id": "sensor", "purpose": "Read a local sensor", "components": ["U1"] }
+  ],
+  "powerDomains": [],
+  "interfaces": [],
+  "components": [
+    {
+      "designator": "U1",
+      "role": "Sensor",
+      "identity": { "selection": "exact", "mpn": "SENSOR-1" },
+      "footprint": { "selection": "exact", "name": "LGA-4" },
+      "pinMapCoverage": "critical",
+      "pins": [
+        { "number": "1", "function": "SIGNAL", "classification": "signal" }
+      ],
+      "includeInBom": true,
+      "includeInPcb": true,
+      "bindings": {
+        "easyedaPro": {
+          "libraryUuid": "fixture-library",
+          "deviceUuid": "fixture-device"
+        }
+      }
+    }
+  ],
+  "nets": [
+    {
+      "name": "SENSE",
+      "kind": "analog",
+      "endpoints": [{ "component": "U1", "pin": "1" }]
+    }
+  ],
+  "constraints": [],
+  "exceptions": []
+}

@@ -5,9 +5,9 @@ description: 以项目隔离和证据驱动决策，推进有持续状态的电�
 
 > 本文件是英文主执行文件 [SKILL.md](../../SKILL.md) 的中文只读镜像，供人工阅读和审阅。实际执行仍以英文源文件为准。
 > 同步日期：2026-08-26（Asia/Shanghai）
-> 英文源文件 SHA-256：`EF8F5813A6453E9B0D70C26B537DCBF57BE0FE36B18D8CC3B857A471B0CCF3AB`
+> 英文源文件 SHA-256：`7A59491DE65A86E31A2BA0237C7445620458F1E018CF166403B27C5896C2215D`
 
-本文件是主执行文件的完整翻译；整个 Skill 还包括 `references/` 中 9 个按需读取的中文专题参考，并不是只包含本文件。
+本文件是主执行文件的完整翻译；整个 Skill 还包括 `references/` 中 10 个按需读取的中文专题参考，并不是只包含本文件。
 
 # FlitRealize
 
@@ -90,6 +90,8 @@ RECOVERY_AND_CHECK: <检查点与成功判据>
 - 原理图和器件：[schematic-contract.md](references/schematic-contract.md)
 - PCB 和制造图形：[pcb-review.md](references/pcb-review.md)
 - EasyEDA Pro 自动化：[easyeda-pro.md](references/easyeda-pro.md)
+- 可复用本地 Action 与 EDA Provider 边界：
+  [local-actions.md](references/local-actions.md)
 - 活动且重复的调试：[debug-loop.md](references/debug-loop.md)
 - 音频路径：[audio-systems.md](references/audio-systems.md)
 - 上电：[prototype-validation.md](references/prototype-validation.md)

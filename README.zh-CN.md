@@ -51,12 +51,13 @@ flitrealize/
 ├── SKILL.md                 # 运行入口
 ├── agents/openai.yaml       # Codex 界面元数据
 ├── references/              # 按需加载的运行参考
+├── schemas/                 # 带版本的可移植硬件数据契约
 ├── docs/zh-CN/              # 中文人工阅读镜像
-├── scripts/                 # EDA 动作、主机 Adapter 控制、校验与打包
+├── scripts/                 # 本地/EDA Action、Provider 控制、校验与打包
 └── .github/workflows/       # 跨平台校验和 Tag 自动发布
 ```
 
-发布 ZIP 包含运行入口、界面元数据、参考文件、主机可移植的 EDA Adapter 控制，以及针对层结构、器件几何、功能性禁铜、实际铺铜、接地检查、必要 GND 过孔和全局缝合只读规划的已测试动作。作者工作区、机器配置、具体项目记录、本地 catalog 和优化历史不会进入公开制品。
+发布 ZIP 包含运行入口、界面元数据、参考文件、带版本的原理图 Contract/Snapshot Schema、Host/EDA Action Runner、主机可移植的 Provider 控制、不依赖 Provider 的原理图合同审计，以及针对层结构、器件几何、功能性禁铜、实际铺铜、接地检查、必要 GND 过孔和全局缝合只读规划的已测试嘉立创 EDA Action。作者工作区、机器配置、具体项目记录、本地 catalog 和优化历史不会进入公开制品。
 
 ## 运行结构
 
@@ -66,9 +67,11 @@ flowchart LR
     B --> C[只加载相关 Reference]
     B --> D[Action Runner]
     D --> E[Manifest 动作契约]
-    E --> F[Host Adapter 与 EDA Bridge]
-    F --> G[检查 / 规划 / 应用 / 验证 / 回滚]
-    G --> H[精简结果与本机完整证据报告]
+    E --> F[Host Runtime：本机确定性工作]
+    E --> G[EDA Runtime]
+    G --> H[选定的 Provider Adapter 与 Bridge]
+    F --> I[精简结果与本机完整证据报告]
+    H --> I
 ```
 
 ## Reference 导航
@@ -79,6 +82,7 @@ flowchart LR
 | [`continuation.md`](docs/zh-CN/references/continuation.md) | 项目隔离与跨对话续接 |
 | [`schematic-contract.md`](docs/zh-CN/references/schematic-contract.md) | 原理图输入、输出、评审契约和证据 |
 | [`easyeda-pro.md`](docs/zh-CN/references/easyeda-pro.md) | EasyEDA Pro、本机 Bridge、官方 API 和 Action 执行 |
+| [`local-actions.md`](docs/zh-CN/references/local-actions.md) | 本地 Action 契约、Runtime/Provider 边界和证据驱动进化 |
 | [`pcb-review.md`](docs/zh-CN/references/pcb-review.md) | 布局、布线、层叠、接地、DRC 和制造评审 |
 | [`audio-systems.md`](docs/zh-CN/references/audio-systems.md) | 音频专项架构、布局、回流路径和验证 |
 | [`prototype-validation.md`](docs/zh-CN/references/prototype-validation.md) | 样机下单、安全上电和验证计划 |

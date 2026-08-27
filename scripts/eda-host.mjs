@@ -9,7 +9,12 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const SCHEMA_VERSION = 1;
-const SUPPORTED_EDAS = new Set(['easyeda-pro']);
+const actionManifest = JSON.parse(await readFile(new URL('./actions/manifest.json', import.meta.url), 'utf8'));
+const SUPPORTED_EDAS = new Set(
+  Object.entries(actionManifest.providers || {})
+    .filter(([, provider]) => provider?.kind === 'eda')
+    .map(([providerId]) => providerId),
+);
 const STATE_ROOT = stateRoot();
 const PROFILE_FILE = join(STATE_ROOT, 'host.json');
 

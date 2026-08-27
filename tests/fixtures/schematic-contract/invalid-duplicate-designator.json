@@ -1,0 +1,37 @@
+{
+  "kind": "flitrealize.schematic-contract",
+  "schemaVersion": 1,
+  "project": { "id": "fixture-duplicate", "revision": "A" },
+  "blocks": [
+    { "id": "logic", "purpose": "Duplicate designator fixture", "components": ["U1"] }
+  ],
+  "powerDomains": [],
+  "interfaces": [],
+  "components": [
+    {
+      "designator": "U1",
+      "role": "First device",
+      "identity": { "selection": "exact", "mpn": "DEVICE-A" },
+      "footprint": { "selection": "exact", "name": "PKG-A" },
+      "pinMapCoverage": "complete",
+      "pins": [{ "number": "1", "function": "IO", "classification": "signal" }],
+      "includeInBom": true,
+      "includeInPcb": true
+    },
+    {
+      "designator": "U1",
+      "role": "Second device",
+      "identity": { "selection": "exact", "mpn": "DEVICE-B" },
+      "footprint": { "selection": "exact", "name": "PKG-B" },
+      "pinMapCoverage": "complete",
+      "pins": [{ "number": "1", "function": "IO", "classification": "signal" }],
+      "includeInBom": true,
+      "includeInPcb": true
+    }
+  ],
+  "nets": [
+    { "name": "IO", "kind": "signal", "endpoints": [{ "component": "U1", "pin": "1" }] }
+  ],
+  "constraints": [],
+  "exceptions": []
+}

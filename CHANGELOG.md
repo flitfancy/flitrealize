@@ -4,6 +4,42 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- Added Manifest schema 2 metadata for Action contract version, domain,
+  execution runtime, and exact tested Providers without claiming unimplemented
+  EDA support.
+- Added a deterministic host Action runtime beside the existing EDA runtime so
+  future offline contract audits can reuse the same authorization, summary, and
+  evidence-report envelope without crossing the Bridge.
+- Added a routed English/Chinese reference for project-truth ownership,
+  Snapshot/Patch boundaries, fixture-led evolution, and fail-closed staleness.
+- Added strict, versioned `SchematicContract v1` and `SchematicSnapshot v1`
+  machine schemas with Provider-native identities isolated in namespaced
+  bindings or extensions.
+- Added the first provider-free Host Action, `schematic-contract-audit`, for
+  deterministic structure, identity, reference, evidence-state, pin/net, and
+  NC/DNC checks without connecting to an EDA.
+
+### Changed
+
+- Made the host adapter allowlist derive from the registered Provider catalog
+  and kept EasyEDA Pro as the only current tested Provider.
+- Expanded compact Action summaries and local reports with contract, domain,
+  runtime, Provider, unsupported, unknown, and blocker metadata.
+- Included machine schemas in deterministic runtime packaging and clean-ZIP
+  byte verification.
+
+### Verified
+
+- Preserved all existing PCB Action behavior and mutation authorization tests;
+  added regressions for Provider rejection, host runtime execution, and compact
+  unsupported-coverage counts.
+- Added six schematic-contract fixtures covering valid portable intent, opaque
+  EasyEDA binding, unresolved conditional evidence, duplicate designators,
+  broken endpoint references, and a connected no-connect pin; the clean ZIP
+  smoke test now executes the packaged Host audit end to end.
+
 ## [0.1.0-test.6] - 2026-08-27
 
 ### Added

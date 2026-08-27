@@ -155,6 +155,8 @@ warning is not yet durable.
 - Schematic and parts: [schematic-contract.md](references/schematic-contract.md)
 - PCB and manufacturing artwork: [pcb-review.md](references/pcb-review.md)
 - EasyEDA Pro automation: [easyeda-pro.md](references/easyeda-pro.md)
+- Reusable local Actions and EDA-provider boundaries:
+  [local-actions.md](references/local-actions.md)
 - Active repeated debugging: [debug-loop.md](references/debug-loop.md)
 - Audio paths: [audio-systems.md](references/audio-systems.md)
 - Bring-up: [prototype-validation.md](references/prototype-validation.md)

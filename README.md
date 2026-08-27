@@ -69,13 +69,16 @@ flitrealize/
 ├── SKILL.md                 # runtime entrypoint
 ├── agents/openai.yaml       # Codex UI metadata
 ├── references/              # runtime references loaded on demand
+├── schemas/                 # versioned portable hardware data contracts
 ├── docs/zh-CN/              # human-readable Chinese mirror
-├── scripts/                 # EDA actions, host adapter control, validation, packaging
+├── scripts/                 # local/EDA actions, provider control, validation, packaging
 └── .github/workflows/       # cross-platform validation and tag release automation
 ```
 
 The release ZIP contains the runtime entrypoint, UI metadata, references,
-host-portable EDA adapter control, and tested transactional EDA actions for
+versioned schematic Contract/Snapshot schemas, the host/EDA Action runner,
+host-portable provider control, a provider-free schematic contract audit, and
+tested transactional EasyEDA actions for
 layer structure, component geometry, functional keepouts, realized copper
 pours, grounding inspection, necessary GND vias, and read-only global stitching
 planning. Author workspaces, machine
@@ -90,9 +93,11 @@ flowchart LR
     B --> C[Relevant reference only]
     B --> D[Action runner]
     D --> E[Manifest contract]
-    E --> F[Host adapter and EDA Bridge]
-    F --> G[Inspect / Plan / Apply / Verify / Rollback]
-    G --> H[Compact result plus local evidence report]
+    E --> F[Host runtime: deterministic local work]
+    E --> G[EDA runtime]
+    G --> H[Selected provider adapter and Bridge]
+    F --> I[Compact result plus local evidence report]
+    H --> I
 ```
 
 ## Reference map
@@ -103,6 +108,7 @@ flowchart LR
 | [`continuation.md`](references/continuation.md) | Project isolation and continuation across conversations |
 | [`schematic-contract.md`](references/schematic-contract.md) | Schematic inputs, outputs, review contracts, and evidence |
 | [`easyeda-pro.md`](references/easyeda-pro.md) | EasyEDA Pro, the local Bridge, official APIs, and Action execution |
+| [`local-actions.md`](references/local-actions.md) | Local Action contracts, runtime/provider boundaries, and evidence-led evolution |
 | [`pcb-review.md`](references/pcb-review.md) | Placement, routing, stackup, grounding, DRC, and manufacturing review |
 | [`audio-systems.md`](references/audio-systems.md) | Audio-specific architecture, layout, return paths, and validation |
 | [`prototype-validation.md`](references/prototype-validation.md) | Prototype ordering, safe bring-up, and validation planning |

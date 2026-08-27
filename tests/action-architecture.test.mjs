@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { readdir } from 'node:fs/promises';
 import { basename } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 import {
   defaultReportFile,
+  executeHostAction,
   loadManifest,
   resolveActionRequest,
   summarizeExecution,
@@ -11,7 +14,9 @@ import {
 import { loadAction } from './helpers/action-harness.mjs';
 
 const manifest = await loadManifest();
-assert.equal(manifest.schemaVersion, 1);
+assert.equal(manifest.schemaVersion, 2);
+assert.deepEqual(Object.keys(manifest.providers), ['easyeda-pro']);
+assert.equal(manifest.providers['easyeda-pro'].kind, 'eda');
 
 const actionFiles = (await readdir(new URL('../scripts/actions/', import.meta.url)))
   .filter((name) => name.endsWith('.js'))
@@ -21,6 +26,11 @@ assert.deepEqual(registeredFiles, actionFiles);
 
 for (const [name, action] of Object.entries(manifest.actions)) {
   assert.equal(typeof action.description, 'string', name);
+  assert.equal(action.contractVersion, 1, name);
+  assert.ok(['system', 'pcb', 'schematic'].includes(action.domain), name);
+  assert.ok(['host', 'eda'].includes(action.runtime), name);
+  if (action.runtime === 'host') assert.deepEqual(action.providers, [], name);
+  else assert.deepEqual(action.providers, ['easyeda-pro'], name);
   assert.ok(action.modes[action.defaultMode], name);
   for (const [mode, contract] of Object.entries(action.modes)) {
     assert.equal(typeof contract.mutates, 'boolean', name + '/' + mode);
@@ -48,6 +58,14 @@ for (const [name, action] of Object.entries(manifest.actions)) {
 
 const readOnly = resolveActionRequest(manifest, 'pcb-ground-vias', { mode: 'plan' }, false);
 assert.equal(readOnly.mutates, false);
+assert.equal(readOnly.domain, 'pcb');
+assert.equal(readOnly.runtime, 'eda');
+assert.equal(readOnly.provider, 'easyeda-pro');
+
+assert.throws(
+  () => resolveActionRequest(manifest, 'pcb-ground-vias', { mode: 'plan' }, false, 'kicad'),
+  (error) => error.code === 'ACTION_PROVIDER_UNSUPPORTED',
+);
 
 assert.throws(
   () => resolveActionRequest(manifest, 'pcb-ground-vias', { mode: 'apply' }, false),
@@ -79,10 +97,69 @@ const summary = summarizeExecution({
   },
 }, readOnly, 'report.json', '0.1.0-test.5');
 assert.equal(summary.ok, true);
+assert.equal(summary.schemaVersion, 2);
 assert.equal(summary.skillVersion, '0.1.0-test.5');
+assert.equal(summary.actionContractVersion, 1);
+assert.equal(summary.domain, 'pcb');
+assert.equal(summary.runtime, 'eda');
+assert.equal(summary.provider, 'easyeda-pro');
 assert.equal(summary.documentUuid, 'pcb-test');
 assert.equal(summary.counts.selectedCount, 7);
 assert.equal(summary.nextRequestAvailable, true);
 assert.equal(summary.reportFile, 'report.json');
+
+const hostDescriptor = {
+  actionName: 'host-fixture',
+  actionFile: fileURLToPath(new URL('./fixtures/host-action.js', import.meta.url)),
+  contractVersion: 1,
+  domain: 'system',
+  runtime: 'host',
+  provider: null,
+  mode: 'inspect',
+  mutates: false,
+};
+const hostResponse = await executeHostAction(
+  hostDescriptor,
+  { selected: ['U1', 'U2'], unsupported: ['hierarchical-bus'] },
+  { projectRoot: 'fixture-project', skillVersion: 'test-version' },
+);
+const hostSummary = summarizeExecution(hostResponse, hostDescriptor, 'host-report.json', 'test-version');
+assert.equal(hostSummary.ok, true);
+assert.equal(hostSummary.runtime, 'host');
+assert.equal(hostSummary.provider, null);
+assert.equal(hostSummary.counts.selectedCount, 2);
+assert.equal(hostSummary.counts.unsupportedCount, 1);
+assert.equal(hostSummary.fingerprints.fingerprint, 'fixture-fingerprint');
+
+const hostManifest = {
+  schemaVersion: 2,
+  providers: manifest.providers,
+  actions: {
+    'host-fixture': {
+      file: 'eda-capabilities.js',
+      description: 'Fixture local action.',
+      contractVersion: 1,
+      domain: 'system',
+      runtime: 'host',
+      providers: [],
+      defaultMode: 'inspect',
+      modes: { inspect: { mutates: false } },
+    },
+  },
+};
+assert.equal(resolveActionRequest(hostManifest, 'host-fixture', {}, false).provider, null);
+assert.throws(
+  () => resolveActionRequest(hostManifest, 'host-fixture', {}, false, 'easyeda-pro'),
+  (error) => error.code === 'ACTION_PROVIDER_NOT_APPLICABLE',
+);
+
+const rejectedHostProvider = spawnSync(process.execPath, [
+  fileURLToPath(new URL('../scripts/eda-host.mjs', import.meta.url)),
+  'status',
+  '--eda',
+  'kicad',
+], { encoding: 'utf8', windowsHide: true });
+assert.equal(rejectedHostProvider.status, 1);
+assert.match(rejectedHostProvider.stderr, /Unsupported EDA adapter: kicad/);
 
 process.stdout.write('action architecture tests passed\n');

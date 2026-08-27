@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/flitfancy/flitrealize/schemas/schematic-snapshot.v1.schema.json",
+  "title": "FlitRealize SchematicSnapshot v1",
+  "description": "Portable read-only schematic realization captured by one EDA provider.",
+  "type": "object",
+  "required": [
+    "kind",
+    "schemaVersion",
+    "provider",
+    "capturedAt",
+    "project",
+    "document",
+    "sheets",
+    "components",
+    "nets",
+    "diagnostics",
+    "coverage",
+    "fingerprints"
+  ],
+  "properties": {
+    "kind": { "const": "flitrealize.schematic-snapshot" },
+    "schemaVersion": { "const": 1 },
+    "provider": { "$ref": "#/$defs/nonEmptyString" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "project": { "$ref": "#/$defs/nativeIdentity" },
+    "document": { "$ref": "#/$defs/document" },
+    "sheets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sheet" }
+    },
+    "components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "nets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/net" }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/diagnostic" }
+    },
+    "coverage": { "$ref": "#/$defs/coverage" },
+    "fingerprints": { "$ref": "#/$defs/fingerprints" },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "nativeIdentity": {
+      "type": "object",
+      "required": ["id", "nativeId"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "nativeId": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "type": "string" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "document": {
+      "type": "object",
+      "required": ["id", "nativeId", "type"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "nativeId": { "$ref": "#/$defs/nonEmptyString" },
+        "type": { "const": "schematic" },
+        "revision": { "type": "string" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "sheet": {
+      "type": "object",
+      "required": ["id", "nativeId", "name"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "nativeId": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "position": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "pin": {
+      "type": "object",
+      "required": ["number", "nativeId", "noConnect"],
+      "properties": {
+        "number": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "type": "string" },
+        "nativeId": { "$ref": "#/$defs/nonEmptyString" },
+        "position": { "$ref": "#/$defs/position" },
+        "net": { "type": ["string", "null"] },
+        "noConnect": { "type": "boolean" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "designator",
+        "nativeId",
+        "sheetId",
+        "pins",
+        "includeInBom",
+        "includeInPcb"
+      ],
+      "properties": {
+        "designator": { "$ref": "#/$defs/nonEmptyString" },
+        "nativeId": { "$ref": "#/$defs/nonEmptyString" },
+        "sheetId": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "type": "string" },
+        "value": { "type": "string" },
+        "manufacturer": { "type": "string" },
+        "mpn": { "type": "string" },
+        "footprint": { "type": ["string", "null"] },
+        "includeInBom": { "type": "boolean" },
+        "includeInPcb": { "type": "boolean" },
+        "position": { "$ref": "#/$defs/position" },
+        "rotation": { "type": "number" },
+        "mirror": { "type": "boolean" },
+        "pins": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pin" }
+        },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "endpoint": {
+      "type": "object",
+      "required": ["component", "pin"],
+      "properties": {
+        "component": { "$ref": "#/$defs/nonEmptyString" },
+        "pin": { "$ref": "#/$defs/nonEmptyString" },
+        "nativePinId": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "net": {
+      "type": "object",
+      "required": ["name", "endpoints"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "nativeId": { "type": ["string", "null"] },
+        "endpoints": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/endpoint" }
+        },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["severity", "code", "message"],
+      "properties": {
+        "severity": { "enum": ["error", "warning", "info"] },
+        "code": { "$ref": "#/$defs/nonEmptyString" },
+        "message": { "$ref": "#/$defs/nonEmptyString" },
+        "nativeIds": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["queried", "unsupported", "unknown"],
+      "properties": {
+        "queried": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "unsupported": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "unknown": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "fingerprints": {
+      "type": "object",
+      "required": ["document", "connectivity", "components", "capabilities"],
+      "properties": {
+        "document": { "$ref": "#/$defs/nonEmptyString" },
+        "connectivity": { "$ref": "#/$defs/nonEmptyString" },
+        "components": { "$ref": "#/$defs/nonEmptyString" },
+        "capabilities": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

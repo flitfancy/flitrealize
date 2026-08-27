@@ -75,16 +75,59 @@ def main() -> int:
         if list_result.returncode != 0:
             fail(f"Packaged action registry failed: {list_result.stderr.strip()}")
         listed = json.loads(list_result.stdout)
+        listed_providers = listed.get("providers", [])
+        listed_actions = listed.get("actions", [])
         if (
-            listed.get("schemaVersion") != 1
+            listed.get("schemaVersion") != 2
             or listed.get("skillVersion") != version
-            or not listed.get("actions")
+            or [provider.get("id") for provider in listed_providers] != ["easyeda-pro"]
+            or not listed_actions
+            or any(
+                action.get("contractVersion") != 1
+                or action.get("runtime") not in {"host", "eda"}
+                or (
+                    action.get("providers") != []
+                    if action.get("runtime") == "host"
+                    else action.get("providers") != ["easyeda-pro"]
+                )
+                or not action.get("domain")
+                for action in listed_actions
+            )
         ):
             fail("Packaged action registry returned an incomplete interface")
 
         isolated_state = temporary_root / "isolated-host-state"
         environment = os.environ.copy()
         environment["FLITREALIZE_HOME"] = str(isolated_state)
+        audit_report = temporary_root / "schematic-contract-audit-report.json"
+        audit_fixture = ROOT / "tests/fixtures/schematic-contract/valid-minimal.json"
+        host_audit = run(
+            [
+                node,
+                str(extracted_root / "scripts/action-runner.mjs"),
+                "run",
+                "--action",
+                "schematic-contract-audit",
+                "--input-file",
+                str(audit_fixture),
+                "--report-file",
+                str(audit_report),
+            ],
+            cwd=extracted_root,
+            environment=environment,
+        )
+        if host_audit.returncode != 0:
+            fail(f"Packaged host Action failed: {host_audit.stderr.strip()}")
+        audit_summary = json.loads(host_audit.stdout)
+        if (
+            audit_summary.get("runtime") != "host"
+            or audit_summary.get("provider") is not None
+            or audit_summary.get("status") != "passed"
+            or audit_summary.get("counts", {}).get("componentCount") != 2
+            or not audit_report.is_file()
+        ):
+            fail(f"Packaged host Action returned an incomplete audit: {audit_summary}")
+
         missing_adapter = run(
             [
                 node,
@@ -108,6 +151,7 @@ def main() -> int:
 
     print(f"[PASS] clean ZIP smoke: {archive.name}")
     print(f"[PASS] runtime entries: {len(expected_entries)} exact files")
+    print("[PASS] packaged host schematic contract audit is deterministic and provider-free")
     print("[PASS] isolated missing-adapter failure is clear and evidence-backed")
     return 0
 

@@ -1,0 +1,112 @@
+{
+  "kind": "flitrealize.schematic-contract",
+  "schemaVersion": 1,
+  "project": {
+    "id": "fixture-power-board",
+    "revision": "A",
+    "title": "Minimal valid power contract"
+  },
+  "blocks": [
+    {
+      "id": "power",
+      "purpose": "Accept VIN and generate 3V3",
+      "components": ["J1", "U1"],
+      "evidenceState": "PASSED"
+    }
+  ],
+  "powerDomains": [
+    {
+      "id": "3V3",
+      "nominalVoltageV": 3.3,
+      "minimumVoltageV": 3.1,
+      "maximumVoltageV": 3.5,
+      "sourceNet": "3V3",
+      "returnNet": "GND",
+      "evidenceState": "PASSED"
+    }
+  ],
+  "interfaces": [],
+  "components": [
+    {
+      "designator": "J1",
+      "role": "Power input connector",
+      "identity": {
+        "selection": "exact",
+        "manufacturer": "Fixture",
+        "mpn": "CONN-2P"
+      },
+      "footprint": {
+        "selection": "exact",
+        "name": "CONN_2P"
+      },
+      "pinMapCoverage": "complete",
+      "pins": [
+        { "number": "1", "function": "VIN", "classification": "power-in" },
+        { "number": "2", "function": "GND", "classification": "ground" }
+      ],
+      "includeInBom": true,
+      "includeInPcb": true,
+      "evidenceState": "PASSED"
+    },
+    {
+      "designator": "U1",
+      "role": "3V3 regulator",
+      "identity": {
+        "selection": "exact",
+        "manufacturer": "Fixture",
+        "mpn": "REG-3V3"
+      },
+      "footprint": {
+        "selection": "exact",
+        "name": "SOT23-3"
+      },
+      "pinMapCoverage": "complete",
+      "pins": [
+        { "number": "1", "function": "VIN", "classification": "power-in" },
+        { "number": "2", "function": "GND", "classification": "ground" },
+        { "number": "3", "function": "VOUT", "classification": "power-out" }
+      ],
+      "includeInBom": true,
+      "includeInPcb": true,
+      "evidenceState": "PASSED"
+    }
+  ],
+  "nets": [
+    {
+      "name": "VIN",
+      "kind": "power",
+      "endpoints": [
+        { "component": "J1", "pin": "1" },
+        { "component": "U1", "pin": "1" }
+      ]
+    },
+    {
+      "name": "3V3",
+      "kind": "power",
+      "powerDomain": "3V3",
+      "endpoints": [
+        { "component": "U1", "pin": "3" }
+      ]
+    },
+    {
+      "name": "GND",
+      "kind": "ground",
+      "powerDomain": "3V3",
+      "endpoints": [
+        { "component": "J1", "pin": "2" },
+        { "component": "U1", "pin": "2" }
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "id": "vin-range",
+      "type": "voltage-range",
+      "appliesTo": [{ "kind": "net", "id": "VIN" }],
+      "requirement": "VIN remains within the selected regulator input range.",
+      "evidenceState": "PASSED",
+      "evidenceRefs": ["datasheets/REG-3V3.pdf"]
+    }
+  ],
+  "exceptions": []
+}

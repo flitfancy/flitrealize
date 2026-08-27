@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/flitfancy/flitrealize/schemas/schematic-contract.v1.schema.json",
+  "title": "FlitRealize SchematicContract v1",
+  "description": "Portable schematic design intent. Provider-native identities belong only in bindings or extensions.",
+  "type": "object",
+  "required": [
+    "kind",
+    "schemaVersion",
+    "project",
+    "blocks",
+    "powerDomains",
+    "interfaces",
+    "components",
+    "nets",
+    "constraints",
+    "exceptions"
+  ],
+  "properties": {
+    "kind": { "const": "flitrealize.schematic-contract" },
+    "schemaVersion": { "const": 1 },
+    "project": { "$ref": "#/$defs/project" },
+    "blocks": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/block" }
+    },
+    "powerDomains": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/powerDomain" }
+    },
+    "interfaces": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/interface" }
+    },
+    "components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "nets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/net" }
+    },
+    "constraints": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/constraint" }
+    },
+    "exceptions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/exception" }
+    },
+    "notes": { "type": "array", "items": { "type": "string" } },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "evidenceState": {
+      "enum": ["OPEN", "CONDITIONAL", "PASSED"]
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "project": {
+      "type": "object",
+      "required": ["id", "revision"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "revision": { "$ref": "#/$defs/nonEmptyString" },
+        "title": { "type": "string" },
+        "sourceArtifacts": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "block": {
+      "type": "object",
+      "required": ["id", "purpose", "components"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "purpose": { "$ref": "#/$defs/nonEmptyString" },
+        "components": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "evidenceState": { "$ref": "#/$defs/evidenceState" },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "powerDomain": {
+      "type": "object",
+      "required": ["id", "sourceNet", "returnNet"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "nominalVoltageV": { "type": "number" },
+        "minimumVoltageV": { "type": "number" },
+        "maximumVoltageV": { "type": "number" },
+        "sourceNet": { "$ref": "#/$defs/nonEmptyString" },
+        "returnNet": { "$ref": "#/$defs/nonEmptyString" },
+        "evidenceState": { "$ref": "#/$defs/evidenceState" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "interfaceSignal": {
+      "type": "object",
+      "required": ["name", "net", "direction"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "net": { "$ref": "#/$defs/nonEmptyString" },
+        "direction": {
+          "enum": ["input", "output", "bidirectional", "power", "passive"]
+        },
+        "powerDomain": { "$ref": "#/$defs/nonEmptyString" },
+        "safeDefault": { "type": "string" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "interface": {
+      "type": "object",
+      "required": ["id", "signals"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "protocol": { "type": "string" },
+        "signals": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/interfaceSignal" }
+        },
+        "evidenceState": { "$ref": "#/$defs/evidenceState" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "identity": {
+      "type": "object",
+      "required": ["selection"],
+      "properties": {
+        "selection": { "enum": ["exact", "generic", "unresolved"] },
+        "manufacturer": { "type": "string" },
+        "mpn": { "type": "string" },
+        "value": { "type": "string" },
+        "description": { "type": "string" },
+        "substitutions": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "footprint": {
+      "type": "object",
+      "required": ["selection"],
+      "properties": {
+        "selection": { "enum": ["exact", "policy", "unresolved"] },
+        "name": { "type": "string" },
+        "policy": { "type": "string" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "pin": {
+      "type": "object",
+      "required": ["number", "function", "classification"],
+      "properties": {
+        "number": { "$ref": "#/$defs/nonEmptyString" },
+        "function": { "$ref": "#/$defs/nonEmptyString" },
+        "classification": {
+          "enum": [
+            "signal",
+            "power-in",
+            "power-out",
+            "ground",
+            "passive",
+            "no-connect",
+            "dnc",
+            "thermal",
+            "other"
+          ]
+        },
+        "safeDefault": { "type": "string" },
+        "notes": { "type": "array", "items": { "type": "string" } },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "bindings": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z][a-zA-Z0-9]*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "designator",
+        "role",
+        "identity",
+        "footprint",
+        "pinMapCoverage",
+        "pins",
+        "includeInBom",
+        "includeInPcb"
+      ],
+      "properties": {
+        "designator": { "$ref": "#/$defs/nonEmptyString" },
+        "role": { "$ref": "#/$defs/nonEmptyString" },
+        "identity": { "$ref": "#/$defs/identity" },
+        "footprint": { "$ref": "#/$defs/footprint" },
+        "pinMapCoverage": { "enum": ["critical", "complete"] },
+        "pins": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/pin" }
+        },
+        "includeInBom": { "type": "boolean" },
+        "includeInPcb": { "type": "boolean" },
+        "evidenceState": { "$ref": "#/$defs/evidenceState" },
+        "bindings": { "$ref": "#/$defs/bindings" },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "endpoint": {
+      "type": "object",
+      "required": ["component", "pin"],
+      "properties": {
+        "component": { "$ref": "#/$defs/nonEmptyString" },
+        "pin": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    },
+    "net": {
+      "type": "object",
+      "required": ["name", "kind", "endpoints"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "kind": {
+          "enum": ["power", "ground", "signal", "clock", "differential", "analog", "other"]
+        },
+        "powerDomain": { "$ref": "#/$defs/nonEmptyString" },
+        "differentialMate": { "$ref": "#/$defs/nonEmptyString" },
+        "endpoints": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/endpoint" }
+        },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "target": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": {
+          "enum": ["project", "block", "power-domain", "interface", "component", "pin", "net"]
+        },
+        "id": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    },
+    "constraint": {
+      "type": "object",
+      "required": ["id", "type", "appliesTo", "requirement", "evidenceState"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "type": { "$ref": "#/$defs/nonEmptyString" },
+        "appliesTo": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/target" }
+        },
+        "requirement": { "$ref": "#/$defs/nonEmptyString" },
+        "evidenceState": { "$ref": "#/$defs/evidenceState" },
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "exception": {
+      "type": "object",
+      "required": ["id", "rule", "appliesTo", "rationale", "evidenceState"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "rule": { "$ref": "#/$defs/nonEmptyString" },
+        "appliesTo": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/target" }
+        },
+        "rationale": { "$ref": "#/$defs/nonEmptyString" },
+        "evidenceState": { "$ref": "#/$defs/evidenceState" },
+        "evidenceRefs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -99,6 +99,9 @@ def main() -> int:
         ROOT / "scripts/actions/pcb-ground-stitching.js",
         ROOT / "scripts/actions/pcb-ground-vias.js",
         ROOT / "scripts/actions/pcb-layer-stack.js",
+        ROOT / "scripts/actions/schematic-contract-audit.js",
+        ROOT / "schemas/schematic-contract.v1.schema.json",
+        ROOT / "schemas/schematic-snapshot.v1.schema.json",
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     checks.check("required files", not missing, "present" if not missing else ", ".join(missing))
@@ -216,10 +219,25 @@ def main() -> int:
     action_registry_failures: list[str] = []
     try:
         manifest = json.loads((ROOT / "scripts/actions/manifest.json").read_text(encoding="utf-8"))
+        providers = manifest.get("providers", {})
         actions = manifest.get("actions", {})
-        if manifest.get("schemaVersion") != 1 or not isinstance(actions, dict):
-            action_registry_failures.append("manifest schema/actions")
+        if (
+            manifest.get("schemaVersion") != 2
+            or not isinstance(providers, dict)
+            or not isinstance(actions, dict)
+        ):
+            action_registry_failures.append("manifest schema/providers/actions")
+            providers = {}
             actions = {}
+        for provider_name, provider in providers.items():
+            if (
+                not isinstance(provider_name, str)
+                or not provider_name
+                or not isinstance(provider, dict)
+                or provider.get("kind") != "eda"
+                or not isinstance(provider.get("displayName"), str)
+            ):
+                action_registry_failures.append(f"{provider_name}: invalid provider")
         registered_files: set[str] = set()
         for action_name, action in actions.items():
             if not isinstance(action, dict):
@@ -228,12 +246,27 @@ def main() -> int:
             file_name = action.get("file")
             modes = action.get("modes")
             default_mode = action.get("defaultMode")
+            runtime = action.get("runtime")
+            action_providers = action.get("providers")
             if not isinstance(file_name, str):
                 action_registry_failures.append(f"{action_name}: missing file")
             else:
                 registered_files.add(file_name)
             if not isinstance(action.get("description"), str) or not action["description"].strip():
                 action_registry_failures.append(f"{action_name}: missing description")
+            if not isinstance(action.get("contractVersion"), int) or action["contractVersion"] < 1:
+                action_registry_failures.append(f"{action_name}: invalid contractVersion")
+            if not isinstance(action.get("domain"), str) or not action["domain"].strip():
+                action_registry_failures.append(f"{action_name}: invalid domain")
+            if runtime not in {"host", "eda"} or not isinstance(action_providers, list):
+                action_registry_failures.append(f"{action_name}: invalid runtime/providers")
+            elif runtime == "host" and action_providers:
+                action_registry_failures.append(f"{action_name}: host action declares providers")
+            elif runtime == "eda" and (
+                not action_providers
+                or any(provider not in providers for provider in action_providers)
+            ):
+                action_registry_failures.append(f"{action_name}: unknown or missing provider")
             if not isinstance(modes, dict) or default_mode not in modes:
                 action_registry_failures.append(f"{action_name}: invalid default mode")
                 continue
@@ -254,6 +287,31 @@ def main() -> int:
         "action registry",
         not action_registry_failures,
         "all actions and modes registered" if not action_registry_failures else "; ".join(action_registry_failures),
+    )
+
+    schema_failures: list[str] = []
+    expected_schemas = {
+        "schematic-contract.v1.schema.json": "flitrealize.schematic-contract",
+        "schematic-snapshot.v1.schema.json": "flitrealize.schematic-snapshot",
+    }
+    for file_name, expected_kind in expected_schemas.items():
+        path = ROOT / "schemas" / file_name
+        try:
+            schema = json.loads(path.read_text(encoding="utf-8"))
+            if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+                schema_failures.append(f"{file_name}: draft")
+            if schema.get("properties", {}).get("kind", {}).get("const") != expected_kind:
+                schema_failures.append(f"{file_name}: kind")
+            if schema.get("properties", {}).get("schemaVersion", {}).get("const") != 1:
+                schema_failures.append(f"{file_name}: version")
+            if schema.get("additionalProperties") is not False:
+                schema_failures.append(f"{file_name}: root must be closed")
+        except (OSError, json.JSONDecodeError) as error:
+            schema_failures.append(f"{file_name}: {error}")
+    checks.check(
+        "schematic schemas",
+        not schema_failures,
+        "Contract v1 and Snapshot v1 are machine-readable" if not schema_failures else "; ".join(schema_failures),
     )
 
     if checks.failures:

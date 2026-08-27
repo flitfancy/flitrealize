@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Run registered EDA actions through the host adapter with compact output and local evidence. */
+/** Run registered host or EDA actions with compact output and local evidence. */
 
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
@@ -14,6 +14,7 @@ const ACTION_ROOT = join(SCRIPT_ROOT, 'actions');
 const MANIFEST_FILE = join(ACTION_ROOT, 'manifest.json');
 const HOST_FILE = join(SCRIPT_ROOT, 'eda-host.mjs');
 const VERSION_FILE = join(dirname(SCRIPT_ROOT), 'VERSION');
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
 function fail(code, message) {
   const error = new Error(message);
@@ -33,7 +34,6 @@ function stateRoot() {
 function parseArguments(argv) {
   const values = {
     command: argv[0],
-    eda: 'easyeda-pro',
     requireEda: true,
     allowWrite: false,
     full: false,
@@ -57,8 +57,61 @@ function parseArguments(argv) {
 
 export async function loadManifest(path = MANIFEST_FILE) {
   const manifest = JSON.parse(await readFile(path, 'utf8'));
-  if (manifest.schemaVersion !== 1 || !manifest.actions || typeof manifest.actions !== 'object') {
+  if (
+    manifest.schemaVersion !== 2
+    || !manifest.providers
+    || typeof manifest.providers !== 'object'
+    || !manifest.actions
+    || typeof manifest.actions !== 'object'
+  ) {
     fail('INVALID_ACTION_MANIFEST', 'Unsupported or incomplete action manifest: ' + path);
+  }
+  for (const [providerId, provider] of Object.entries(manifest.providers)) {
+    if (
+      !/^[a-z0-9-]+$/.test(providerId)
+      || provider?.kind !== 'eda'
+      || typeof provider.displayName !== 'string'
+      || !provider.displayName.trim()
+    ) {
+      fail('INVALID_ACTION_MANIFEST', 'Invalid Provider contract in ' + path + ': ' + providerId);
+    }
+  }
+  for (const [actionName, action] of Object.entries(manifest.actions)) {
+    if (
+      !/^[a-z0-9-]+$/.test(actionName)
+      || !action
+      || typeof action !== 'object'
+      || typeof action.description !== 'string'
+      || !action.description.trim()
+      || !Number.isInteger(action.contractVersion)
+      || action.contractVersion < 1
+      || typeof action.domain !== 'string'
+      || !action.domain.trim()
+      || !['host', 'eda'].includes(action.runtime)
+      || !Array.isArray(action.providers)
+      || !action.modes
+      || typeof action.modes !== 'object'
+      || !action.modes[action.defaultMode]
+    ) {
+      fail('INVALID_ACTION_MANIFEST', 'Invalid Action contract in ' + path + ': ' + actionName);
+    }
+    if (new Set(action.providers).size !== action.providers.length) {
+      fail('INVALID_ACTION_MANIFEST', actionName + ' declares duplicate Providers');
+    }
+    if (action.runtime === 'host' && action.providers.length !== 0) {
+      fail('INVALID_ACTION_MANIFEST', actionName + ' host runtime must not declare an EDA Provider');
+    }
+    if (
+      action.runtime === 'eda'
+      && (action.providers.length === 0 || action.providers.some((provider) => !manifest.providers[provider]))
+    ) {
+      fail('INVALID_ACTION_MANIFEST', actionName + ' declares an unknown or missing EDA Provider');
+    }
+    for (const [mode, contract] of Object.entries(action.modes)) {
+      if (!mode || typeof contract?.mutates !== 'boolean') {
+        fail('INVALID_ACTION_MANIFEST', actionName + '/' + mode + ' has an invalid mutation contract');
+      }
+    }
   }
   return manifest;
 }
@@ -72,21 +125,50 @@ function resolveActionFile(action) {
   return path;
 }
 
-export function resolveActionRequest(manifest, actionName, input, allowWrite = false) {
+function resolveProvider(manifest, actionName, action, requestedProvider) {
+  const providers = action.providers;
+  if (!Array.isArray(providers)) {
+    fail('INVALID_ACTION_MANIFEST', actionName + ' does not declare providers');
+  }
+  if (action.runtime === 'host') {
+    if (providers.length !== 0) fail('INVALID_ACTION_MANIFEST', actionName + ' host runtime must not declare an EDA provider');
+    if (requestedProvider) fail('ACTION_PROVIDER_NOT_APPLICABLE', actionName + ' runs locally and does not use an EDA provider');
+    return null;
+  }
+  if (action.runtime !== 'eda' || providers.length === 0) {
+    fail('INVALID_ACTION_MANIFEST', actionName + ' has an invalid runtime/provider contract');
+  }
+  const provider = requestedProvider || (providers.length === 1 ? providers[0] : null);
+  if (!provider) fail('ACTION_PROVIDER_REQUIRED', actionName + ' supports multiple EDA providers; select one with --eda');
+  if (!manifest.providers[provider] || !providers.includes(provider)) {
+    fail('ACTION_PROVIDER_UNSUPPORTED', actionName + ' does not support EDA provider ' + provider);
+  }
+  return provider;
+}
+
+export function resolveActionRequest(manifest, actionName, input, allowWrite = false, requestedProvider = null) {
   const action = manifest.actions[actionName];
   if (!action) fail('UNKNOWN_ACTION', 'Unknown registered action: ' + actionName);
+  if (!Number.isInteger(action.contractVersion) || action.contractVersion < 1 || typeof action.domain !== 'string') {
+    fail('INVALID_ACTION_MANIFEST', actionName + ' has an invalid action contract');
+  }
   const mode = input?.mode ?? action.defaultMode;
   const modeContract = action.modes?.[mode];
   if (!modeContract) fail('UNSUPPORTED_ACTION_MODE', actionName + ' does not register mode ' + mode);
   if (modeContract.mutates && !allowWrite) {
+    const target = action.runtime === 'eda' ? 'the live EDA document' : 'local project state';
     fail(
       'WRITE_AUTHORIZATION_REQUIRED',
-      actionName + ' mode ' + mode + ' mutates the live EDA document; rerun with --allow-write only after the live-write lock is satisfied.',
+      actionName + ' mode ' + mode + ' mutates ' + target + '; rerun with --allow-write only after the relevant write scope is satisfied.',
     );
   }
   return {
     actionName,
     action,
+    contractVersion: action.contractVersion,
+    domain: action.domain,
+    runtime: action.runtime,
+    provider: resolveProvider(manifest, actionName, action, requestedProvider),
     mode,
     mutates: Boolean(modeContract.mutates),
     actionFile: resolveActionFile(action),
@@ -119,6 +201,11 @@ function addCounts(target, source) {
     'selected',
     'rejected',
     'skipped',
+    'unsupported',
+    'unknown',
+    'blockers',
+    'warnings',
+    'openItems',
   ];
   for (const key of arrayKeys) {
     if (Array.isArray(source[key])) target[key + 'Count'] = source[key].length;
@@ -144,14 +231,19 @@ export function summarizeExecution(response, descriptor, reportFile = null, skil
   }
   const counts = {};
   addCounts(counts, payload);
+  addCounts(counts, payload.counts);
   addCounts(counts, state);
   addCounts(counts, payload.grounding);
   const document = payload.document || state.document || null;
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     skillVersion,
     ok: response?.success !== false && payload.status !== 'error',
     action: descriptor.actionName,
+    actionContractVersion: descriptor.contractVersion,
+    domain: descriptor.domain,
+    runtime: descriptor.runtime,
+    provider: descriptor.provider,
     mode: descriptor.mode,
     mutates: descriptor.mutates,
     status: payload.status ?? response?.status ?? 'completed',
@@ -202,9 +294,14 @@ function publicManifest(manifest, skillVersion) {
   return {
     schemaVersion: manifest.schemaVersion,
     skillVersion,
+    providers: Object.entries(manifest.providers).map(([id, provider]) => ({ id, ...provider })),
     actions: Object.entries(manifest.actions).map(([name, action]) => ({
       name,
       description: action.description,
+      contractVersion: action.contractVersion,
+      domain: action.domain,
+      runtime: action.runtime,
+      providers: action.providers,
       defaultMode: action.defaultMode,
       modes: Object.entries(action.modes).map(([mode, contract]) => ({
         mode,
@@ -214,16 +311,29 @@ function publicManifest(manifest, skillVersion) {
   };
 }
 
-async function runAction(arguments_, manifest, skillVersion) {
+export async function executeHostAction(descriptor, input, context = {}) {
+  if (descriptor.runtime !== 'host' || descriptor.provider !== null) {
+    fail('HOST_RUNTIME_REQUIRED', descriptor.actionName + ' is not a provider-free host Action');
+  }
+  const code = await readFile(descriptor.actionFile, 'utf8');
+  const execute = new AsyncFunction('flitrealizeInput', 'flitrealizeContext', code);
+  const result = await execute(input, {
+    action: descriptor.actionName,
+    contractVersion: descriptor.contractVersion,
+    domain: descriptor.domain,
+    mode: descriptor.mode,
+    ...context,
+  });
+  return { success: true, result };
+}
+
+async function executeEdaAction(arguments_, descriptor, inputFile) {
   if (!arguments_.action) fail('ACTION_REQUIRED', '--action is required');
-  const inputFile = arguments_.inputFile ? resolve(arguments_.inputFile) : null;
-  const input = inputFile ? JSON.parse(await readFile(inputFile, 'utf8')) : {};
-  const descriptor = resolveActionRequest(manifest, arguments_.action, input, arguments_.allowWrite);
   const childArguments = [
     HOST_FILE,
     'execute',
     '--eda',
-    arguments_.eda,
+    descriptor.provider,
     '--code-file',
     descriptor.actionFile,
   ];
@@ -240,20 +350,61 @@ async function runAction(arguments_, manifest, skillVersion) {
     maxBuffer: 32 * 1024 * 1024,
   });
   if (completed.error) throw completed.error;
-  const response = parseControlResult(completed);
+  return { response: parseControlResult(completed), status: completed.status };
+}
+
+async function runAction(arguments_, manifest, skillVersion) {
+  if (!arguments_.action) fail('ACTION_REQUIRED', '--action is required');
+  const inputFile = arguments_.inputFile ? resolve(arguments_.inputFile) : null;
+  const input = inputFile ? JSON.parse(await readFile(inputFile, 'utf8')) : {};
+  const descriptor = resolveActionRequest(
+    manifest,
+    arguments_.action,
+    input,
+    arguments_.allowWrite,
+    arguments_.eda,
+  );
+  let execution;
+  if (descriptor.runtime === 'eda') {
+    execution = await executeEdaAction(arguments_, descriptor, inputFile);
+  } else {
+    try {
+      execution = {
+        response: await executeHostAction(descriptor, input, {
+          projectRoot: arguments_.projectRoot ? resolve(arguments_.projectRoot) : null,
+          skillVersion,
+        }),
+        status: 0,
+      };
+    } catch (error) {
+      execution = {
+        response: {
+          success: false,
+          status: 'error',
+          error: { code: error.code || 'HOST_ACTION_ERROR', message: error.message },
+        },
+        status: 1,
+      };
+    }
+  }
+  const { response } = execution;
   const reportFile = resolve(arguments_.reportFile || defaultReportFile(descriptor.actionName, descriptor.mode));
   await saveReport(reportFile, {
-    schemaVersion: 1,
+    schemaVersion: 2,
     skillVersion,
     capturedAt: new Date().toISOString(),
     action: descriptor.actionName,
+    actionContractVersion: descriptor.contractVersion,
+    domain: descriptor.domain,
+    runtime: descriptor.runtime,
+    provider: descriptor.provider,
     mode: descriptor.mode,
     mutates: descriptor.mutates,
     response,
   });
-  if (completed.status !== 0) {
+  if (execution.status !== 0) {
     const error = response.error || {};
-    const failure = new Error(error.message || 'EDA action failed');
+    const failure = new Error(error.message || 'Action execution failed');
     failure.code = error.code || 'ACTION_EXECUTION_FAILED';
     failure.reportFile = reportFile;
     throw failure;

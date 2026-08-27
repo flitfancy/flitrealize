@@ -53,8 +53,10 @@ unchanged.
 ### Use the registered action protocol
 
 Treat `scripts/actions/manifest.json` as the machine-readable action catalog.
-It declares each portable action, supported mode, mutation class, and expected
-API capabilities. List the current interface without loading action source:
+It declares each Action's contract version, domain, runtime, tested Providers,
+supported mode, mutation class, and expected API capabilities. Read
+[local-actions.md](local-actions.md) when changing that cross-runtime contract.
+For an EDA Action, list the current interface without loading action source:
 
 ```text
 node scripts/action-runner.mjs list

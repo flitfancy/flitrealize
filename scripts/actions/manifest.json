@@ -1,9 +1,20 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
+  "providers": {
+    "easyeda-pro": {
+      "kind": "eda",
+      "displayName": "EasyEDA Pro",
+      "status": "tested"
+    }
+  },
   "actions": {
     "eda-capabilities": {
       "file": "eda-capabilities.js",
       "description": "Read-only feature detection for the active EasyEDA document and API surface.",
+      "contractVersion": 1,
+      "domain": "system",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
       "defaultMode": "inspect",
       "modes": {
         "inspect": { "mutates": false }
@@ -15,6 +26,10 @@
     "pcb-component-geometry": {
       "file": "pcb-component-geometry.js",
       "description": "Read exact component, pad, footprint-source, and bounding-box evidence.",
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
       "defaultMode": "inspect",
       "modes": {
         "inspect": { "mutates": false }
@@ -26,6 +41,10 @@
     "pcb-functional-keepouts": {
       "file": "pcb-functional-keepouts.js",
       "description": "Inspect and transact bounded functional keepout Regions.",
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
       "defaultMode": "inspect",
       "modes": {
         "inspect": { "mutates": false },
@@ -43,6 +62,10 @@
     "pcb-ground-pours": {
       "file": "pcb-ground-pours.js",
       "description": "Inspect and transact realized copper pours against a resolved outline.",
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
       "defaultMode": "inspect",
       "modes": {
         "inspect": { "mutates": false },
@@ -60,6 +83,10 @@
     "pcb-ground-stitching": {
       "file": "pcb-ground-stitching.js",
       "description": "Read-only planner for bounded return-path and global GND stitching candidates.",
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
       "defaultMode": "inspect",
       "modes": {
         "inspect": { "mutates": false },
@@ -72,6 +99,10 @@
     "pcb-ground-vias": {
       "file": "pcb-ground-vias.js",
       "description": "Inspect, generate, plan, apply, verify, and roll back bounded GND-via transactions.",
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
       "defaultMode": "inspect",
       "modes": {
         "inspect": { "mutates": false },
@@ -90,6 +121,10 @@
     "pcb-grounding-inspect": {
       "file": "pcb-grounding-inspect.js",
       "description": "Read-only grounding, copper, component, and keepout inventory.",
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
       "defaultMode": "inspect",
       "modes": {
         "inspect": { "mutates": false }
@@ -101,6 +136,10 @@
     "pcb-layer-stack": {
       "file": "pcb-layer-stack.js",
       "description": "Inspect and transact the logical copper-layer structure.",
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
       "defaultMode": "inspect",
       "modes": {
         "inspect": { "mutates": false },
@@ -113,6 +152,18 @@
         "all": ["document.current", "layer.list"],
         "apply": ["layer.setCopperCount", "layer.modify"],
         "rollback": ["layer.setCopperCount", "layer.modify"]
+      }
+    },
+    "schematic-contract-audit": {
+      "file": "schematic-contract-audit.js",
+      "description": "Audit SchematicContract v1 structure, references, evidence states, and provider boundaries locally.",
+      "contractVersion": 1,
+      "domain": "schematic",
+      "runtime": "host",
+      "providers": [],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false }
       }
     }
   }

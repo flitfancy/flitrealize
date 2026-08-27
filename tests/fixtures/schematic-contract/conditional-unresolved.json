@@ -1,0 +1,42 @@
+{
+  "kind": "flitrealize.schematic-contract",
+  "schemaVersion": 1,
+  "project": { "id": "fixture-open", "revision": "concept" },
+  "blocks": [
+    { "id": "power", "purpose": "Select a future regulator", "components": ["U1"] }
+  ],
+  "powerDomains": [],
+  "interfaces": [],
+  "components": [
+    {
+      "designator": "U1",
+      "role": "Regulator candidate",
+      "identity": { "selection": "unresolved" },
+      "footprint": { "selection": "unresolved" },
+      "pinMapCoverage": "critical",
+      "pins": [
+        { "number": "1", "function": "VIN", "classification": "power-in" }
+      ],
+      "includeInBom": true,
+      "includeInPcb": true,
+      "evidenceState": "OPEN"
+    }
+  ],
+  "nets": [
+    {
+      "name": "VIN",
+      "kind": "power",
+      "endpoints": [{ "component": "U1", "pin": "1" }]
+    }
+  ],
+  "constraints": [
+    {
+      "id": "select-regulator",
+      "type": "part-selection",
+      "appliesTo": [{ "kind": "component", "id": "U1" }],
+      "requirement": "Select a regulator after peak current is measured.",
+      "evidenceState": "OPEN"
+    }
+  ],
+  "exceptions": []
+}

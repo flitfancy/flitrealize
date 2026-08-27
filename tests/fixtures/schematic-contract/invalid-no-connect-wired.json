@@ -1,0 +1,33 @@
+{
+  "kind": "flitrealize.schematic-contract",
+  "schemaVersion": 1,
+  "project": { "id": "fixture-no-connect", "revision": "A" },
+  "blocks": [
+    { "id": "logic", "purpose": "No-connect fixture", "components": ["U1"] }
+  ],
+  "powerDomains": [],
+  "interfaces": [],
+  "components": [
+    {
+      "designator": "U1",
+      "role": "Logic device",
+      "identity": { "selection": "exact", "mpn": "LOGIC-1" },
+      "footprint": { "selection": "exact", "name": "QFN-4" },
+      "pinMapCoverage": "complete",
+      "pins": [
+        { "number": "4", "function": "NC", "classification": "no-connect" }
+      ],
+      "includeInBom": true,
+      "includeInPcb": true
+    }
+  ],
+  "nets": [
+    {
+      "name": "ACCIDENTAL",
+      "kind": "signal",
+      "endpoints": [{ "component": "U1", "pin": "4" }]
+    }
+  ],
+  "constraints": [],
+  "exceptions": []
+}

@@ -1,6 +1,6 @@
 > 本文件是英文参考文件 [easyeda-pro.md](../../../references/easyeda-pro.md) 的中文只读镜像，供人工阅读和审阅。实际执行仍以英文源文件为准。
 > 同步日期：2026-08-26（Asia/Shanghai）
-> 英文源文件 SHA-256：`A07BAD047030A23359875F77CB8654E45E00F0F3AD2543FFC501A01194A25D0E`
+> 英文源文件 SHA-256：`9EEEC472431F1E59A595DF1C55747A661489FE18EDB2AF16B910710D72377966`
 
 # EasyEDA Pro 源文件、capture 与自动化
 
@@ -36,7 +36,7 @@
 
 ### 使用注册式 Action 协议
 
-把 `scripts/actions/manifest.json` 作为机器可读的 Action 清单。它声明每个可移植动作、支持的模式、是否会修改文档，以及预期 API 能力。不读取 Action 源码即可列出当前接口：
+把 `scripts/actions/manifest.json` 作为机器可读的 Action 清单。它声明每个 Action 的契约版本、领域、Runtime、已测试 Provider、支持的模式、是否修改文档，以及预期 API 能力。修改这套跨 Runtime 契约时读取 [local-actions.md](local-actions.md)。对于 EDA Action，不读取 Action 源码即可列出当前接口：
 
 ```text
 node scripts/action-runner.mjs list

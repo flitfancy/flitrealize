@@ -1,0 +1,34 @@
+{
+  "kind": "flitrealize.schematic-contract",
+  "schemaVersion": 1,
+  "project": { "id": "fixture-reference", "revision": "A" },
+  "blocks": [
+    { "id": "logic", "purpose": "Reference fixture", "components": ["U1"] }
+  ],
+  "powerDomains": [],
+  "interfaces": [],
+  "components": [
+    {
+      "designator": "U1",
+      "role": "Known component",
+      "identity": { "selection": "exact", "mpn": "KNOWN-1" },
+      "footprint": { "selection": "exact", "name": "KNOWN-PKG" },
+      "pinMapCoverage": "complete",
+      "pins": [{ "number": "1", "function": "IO", "classification": "signal" }],
+      "includeInBom": true,
+      "includeInPcb": true
+    }
+  ],
+  "nets": [
+    {
+      "name": "MISSING",
+      "kind": "signal",
+      "endpoints": [
+        { "component": "U9", "pin": "7" },
+        { "component": "U1", "pin": "99" }
+      ]
+    }
+  ],
+  "constraints": [],
+  "exceptions": []
+}

@@ -46,6 +46,36 @@ Compare exported netlist or structured capture with that contract. A pin-map
 change updates the owning contract, schematic source/generator, firmware
 interface, capture expectations, and targeted tests as one controlled delta.
 
+### Use the versioned portable formats
+
+The runtime package includes
+`schemas/schematic-contract.v1.schema.json` for design intent and
+`schemas/schematic-snapshot.v1.schema.json` for a future provider-produced
+read-only realization. Keep block, power-domain, interface, component role,
+pin classification, net endpoint, constraint, exception, and evidence facts in
+the portable Contract. Put EDA-native library UUIDs and similar identities only
+under a namespaced component binding such as `bindings.easyedaPro`; do not make
+them portable facts.
+
+Run the provider-free `schematic-contract-audit` Host Action before a Contract
+drives capture comparison or generation:
+
+```text
+node scripts/action-runner.mjs run --action schematic-contract-audit \
+  --input-file <schematic-contract.json>
+```
+
+It checks the v1 shape, unique identities, cross-references, pin/net ownership,
+NC/DNC isolation, power-domain and differential-pair references, functional
+block membership, explicit evidence state, and opaque Provider boundaries. It
+returns `passed`, `conditional`, or `blocked` plus a stable fingerprint and
+compact issue list. This proves only internal contract consistency: it does not
+prove electrical correctness or that an EDA document realizes the Contract.
+
+The Snapshot schema is frozen as the target boundary for the next read-only EDA
+capture Action. Until that Action and a separate Contract-to-Snapshot comparer
+exist, never claim realized-schematic agreement from the Contract audit.
+
 ## Use the right fact source
 
 1. Manufacturer datasheet for electrical facts and recommended circuits.

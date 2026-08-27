@@ -1,6 +1,6 @@
 > 本文件是英文参考文件 [schematic-contract.md](../../../references/schematic-contract.md) 的中文只读镜像，供人工阅读和审阅。实际执行仍以英文源文件为准。
 > 同步日期：2026-08-25（Asia/Shanghai）
-> 英文源文件 SHA-256：`F1A4A88723C8DA253ADCCCA3DE36BEB41E1DA2CC6B3C732450B0CBB3410A4F5A`
+> 英文源文件 SHA-256：`4EF232BB63A187BDC6B95381FA0C525BB8A86662DDEF19F47F094CE9E031A10F`
 
 # 从概念到原理图契约
 
@@ -36,6 +36,21 @@
 - 测试点、板卡版本和源制品位置。
 
 原理图实现设计；契约独立记录意图。把导出网表或结构化 capture 与契约比较。引脚映射变化需要作为一个受控增量，同时更新拥有该事实的契约、原理图源/生成器、固件接口、capture 预期和针对性测试。
+
+### 使用带版本的可移植格式
+
+运行包现在包含用于设计意图的 `schemas/schematic-contract.v1.schema.json`，以及用于未来 Provider 只读实际状态的 `schemas/schematic-snapshot.v1.schema.json`。功能块、电源域、接口、器件角色、引脚分类、网络端点、约束、例外和证据事实放在可移植 Contract 中。EDA 原生库 UUID 等身份只能放入带命名空间的器件 Binding，例如 `bindings.easyedaPro`；不要把它们当成可移植事实。
+
+在 Contract 用于 Capture 对账或生成前，运行不依赖 Provider 的 `schematic-contract-audit` Host Action：
+
+```text
+node scripts/action-runner.mjs run --action schematic-contract-audit \
+  --input-file <schematic-contract.json>
+```
+
+它检查 v1 结构、身份唯一性、交叉引用、引脚/网络归属、NC/DNC 隔离、电源域与差分对引用、功能块归属、显式证据状态和不透明 Provider 边界。输出 `passed`、`conditional` 或 `blocked`，以及稳定指纹和精简问题列表。这只能证明合同内部一致，不能证明电路理论正确，也不能证明 EDA 文档已经实现该 Contract。
+
+Snapshot Schema 已冻结为下一步只读 EDA Capture Action 的目标边界。在该 Action 和独立的 Contract-to-Snapshot 比较器出现前，不能根据 Contract Audit 声称实际原理图一致。
 
 ## 使用正确事实源
 
