@@ -4,6 +4,8 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+## [0.1.0-test.8] - 2026-08-28
+
 ### Changed
 
 - Reorganized EasyEDA Pro guidance around the actual execution flow: Provider
