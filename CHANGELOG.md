@@ -2,7 +2,7 @@
 
 All notable changes to FlitRealize will be recorded here.
 
-## [Unreleased]
+## [0.1.0-test.7] - 2026-08-27
 
 ### Added
 

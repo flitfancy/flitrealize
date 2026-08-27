@@ -6,7 +6,7 @@ FlitRealize is an electronics hardware engineering skill that advances a
 stateful project from requirements and architecture through schematic, PCB,
 prototype ordering, bring-up, and evidence-driven revision.
 
-> Status: **FlitRealize T1** (`v0.1.0-test.6`), the current public test build.
+> Status: **FlitRealize T1** (`v0.1.0-test.7`), the current public test build.
 > It is intended for trusted single-user local development and clean-environment
 > testing, not as a stable release.
 
@@ -123,7 +123,7 @@ python scripts/package_release.py
 npm test
 ./scripts/release.ps1 -DryRun
 # After reviewing and explicitly staging the intended files:
-./scripts/release.ps1 -Publish -Message "feat: release FlitRealize T1 v0.1.0-test.6"
+./scripts/release.ps1 -Publish -Message "feat: release FlitRealize T1 v0.1.0-test.7"
 ```
 
 The package command creates a deterministic ZIP and SHA-256 sidecar under
