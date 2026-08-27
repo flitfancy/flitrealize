@@ -14,8 +14,9 @@ PATTERN = re.compile(r"英文源文件 SHA-256：`[0-9A-F]{64}`")
 
 def pairs() -> list[tuple[Path, Path]]:
     result = [(ROOT / "SKILL.md", ROOT / "docs/zh-CN/SKILL.zh-CN.md")]
-    for source in sorted((ROOT / "references").glob("*.md")):
-        result.append((source, ROOT / "docs/zh-CN/references" / source.name))
+    for source in sorted((ROOT / "references").rglob("*.md")):
+        relative = source.relative_to(ROOT / "references")
+        result.append((source, ROOT / "docs/zh-CN/references" / relative))
     return result
 
 

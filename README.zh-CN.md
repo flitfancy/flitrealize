@@ -81,7 +81,10 @@ flowchart LR
 | [`stage-gates.md`](docs/zh-CN/references/stage-gates.md) | 各硬件阶段的进入、退出条件和证据 |
 | [`continuation.md`](docs/zh-CN/references/continuation.md) | 项目隔离与跨对话续接 |
 | [`schematic-contract.md`](docs/zh-CN/references/schematic-contract.md) | 原理图输入、输出、评审契约和证据 |
-| [`easyeda-pro.md`](docs/zh-CN/references/easyeda-pro.md) | EasyEDA Pro、本机 Bridge、官方 API 和 Action 执行 |
+| [`easyeda-pro.md`](docs/zh-CN/references/easyeda-pro.md) | EasyEDA Pro Provider 身份、源证据、API 边界和流程路由 |
+| [`environment.md`](docs/zh-CN/references/providers/easyeda-pro/environment.md) | EasyEDA Pro 主机 Adapter、Bridge、握手与配对流程 |
+| [`pcb-foundation.md`](docs/zh-CN/references/providers/easyeda-pro/pcb-foundation.md) | EasyEDA Pro 层、功能性 keepout 和实际铜流程 |
+| [`pcb-grounding.md`](docs/zh-CN/references/providers/easyeda-pro/pcb-grounding.md) | EasyEDA Pro 必要回流与可选缝合流程 |
 | [`local-actions.md`](docs/zh-CN/references/local-actions.md) | 本地 Action 契约、Runtime/Provider 边界和证据驱动进化 |
 | [`pcb-review.md`](docs/zh-CN/references/pcb-review.md) | 布局、布线、层叠、接地、DRC 和制造评审 |
 | [`audio-systems.md`](docs/zh-CN/references/audio-systems.md) | 音频专项架构、布局、回流路径和验证 |

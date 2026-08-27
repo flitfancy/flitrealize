@@ -102,8 +102,12 @@ routing plan in the current contract or chosen human overview. Close grounding
 in three design-backed stages: establish realized reference copper, close
 necessary local/transition returns, then optionally optimize global stitching
 after routing is stable. Read
-[pcb-review.md](references/pcb-review.md), adding
-[easyeda-pro.md](references/easyeda-pro.md) for EasyEDA automation or exports.
+[pcb-review.md](references/pcb-review.md). For EasyEDA, read the exact Provider
+workflow needed: [pcb-foundation.md](references/providers/easyeda-pro/pcb-foundation.md)
+for layers, keepouts, and realized pours;
+[pcb-grounding.md](references/providers/easyeda-pro/pcb-grounding.md) for return
+closure and stitching; or [easyeda-pro.md](references/easyeda-pro.md) for
+Provider identity, source evidence, and export/API boundaries.
 
 ### 3. Physical bring-up
 
@@ -154,7 +158,14 @@ warning is not yet durable.
 
 - Schematic and parts: [schematic-contract.md](references/schematic-contract.md)
 - PCB and manufacturing artwork: [pcb-review.md](references/pcb-review.md)
-- EasyEDA Pro automation: [easyeda-pro.md](references/easyeda-pro.md)
+- EasyEDA Pro Provider identity and API/source boundaries:
+  [easyeda-pro.md](references/easyeda-pro.md)
+- EasyEDA Pro host environment and Bridge:
+  [environment.md](references/providers/easyeda-pro/environment.md)
+- EasyEDA Pro PCB foundation flow:
+  [pcb-foundation.md](references/providers/easyeda-pro/pcb-foundation.md)
+- EasyEDA Pro PCB grounding flow:
+  [pcb-grounding.md](references/providers/easyeda-pro/pcb-grounding.md)
 - Reusable local Actions and EDA-provider boundaries:
   [local-actions.md](references/local-actions.md)
 - Active repeated debugging: [debug-loop.md](references/debug-loop.md)

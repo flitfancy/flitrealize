@@ -71,8 +71,9 @@ def parse_frontmatter(path: Path) -> dict[str, str]:
 
 def translation_pairs() -> list[tuple[Path, Path]]:
     pairs = [(ROOT / "SKILL.md", ROOT / "docs/zh-CN/SKILL.zh-CN.md")]
-    for source in sorted((ROOT / "references").glob("*.md")):
-        pairs.append((source, ROOT / "docs/zh-CN/references" / source.name))
+    for source in sorted((ROOT / "references").rglob("*.md")):
+        relative = source.relative_to(ROOT / "references")
+        pairs.append((source, ROOT / "docs/zh-CN/references" / relative))
     return pairs
 
 
@@ -177,11 +178,11 @@ def main() -> int:
     )
 
     reference_links = (ROOT / "SKILL.md").read_text(encoding="utf-8")
-    undiscoverable = [
-        source.name
-        for source in sorted((ROOT / "references").glob("*.md"))
-        if f"references/{source.name}" not in reference_links
-    ]
+    undiscoverable = []
+    for source in sorted((ROOT / "references").rglob("*.md")):
+        relative = source.relative_to(ROOT / "references").as_posix()
+        if f"references/{relative}" not in reference_links:
+            undiscoverable.append(relative)
     checks.check(
         "reference routing",
         not undiscoverable,

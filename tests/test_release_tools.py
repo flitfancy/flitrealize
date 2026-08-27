@@ -12,6 +12,24 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import scan_staged_secrets
 from extract_release_notes import extract_version_notes
+from package_release import runtime_files
+
+
+class RuntimePackagingTests(unittest.TestCase):
+    def test_nested_provider_references_are_packaged(self) -> None:
+        packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
+        self.assertIn(
+            "references/providers/easyeda-pro/environment.md",
+            packaged,
+        )
+        self.assertIn(
+            "references/providers/easyeda-pro/pcb-foundation.md",
+            packaged,
+        )
+        self.assertIn(
+            "references/providers/easyeda-pro/pcb-grounding.md",
+            packaged,
+        )
 
 
 class StagedSecretScanTests(unittest.TestCase):

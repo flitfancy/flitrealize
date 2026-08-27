@@ -2,6 +2,17 @@
 
 All notable changes to FlitRealize will be recorded here.
 
+## [Unreleased]
+
+### Changed
+
+- Reorganized EasyEDA Pro guidance around the actual execution flow: Provider
+  boundaries, host environment, PCB foundation, and PCB grounding now have
+  distinct English/Chinese references with direct routing from `SKILL.md`.
+- Made runtime packaging, translation pairing, source-hash refresh, and
+  reference-discovery validation recurse through Provider subdirectories so
+  future EDA integrations can follow the same structure.
+
 ## [0.1.0-test.7] - 2026-08-27
 
 ### Added

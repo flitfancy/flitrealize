@@ -107,7 +107,10 @@ flowchart LR
 | [`stage-gates.md`](references/stage-gates.md) | Entry and exit evidence for each hardware stage |
 | [`continuation.md`](references/continuation.md) | Project isolation and continuation across conversations |
 | [`schematic-contract.md`](references/schematic-contract.md) | Schematic inputs, outputs, review contracts, and evidence |
-| [`easyeda-pro.md`](references/easyeda-pro.md) | EasyEDA Pro, the local Bridge, official APIs, and Action execution |
+| [`easyeda-pro.md`](references/easyeda-pro.md) | EasyEDA Pro Provider identity, source evidence, API boundaries, and workflow routing |
+| [`environment.md`](references/providers/easyeda-pro/environment.md) | EasyEDA Pro host Adapter, Bridge, handshake, and pairing flow |
+| [`pcb-foundation.md`](references/providers/easyeda-pro/pcb-foundation.md) | EasyEDA Pro layer, functional-keepout, and realized-copper flow |
+| [`pcb-grounding.md`](references/providers/easyeda-pro/pcb-grounding.md) | EasyEDA Pro necessary-return and optional-stitching flow |
 | [`local-actions.md`](references/local-actions.md) | Local Action contracts, runtime/provider boundaries, and evidence-led evolution |
 | [`pcb-review.md`](references/pcb-review.md) | Placement, routing, stackup, grounding, DRC, and manufacturing review |
 | [`audio-systems.md`](references/audio-systems.md) | Audio-specific architecture, layout, return paths, and validation |
