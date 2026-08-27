@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
 import subprocess
 from pathlib import Path
+from typing import Mapping
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,6 +88,30 @@ def normalize_base_revision(revision: str) -> str:
     return value
 
 
+def github_revision_range(environment: Mapping[str, str]) -> list[str]:
+    """Resolve a shell-neutral Git revision range from a GitHub event payload."""
+    event_name = environment.get("GITHUB_EVENT_NAME", "").strip()
+    event_path = environment.get("GITHUB_EVENT_PATH", "").strip()
+    head = environment.get("GITHUB_SHA", "").strip()
+    if not event_name or not event_path or not head:
+        raise ValueError("GitHub event scan requires GITHUB_EVENT_NAME, GITHUB_EVENT_PATH, and GITHUB_SHA")
+
+    try:
+        payload = json.loads(Path(event_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read GitHub event payload: {error}") from error
+
+    if event_name == "pull_request":
+        base = payload.get("pull_request", {}).get("base", {}).get("sha", "")
+    elif event_name == "push":
+        base = payload.get("before", "")
+    else:
+        raise ValueError(f"unsupported GitHub event for committed-range scan: {event_name}")
+    if not isinstance(base, str) or not base.strip():
+        raise ValueError(f"GitHub {event_name} payload does not contain a base revision")
+    return [base, head]
+
+
 def scan_inputs(revision_range: list[str] | None) -> tuple[str, subprocess.CompletedProcess[str], subprocess.CompletedProcess[str]]:
     if revision_range:
         base, head = revision_range
@@ -105,17 +132,24 @@ def scan_inputs(revision_range: list[str] | None) -> tuple[str, subprocess.Compl
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
+    source = parser.add_mutually_exclusive_group()
+    source.add_argument(
         "--range",
         nargs=2,
         metavar=("BASE", "HEAD"),
         dest="revision_range",
         help="Scan lines added between two Git revisions; all-zero BASE means the empty tree.",
     )
+    source.add_argument(
+        "--github-event",
+        action="store_true",
+        help="Read the committed revision range from GitHub Actions event environment variables.",
+    )
     arguments = parser.parse_args()
 
     try:
-        label, names_result, diff_result = scan_inputs(arguments.revision_range)
+        revision_range = github_revision_range(os.environ) if arguments.github_event else arguments.revision_range
+        label, names_result, diff_result = scan_inputs(revision_range)
     except ValueError as error:
         print(f"[FAIL] secret scan: {error}")
         return 1

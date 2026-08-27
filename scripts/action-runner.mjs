@@ -188,7 +188,7 @@ function parseControlResult(completed) {
   }
 }
 
-function defaultReportFile(actionName, mode) {
+export function defaultReportFile(actionName, mode) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
   return join(stateRoot(), 'reports', timestamp + '-' + actionName + '-' + mode + '-' + randomUUID() + '.json');
 }

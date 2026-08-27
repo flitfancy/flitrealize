@@ -6,7 +6,7 @@ FlitRealize is an electronics hardware engineering skill that advances a
 stateful project from requirements and architecture through schematic, PCB,
 prototype ordering, bring-up, and evidence-driven revision.
 
-> Status: **FlitRealize T1** (`v0.1.0-test.5`), the current public test build.
+> Status: **FlitRealize T1** (`v0.1.0-test.6`), the current public test build.
 > It is intended for trusted single-user local development and clean-environment
 > testing, not as a stable release.
 
@@ -23,12 +23,26 @@ It is not a general software, website, content-creation, or project-management
 skill. It also avoids activating for isolated component facts or one-step EDA
 questions that need no project state.
 
+## 30-second start
+
+After installation, start with a project-level request such as:
+
+```text
+$flitrealize continue this hardware project. Identify the project root and
+current evidence first; inspect only until I explicitly authorize a write.
+```
+
+FlitRealize will route the task to the relevant hardware reference and reuse a
+registered deterministic Action when one fits. EDA writes remain separately
+authorization-gated.
+
 ## Compatibility
 
 The skill follows the open Agent Skills structure and is tested primarily with
 Codex. A host with only chat or read-only tools can still plan and review, while
 file, terminal, browser, and EDA tools are required for corresponding actions.
 Optional local knowledge catalogs improve continuity but are never required.
+Repository tooling requires Node.js 22 or newer and Python 3.
 
 ## Install for local Codex use
 
@@ -57,7 +71,7 @@ flitrealize/
 ├── references/              # runtime references loaded on demand
 ├── docs/zh-CN/              # human-readable Chinese mirror
 ├── scripts/                 # EDA actions, host adapter control, validation, packaging
-└── .github/workflows/       # repository validation
+└── .github/workflows/       # cross-platform validation and tag release automation
 ```
 
 The release ZIP contains the runtime entrypoint, UI metadata, references,
@@ -68,14 +82,42 @@ planning. Author workspaces, machine
 profiles, project records, local catalogs, and optimization history are not part
 of the public artifact.
 
+## How the runtime fits together
+
+```mermaid
+flowchart LR
+    A[Project request] --> B[SKILL.md decision layer]
+    B --> C[Relevant reference only]
+    B --> D[Action runner]
+    D --> E[Manifest contract]
+    E --> F[Host adapter and EDA Bridge]
+    F --> G[Inspect / Plan / Apply / Verify / Rollback]
+    G --> H[Compact result plus local evidence report]
+```
+
+## Reference map
+
+| Reference | Load it for |
+| --- | --- |
+| [`stage-gates.md`](references/stage-gates.md) | Entry and exit evidence for each hardware stage |
+| [`continuation.md`](references/continuation.md) | Project isolation and continuation across conversations |
+| [`schematic-contract.md`](references/schematic-contract.md) | Schematic inputs, outputs, review contracts, and evidence |
+| [`easyeda-pro.md`](references/easyeda-pro.md) | EasyEDA Pro, the local Bridge, official APIs, and Action execution |
+| [`pcb-review.md`](references/pcb-review.md) | Placement, routing, stackup, grounding, DRC, and manufacturing review |
+| [`audio-systems.md`](references/audio-systems.md) | Audio-specific architecture, layout, return paths, and validation |
+| [`prototype-validation.md`](references/prototype-validation.md) | Prototype ordering, safe bring-up, and validation planning |
+| [`debug-loop.md`](references/debug-loop.md) | Evidence-led diagnosis and revision closure |
+| [`production-handoff.md`](references/production-handoff.md) | Manufacturing outputs and production handoff |
+
 ## Validate and package
 
 ```powershell
 python scripts/validate.py
 python scripts/package_release.py
+npm test
 ./scripts/release.ps1 -DryRun
 # After reviewing and explicitly staging the intended files:
-./scripts/release.ps1 -Publish -Message "feat: release FlitRealize T1 v0.1.0-test.5"
+./scripts/release.ps1 -Publish -Message "feat: release FlitRealize T1 v0.1.0-test.6"
 ```
 
 The package command creates a deterministic ZIP and SHA-256 sidecar under
@@ -85,9 +127,12 @@ version/checksum/tag consistency, a clean-ZIP smoke test, and a staged-addition
 secret scan. `-Publish` is the only mutating mode: it requires an explicitly
 reviewed staged set, no unstaged or untracked files, a configured remote, and a
 commit message; it then commits, creates the version tag, and atomically pushes
-the branch and tag. GitHub Release creation and artifact upload remain a separate
-authorized step. If an English instruction changes, update the matching Chinese
-text and then refresh its source hash with:
+the branch and tag. The authorized tag push triggers an independent read-back
+validation that rebuilds the deterministic artifact, creates a draft GitHub
+Release, uploads the ZIP and SHA-256 sidecar, and publishes only after every
+check passes. A retry accepts an already-published release only when both remote
+assets exactly match the rebuilt bytes. If an English instruction changes,
+update the matching Chinese text and then refresh its source hash with:
 
 ```powershell
 python scripts/update_translation_hashes.py

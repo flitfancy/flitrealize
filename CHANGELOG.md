@@ -4,6 +4,38 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+## [0.1.0-test.6] - 2026-08-27
+
+### Added
+
+- Added a minimal private `package.json` that declares Node.js 22 or newer and
+  exposes the canonical cross-platform Node test entrypoint without duplicating
+  the release version.
+- Added deterministic CHANGELOG-section extraction and a tag-triggered GitHub
+  Release workflow that rebuilds, verifies, drafts, uploads, and then publishes
+  the ZIP and SHA-256 sidecar with repository-scoped credentials.
+- Added English and Chinese quick starts, a runtime architecture diagram, and a
+  one-line routing map for all nine on-demand hardware references.
+
+### Changed
+
+- Expanded repository validation to Ubuntu with Node.js 22 and 24 plus Windows
+  with Node.js 24, while keeping deterministic artifact construction in one
+  bounded job.
+- Made committed-range secret scanning shell-neutral by resolving GitHub push
+  and pull-request revisions inside Python instead of workflow shell syntax.
+- Made GitHub Release retries fail closed when an already-published asset differs
+  from the newly rebuilt deterministic artifact.
+- Updated the authorized PowerShell publish path so its atomic tag push hands
+  release publication to the independently verified GitHub workflow.
+
+### Verified
+
+- Expanded mutation-authorization coverage to every registered Action mode and
+  added a Windows-safe report filename regression.
+- Expanded release-tool coverage from five to nine tests, including GitHub push
+  and pull-request event parsing plus exact CHANGELOG section extraction.
+
 ## [0.1.0-test.5] - 2026-08-27
 
 ### Added

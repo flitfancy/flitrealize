@@ -1,0 +1,10 @@
+{
+  "name": "flitrealize",
+  "private": true,
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node scripts/run-tests.mjs"
+  }
+}

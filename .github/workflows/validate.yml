@@ -18,7 +18,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  skill:
+  compatibility:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: Ubuntu / Node 22
+            os: ubuntu-latest
+            node: "22"
+          - label: Ubuntu / Node 24
+            os: ubuntu-latest
+            node: "24"
+          - label: Windows / Node 24
+            os: windows-latest
+            node: "24"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Scan committed additions
+        run: python scripts/scan_staged_secrets.py --github-event
+      - name: Validate repository
+        run: python scripts/validate.py
+      - name: Run action tests
+        run: node scripts/run-tests.mjs
+      - name: Run release-tool tests
+        run: python -m unittest discover -s tests -p "test_*.py"
+      - name: Exercise PowerShell release entrypoint
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/release.ps1 -DryRun
+
+  artifact:
+    name: Deterministic release artifact
+    needs: compatibility
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -35,19 +81,11 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
-      - name: Scan committed additions
-        env:
-          FLITREALIZE_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
-        run: python3 scripts/scan_staged_secrets.py --range "$FLITREALIZE_BASE_SHA" "$GITHUB_SHA"
-      - name: Validate repository
-        run: python3 scripts/validate.py
-      - name: Run action tests
-        run: node scripts/run-tests.mjs
-      - name: Run release-tool tests
-        run: python3 -m unittest discover -s tests -p "test_*.py"
       - name: Build release artifact
-        run: python3 scripts/package_release.py
+        run: python scripts/package_release.py
       - name: Check release consistency
-        run: python3 scripts/check_release.py
+        run: python scripts/check_release.py
       - name: Smoke-test clean release ZIP
-        run: python3 scripts/smoke_test_release.py
+        run: python scripts/smoke_test_release.py
+      - name: Check release-note extraction
+        run: python scripts/extract_release_notes.py --output "${{ runner.temp }}/release-notes.md"

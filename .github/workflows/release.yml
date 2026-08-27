@@ -1,0 +1,95 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Scan committed additions
+        run: python scripts/scan_staged_secrets.py --github-event
+      - name: Validate repository
+        run: python scripts/validate.py
+      - name: Run action tests
+        run: node scripts/run-tests.mjs
+      - name: Run release-tool tests
+        run: python -m unittest discover -s tests -p "test_*.py"
+      - name: Build release artifact
+        run: python scripts/package_release.py
+      - name: Check release consistency
+        run: python scripts/check_release.py
+      - name: Smoke-test clean release ZIP
+        run: python scripts/smoke_test_release.py
+      - name: Extract release notes
+        run: python scripts/extract_release_notes.py --output "${{ runner.temp }}/release-notes.md"
+      - name: Publish verified GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES_FILE: ${{ runner.temp }}/release-notes.md
+        run: |
+          set -euo pipefail
+          gh --version
+          version="$(tr -d '\r\n' < VERSION)"
+          tag="v${version}"
+          if [[ "$GITHUB_REF_NAME" != "$tag" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match VERSION $version" >&2
+            exit 1
+          fi
+
+          archive="dist/flitrealize-${version}.zip"
+          checksum="${archive}.sha256"
+          title="FlitRealize T1 ${tag}"
+          release_json="${RUNNER_TEMP}/release.json"
+          existing_dir="${RUNNER_TEMP}/existing-release"
+
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" > "$release_json" 2>/dev/null; then
+            draft="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.draft')"
+            if [[ "$draft" == "false" ]]; then
+              mkdir -p "$existing_dir"
+              gh release download "$tag" --pattern "$(basename "$archive")" --pattern "$(basename "$checksum")" --dir "$existing_dir"
+              cmp "$archive" "$existing_dir/$(basename "$archive")"
+              cmp "$checksum" "$existing_dir/$(basename "$checksum")"
+              echo "Release $tag is already published with matching deterministic assets."
+              exit 0
+            fi
+          else
+            create_args=("$tag" --verify-tag --draft --title "$title" --notes-file "$NOTES_FILE")
+            if [[ "$version" == *-* ]]; then
+              create_args+=(--prerelease)
+            fi
+            gh release create "${create_args[@]}"
+          fi
+
+          gh release upload "$tag" "$archive" "$checksum" --clobber
+          edit_args=("$tag" --draft=false --latest=false --title "$title" --notes-file "$NOTES_FILE")
+          if [[ "$version" == *-* ]]; then
+            edit_args+=(--prerelease)
+          else
+            edit_args+=(--prerelease=false)
+          fi
+          gh release edit "${edit_args[@]}"

@@ -192,7 +192,7 @@ try {
     }
 
     Write-Host "PUBLISHED: $TagName pushed to $Remote/$Branch."
-    Write-Host "NEXT: wait for GitHub Actions, then create a Pre-release and attach dist/flitrealize-$Version.zip plus its .sha256 sidecar."
+    Write-Host "NEXT: wait for GitHub Actions to verify the tag and publish the deterministic ZIP plus SHA-256 sidecar."
 }
 finally {
     Pop-Location

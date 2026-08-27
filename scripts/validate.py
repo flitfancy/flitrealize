@@ -80,11 +80,15 @@ def main() -> int:
     checks = Checks()
     required = [
         ROOT / "LICENSE",
+        ROOT / "package.json",
         ROOT / "SKILL.md",
         ROOT / "agents/openai.yaml",
+        ROOT / ".github/workflows/release.yml",
+        ROOT / ".github/workflows/validate.yml",
         ROOT / "scripts/action-runner.mjs",
         ROOT / "scripts/check_release.py",
         ROOT / "scripts/eda-host.mjs",
+        ROOT / "scripts/extract_release_notes.py",
         ROOT / "scripts/release.ps1",
         ROOT / "scripts/run-tests.mjs",
         ROOT / "scripts/scan_staged_secrets.py",
@@ -186,6 +190,27 @@ def main() -> int:
         "version",
         bool(re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version)),
         version or "missing",
+    )
+
+    package_failures: list[str] = []
+    try:
+        package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+        if package.get("name") != "flitrealize":
+            package_failures.append("name")
+        if package.get("private") is not True:
+            package_failures.append("private")
+        if package.get("engines", {}).get("node") != ">=22":
+            package_failures.append("engines.node")
+        if package.get("scripts", {}).get("test") != "node scripts/run-tests.mjs":
+            package_failures.append("scripts.test")
+        if "version" in package:
+            package_failures.append("version must remain canonical in VERSION only")
+    except (OSError, json.JSONDecodeError) as error:
+        package_failures.append(str(error))
+    checks.check(
+        "Node contract",
+        not package_failures,
+        "Node >=22 with one test entrypoint" if not package_failures else "; ".join(package_failures),
     )
 
     action_registry_failures: list[str] = []

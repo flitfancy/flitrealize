@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { readdir } from 'node:fs/promises';
+import { basename } from 'node:path';
 
 import {
+  defaultReportFile,
   loadManifest,
   resolveActionRequest,
   summarizeExecution,
@@ -20,7 +22,19 @@ assert.deepEqual(registeredFiles, actionFiles);
 for (const [name, action] of Object.entries(manifest.actions)) {
   assert.equal(typeof action.description, 'string', name);
   assert.ok(action.modes[action.defaultMode], name);
-  for (const contract of Object.values(action.modes)) assert.equal(typeof contract.mutates, 'boolean', name);
+  for (const [mode, contract] of Object.entries(action.modes)) {
+    assert.equal(typeof contract.mutates, 'boolean', name + '/' + mode);
+    if (contract.mutates) {
+      assert.throws(
+        () => resolveActionRequest(manifest, name, { mode }, false),
+        (error) => error.code === 'WRITE_AUTHORIZATION_REQUIRED',
+        name + '/' + mode,
+      );
+      assert.equal(resolveActionRequest(manifest, name, { mode }, true).mutates, true);
+    } else {
+      assert.equal(resolveActionRequest(manifest, name, { mode }, false).mutates, false);
+    }
+  }
 }
 
 const capabilityProbe = await loadAction('eda-capabilities');
@@ -41,6 +55,13 @@ assert.throws(
 );
 const writable = resolveActionRequest(manifest, 'pcb-ground-vias', { mode: 'apply' }, true);
 assert.equal(writable.mutates, true);
+
+const reportName = basename(defaultReportFile('pcb-ground-vias', 'inspect'));
+assert.match(
+  reportName,
+  /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-pcb-ground-vias-inspect-[0-9a-f-]{36}\.json$/,
+);
+assert.equal(reportName.includes(':'), false);
 
 const summary = summarizeExecution({
   success: true,
