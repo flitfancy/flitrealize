@@ -6,8 +6,9 @@ FlitRealize is an electronics hardware engineering skill that advances a
 stateful project from requirements and architecture through schematic, PCB,
 prototype ordering, bring-up, and evidence-driven revision.
 
-> Status: `v1.0.0-rc.1` public-release candidate. The workflow is being prepared
-> for clean-environment testing before a stable release.
+> Status: **FlitRealize T1** (`v0.1.0-test.5`), the current public test build.
+> It is intended for trusted single-user local development and clean-environment
+> testing, not as a stable release.
 
 ## Scope
 
@@ -55,24 +56,38 @@ flitrealize/
 ├── agents/openai.yaml       # Codex UI metadata
 ├── references/              # runtime references loaded on demand
 ├── docs/zh-CN/              # human-readable Chinese mirror
-├── scripts/                 # deterministic validation and packaging
+├── scripts/                 # EDA actions, host adapter control, validation, packaging
 └── .github/workflows/       # repository validation
 ```
 
-Only `SKILL.md`, `agents/`, and `references/` enter the release ZIP. Author
-workspaces, project records, local catalogs, and optimization history are not
-part of the public artifact.
+The release ZIP contains the runtime entrypoint, UI metadata, references,
+host-portable EDA adapter control, and tested transactional EDA actions for
+layer structure, component geometry, functional keepouts, realized copper
+pours, grounding inspection, necessary GND vias, and read-only global stitching
+planning. Author workspaces, machine
+profiles, project records, local catalogs, and optimization history are not part
+of the public artifact.
 
 ## Validate and package
 
 ```powershell
 python scripts/validate.py
 python scripts/package_release.py
+./scripts/release.ps1 -DryRun
+# After reviewing and explicitly staging the intended files:
+./scripts/release.ps1 -Publish -Message "feat: release FlitRealize T1 v0.1.0-test.5"
 ```
 
 The package command creates a deterministic ZIP and SHA-256 sidecar under
-`dist/`. If an English instruction changes, update the matching Chinese text and
-then refresh its source hash with:
+`dist/`. By default, and with `-DryRun`, the release entrypoint only runs
+repository validation, all Node Action tests, deterministic packaging,
+version/checksum/tag consistency, a clean-ZIP smoke test, and a staged-addition
+secret scan. `-Publish` is the only mutating mode: it requires an explicitly
+reviewed staged set, no unstaged or untracked files, a configured remote, and a
+commit message; it then commits, creates the version tag, and atomically pushes
+the branch and tag. GitHub Release creation and artifact upload remain a separate
+authorized step. If an English instruction changes, update the matching Chinese
+text and then refresh its source hash with:
 
 ```powershell
 python scripts/update_translation_hashes.py
@@ -80,5 +95,5 @@ python scripts/update_translation_hashes.py
 
 ## License
 
-A public license has not been selected yet. Add an explicit `LICENSE` before
-publishing the repository or release archive.
+FlitRealize is released under the [MIT License](LICENSE). Copyright (c) 2026
+FlitFancy.

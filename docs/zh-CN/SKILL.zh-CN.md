@@ -4,8 +4,8 @@ description: 以项目隔离和证据驱动决策，推进有持续状态的电�
 ---
 
 > 本文件是英文主执行文件 [SKILL.md](../../SKILL.md) 的中文只读镜像，供人工阅读和审阅。实际执行仍以英文源文件为准。
-> 同步日期：2026-08-25（Asia/Shanghai）
-> 英文源文件 SHA-256：`3052472AE3FE30A9A4B3FA0651DA29E8A994A59C509BD53669F8F15EB66406B9`
+> 同步日期：2026-08-26（Asia/Shanghai）
+> 英文源文件 SHA-256：`EF8F5813A6453E9B0D70C26B537DCBF57BE0FE36B18D8CC3B857A471B0CCF3AB`
 
 本文件是主执行文件的完整翻译；整个 Skill 还包括 `references/` 中 9 个按需读取的中文专题参考，并不是只包含本文件。
 
@@ -63,7 +63,7 @@ RECOVERY_AND_CHECK: <检查点与成功判据>
 
 把已保存源版本与导出配对。验证关键封装和方向、连通性、板框、孔、间距、铺铜、已配置 DRC、Gerber/钻孔内容和板厂预览。只有新的或不确定的 generator/template/fabricator 链路会带来实质制造风险时，才先跑 toy board 导出。
 
-布线前，在当前契约或选定的人类总览中记录网络类、关键拓扑、回流要求和有序布线计划。读取 [pcb-review.md](references/pcb-review.md)；EasyEDA 自动化或导出另读 [easyeda-pro.md](references/easyeda-pro.md)。
+布线前，根据设计的回流路径、布线密度、隔离、电源/散热需求、制造能力和成本选择铜层数量及有序层角色，不凭习惯强制固定层数。把该决策与网络类、关键拓扑和有序布线计划一起记录到当前契约或选定的人类总览。接地按三个由设计支撑的阶段闭合：先建立并验证实际参考铜，再闭合必要的局部/换层回流，最后只在布线稳定后按需优化全局缝合。读取 [pcb-review.md](references/pcb-review.md)；EasyEDA 自动化或导出另读 [easyeda-pro.md](references/easyeda-pro.md)。
 
 ### 3. 实物上电
 

@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 1,
+  "actions": {
+    "eda-capabilities": {
+      "file": "eda-capabilities.js",
+      "description": "Read-only feature detection for the active EasyEDA document and API surface.",
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false }
+      },
+      "requires": {
+        "all": ["document.current"]
+      }
+    },
+    "pcb-component-geometry": {
+      "file": "pcb-component-geometry.js",
+      "description": "Read exact component, pad, footprint-source, and bounding-box evidence.",
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false }
+      },
+      "requires": {
+        "all": ["document.current", "component.list", "pad.list", "file.documentSource", "file.footprintSources"]
+      }
+    },
+    "pcb-functional-keepouts": {
+      "file": "pcb-functional-keepouts.js",
+      "description": "Inspect and transact bounded functional keepout Regions.",
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "plan": { "mutates": false },
+        "apply": { "mutates": true },
+        "verify": { "mutates": false },
+        "rollback": { "mutates": true }
+      },
+      "requires": {
+        "all": ["document.current", "region.list", "math.polygon.create"],
+        "apply": ["region.create"],
+        "rollback": ["region.delete"]
+      }
+    },
+    "pcb-ground-pours": {
+      "file": "pcb-ground-pours.js",
+      "description": "Inspect and transact realized copper pours against a resolved outline.",
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "plan": { "mutates": false },
+        "apply": { "mutates": true },
+        "verify": { "mutates": false },
+        "rollback": { "mutates": true }
+      },
+      "requires": {
+        "all": ["document.current", "layer.list", "polyline.list", "pour.list", "poured.list", "math.polygon.create"],
+        "apply": ["pour.create"],
+        "rollback": ["pour.delete"]
+      }
+    },
+    "pcb-ground-stitching": {
+      "file": "pcb-ground-stitching.js",
+      "description": "Read-only planner for bounded return-path and global GND stitching candidates.",
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "generate": { "mutates": false }
+      },
+      "requires": {
+        "all": ["document.current", "layer.list", "polyline.list", "region.list", "via.list", "pad.list", "line.list", "arc.list", "pour.list", "poured.list"]
+      }
+    },
+    "pcb-ground-vias": {
+      "file": "pcb-ground-vias.js",
+      "description": "Inspect, generate, plan, apply, verify, and roll back bounded GND-via transactions.",
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "generate": { "mutates": false },
+        "plan": { "mutates": false },
+        "apply": { "mutates": true },
+        "verify": { "mutates": false },
+        "rollback": { "mutates": true }
+      },
+      "requires": {
+        "all": ["document.current", "via.list", "region.list", "component.list", "file.documentSource", "file.footprintSources"],
+        "apply": ["via.create"],
+        "rollback": ["via.delete"]
+      }
+    },
+    "pcb-grounding-inspect": {
+      "file": "pcb-grounding-inspect.js",
+      "description": "Read-only grounding, copper, component, and keepout inventory.",
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false }
+      },
+      "requires": {
+        "all": ["document.current", "pour.list", "region.list", "via.list", "component.list", "file.documentSource", "file.footprintSources"]
+      }
+    },
+    "pcb-layer-stack": {
+      "file": "pcb-layer-stack.js",
+      "description": "Inspect and transact the logical copper-layer structure.",
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "plan": { "mutates": false },
+        "apply": { "mutates": true },
+        "verify": { "mutates": false },
+        "rollback": { "mutates": true }
+      },
+      "requires": {
+        "all": ["document.current", "layer.list"],
+        "apply": ["layer.setCopperCount", "layer.modify"],
+        "rollback": ["layer.setCopperCount", "layer.modify"]
+      }
+    }
+  }
+}

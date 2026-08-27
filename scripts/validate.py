@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -11,7 +12,7 @@ from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TEXT_SUFFIXES = {".md", ".py", ".ps1", ".yaml", ".yml", ".txt"}
+TEXT_SUFFIXES = {".js", ".json", ".md", ".mjs", ".py", ".ps1", ".txt", ".yaml", ".yml"}
 IGNORED_PARTS = {".git", "dist", "__pycache__"}
 
 
@@ -77,7 +78,24 @@ def translation_pairs() -> list[tuple[Path, Path]]:
 
 def main() -> int:
     checks = Checks()
-    required = [ROOT / "SKILL.md", ROOT / "agents/openai.yaml"]
+    required = [
+        ROOT / "LICENSE",
+        ROOT / "SKILL.md",
+        ROOT / "agents/openai.yaml",
+        ROOT / "scripts/action-runner.mjs",
+        ROOT / "scripts/check_release.py",
+        ROOT / "scripts/eda-host.mjs",
+        ROOT / "scripts/release.ps1",
+        ROOT / "scripts/run-tests.mjs",
+        ROOT / "scripts/scan_staged_secrets.py",
+        ROOT / "scripts/smoke_test_release.py",
+        ROOT / "scripts/actions/manifest.json",
+        ROOT / "scripts/actions/eda-capabilities.js",
+        ROOT / "scripts/actions/pcb-grounding-inspect.js",
+        ROOT / "scripts/actions/pcb-ground-stitching.js",
+        ROOT / "scripts/actions/pcb-ground-vias.js",
+        ROOT / "scripts/actions/pcb-layer-stack.js",
+    ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     checks.check("required files", not missing, "present" if not missing else ", ".join(missing))
 
@@ -93,7 +111,7 @@ def main() -> int:
     openai_yaml = (ROOT / "agents/openai.yaml").read_text(encoding="utf-8") if not missing else ""
     checks.check(
         "OpenAI metadata",
-        'display_name: "FlitRealize"' in openai_yaml and "$flitrealize" in openai_yaml,
+        'display_name: "FlitRealize T1"' in openai_yaml and "$flitrealize" in openai_yaml,
         "display name and invocation match",
     )
 
@@ -168,6 +186,49 @@ def main() -> int:
         "version",
         bool(re.fullmatch(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?", version)),
         version or "missing",
+    )
+
+    action_registry_failures: list[str] = []
+    try:
+        manifest = json.loads((ROOT / "scripts/actions/manifest.json").read_text(encoding="utf-8"))
+        actions = manifest.get("actions", {})
+        if manifest.get("schemaVersion") != 1 or not isinstance(actions, dict):
+            action_registry_failures.append("manifest schema/actions")
+            actions = {}
+        registered_files: set[str] = set()
+        for action_name, action in actions.items():
+            if not isinstance(action, dict):
+                action_registry_failures.append(f"{action_name}: invalid record")
+                continue
+            file_name = action.get("file")
+            modes = action.get("modes")
+            default_mode = action.get("defaultMode")
+            if not isinstance(file_name, str):
+                action_registry_failures.append(f"{action_name}: missing file")
+            else:
+                registered_files.add(file_name)
+            if not isinstance(action.get("description"), str) or not action["description"].strip():
+                action_registry_failures.append(f"{action_name}: missing description")
+            if not isinstance(modes, dict) or default_mode not in modes:
+                action_registry_failures.append(f"{action_name}: invalid default mode")
+                continue
+            for mode_name, contract in modes.items():
+                if not isinstance(contract, dict) or not isinstance(contract.get("mutates"), bool):
+                    action_registry_failures.append(f"{action_name}/{mode_name}: mutates must be boolean")
+        actual_files = {path.name for path in (ROOT / "scripts/actions").glob("*.js")}
+        if registered_files != actual_files:
+            missing_registry = sorted(actual_files - registered_files)
+            missing_files = sorted(registered_files - actual_files)
+            if missing_registry:
+                action_registry_failures.append("unregistered: " + ", ".join(missing_registry))
+            if missing_files:
+                action_registry_failures.append("missing files: " + ", ".join(missing_files))
+    except (OSError, json.JSONDecodeError) as error:
+        action_registry_failures.append(str(error))
+    checks.check(
+        "action registry",
+        not action_registry_failures,
+        "all actions and modes registered" if not action_registry_failures else "; ".join(action_registry_failures),
     )
 
     if checks.failures:

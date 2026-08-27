@@ -1,4 +1,4 @@
 interface:
-  display_name: "FlitRealize"
+  display_name: "FlitRealize T1"
   short_description: "Advance and verify electronics hardware projects"
   default_prompt: "Use $flitrealize to lock project identity and authorized scope, classify intent and evidence, then advance the next hardware decision with the lightest reliable process."

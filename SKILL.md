@@ -94,8 +94,14 @@ Gerber/drill contents, and the manufacturer's preview. Use a toy-board export
 only when a new or uncertain generator/template/fabricator path creates material
 manufacturing risk.
 
-Before routing, record net classes, critical topology, return-path needs, and an
-ordered routing plan in the current contract or chosen human overview. Read
+Before routing, choose the copper-layer count and ordered layer roles from the
+design's return paths, routing density, isolation, power/thermal needs,
+manufacturing capability, and cost; never force a fixed layer count by habit.
+Record that decision with net classes, critical topology, and the ordered
+routing plan in the current contract or chosen human overview. Close grounding
+in three design-backed stages: establish realized reference copper, close
+necessary local/transition returns, then optionally optimize global stitching
+after routing is stable. Read
 [pcb-review.md](references/pcb-review.md), adding
 [easyeda-pro.md](references/easyeda-pro.md) for EasyEDA automation or exports.
 

@@ -38,6 +38,22 @@ contract, port field—rather than as one board-edge rotation. Reusable orientat
 logic should tolerate allowed whole-group rotations and reject independent
 reversal, wrong footprint identity, and obstructed access.
 
+## Choose the stack from the design
+
+Use the lowest layer count that still gives every critical signal a defensible
+reference path, enough routing channels, appropriate power/thermal capacity and
+noise isolation, and a manufacturable cost. Two, four, or more copper layers are
+outcomes, not defaults. For each candidate, record the ordered role of every
+copper layer, which reference plane each critical route uses, allowed layer
+changes, plane nets or pours, keepouts, and the source of physical stack and
+impedance values.
+
+Prefer continuous reference planes over fragmented convenience pours, but do
+not reserve extra planes without a design benefit. Treat a pattern such as
+signal / ground / ground / signal as one useful candidate, not a universal
+rule. Re-evaluate the choice when interfaces, placement, enclosure, fabricator,
+cost target, or routing evidence changes.
+
 ## Route from an explicit contract
 
 Before routing, record net classes, nominal/minimum widths, clearances, via and
@@ -54,6 +70,23 @@ Review:
 - ESD path and loop area;
 - thermal spokes, annular rings, mask slivers, holes/edges, polarity, silkscreen,
   and assembly access.
+
+Close grounding in three stages rather than treating via count as the goal:
+
+1. **Establish the ground structure:** resolve keepouts, create/rebuild the
+   intended planes or pours, and prove realized copper exists.
+2. **Close necessary returns:** prioritize component/decoupling/thermal/ESD
+   ground paths and nearby reference vias where signals change layers.
+3. **Optimize global stitching:** only after routing is stable, add a bounded
+   set of useful plane stitches, edge fences, zone fences, or sparse-area vias.
+
+Use read-only geometry and grounding inventory before the stages, then repour,
+run configured DRC, read back the added primitives, and verify drill output at
+the exit gate. A regular via grid is optional evidence-driven optimization, not
+a universal requirement. For an edge fence, evaluate existing and proposed GND
+vias together along cumulative board perimeter; blocked sectors remain explicit
+coverage gaps, and the planner should stop when another safe candidate no longer
+reduces the maximum cyclic gap.
 
 Separate a wide trunk from permitted pad escape. Record escape width, maximum
 neck-down length, transition point, and via strategy where the pad cannot accept
