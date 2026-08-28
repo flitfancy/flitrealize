@@ -4,6 +4,8 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+## [0.1.0-test.9] - 2026-08-28
+
 ### Fixed
 
 - Made release ZIP bytes reproducible across Windows and Linux by storing
