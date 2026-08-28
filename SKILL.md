@@ -166,6 +166,8 @@ warning is not yet durable.
   [pcb-foundation.md](references/providers/easyeda-pro/pcb-foundation.md)
 - EasyEDA Pro PCB grounding flow:
   [pcb-grounding.md](references/providers/easyeda-pro/pcb-grounding.md)
+- EasyEDA Pro schematic placement, wires, net flags, and DRC:
+  [schematic-workflow.md](references/providers/easyeda-pro/schematic-workflow.md)
 - Reusable local Actions and EDA-provider boundaries:
   [local-actions.md](references/local-actions.md)
 - Active repeated debugging: [debug-loop.md](references/debug-loop.md)

@@ -12,6 +12,8 @@ Load the workflow that matches the current operation directly:
   reference copper: [pcb-foundation.md](providers/easyeda-pro/pcb-foundation.md)
 - Necessary ground vias, signal-transition returns, or global stitching:
   [pcb-grounding.md](providers/easyeda-pro/pcb-grounding.md)
+- Schematic component placement, wires, net flags, and DRC:
+  [schematic-workflow.md](providers/easyeda-pro/schematic-workflow.md)
 - Cross-Provider Action contracts and Host/EDA runtime boundaries:
   [local-actions.md](local-actions.md)
 - DRC interpretation and manufacturing-output acceptance:

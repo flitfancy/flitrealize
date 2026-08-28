@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { loadAction } from './helpers/action-harness.mjs';
 
-const execute = await loadAction('pcb-functional-keepouts');
+const execute = await loadAction('pcb-functional-keepouts', 'easyeda-pro');
 
 function createMock() {
   const regions = [];

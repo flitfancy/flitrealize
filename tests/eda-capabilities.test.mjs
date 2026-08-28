@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { loadAction } from './helpers/action-harness.mjs';
 
-const execute = await loadAction('eda-capabilities');
+const execute = await loadAction('eda-capabilities', 'easyeda-pro');
 const eda = {
   dmt_SelectControl: {
     async getCurrentDocumentInfo() {

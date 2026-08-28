@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { loadAction } from './helpers/action-harness.mjs';
 
-const executeAction = await loadAction('pcb-layer-stack');
+const executeAction = await loadAction('pcb-layer-stack', 'easyeda-pro');
 
 function createMockEda() {
   const layers = [

@@ -18,9 +18,21 @@ assert.equal(manifest.schemaVersion, 2);
 assert.deepEqual(Object.keys(manifest.providers), ['easyeda-pro']);
 assert.equal(manifest.providers['easyeda-pro'].kind, 'eda');
 
-const actionFiles = (await readdir(new URL('../scripts/actions/', import.meta.url)))
-  .filter((name) => name.endsWith('.js'))
-  .sort();
+const ACTIONS_ROOT = new URL('../scripts/actions/', import.meta.url);
+const actionFiles = [];
+for (const entry of await readdir(ACTIONS_ROOT)) {
+  if (entry.endsWith('.js')) {
+    actionFiles.push(entry);
+  } else {
+    try {
+      const subEntries = await readdir(new URL(entry + '/', ACTIONS_ROOT));
+      for (const sub of subEntries) {
+        if (sub.endsWith('.js')) actionFiles.push(entry + '/' + sub);
+      }
+    } catch { /* not a directory */ }
+  }
+}
+actionFiles.sort();
 const registeredFiles = Object.values(manifest.actions).map((action) => action.file).sort();
 assert.deepEqual(registeredFiles, actionFiles);
 
@@ -47,7 +59,7 @@ for (const [name, action] of Object.entries(manifest.actions)) {
   }
 }
 
-const capabilityProbe = await loadAction('eda-capabilities');
+const capabilityProbe = await loadAction('eda-capabilities', 'easyeda-pro');
 const capabilityResult = await capabilityProbe({}, { mode: 'inspect' });
 const declaredCapabilities = new Set(Object.keys(capabilityResult.capabilities));
 for (const [name, action] of Object.entries(manifest.actions)) {
@@ -136,7 +148,7 @@ const hostManifest = {
   providers: manifest.providers,
   actions: {
     'host-fixture': {
-      file: 'eda-capabilities.js',
+      file: 'schematic-contract-audit.js',
       description: 'Fixture local action.',
       contractVersion: 1,
       domain: 'system',

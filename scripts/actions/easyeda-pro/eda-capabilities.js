@@ -30,6 +30,22 @@ return await (async () => {
     'drc.netClass.create': ['pcb_Drc', 'createNetClass'],
     'drc.netClass.addNet': ['pcb_Drc', 'addNetToNetClass'],
     'drc.differentialPair.list': ['pcb_Drc', 'getAllDifferentialPairs'],
+    'sch.component.list': ['sch_PrimitiveComponent', 'getAll'],
+    'sch.component.get': ['sch_PrimitiveComponent', 'get'],
+    'sch.component.create': ['sch_PrimitiveComponent', 'create'],
+    'sch.component.delete': ['sch_PrimitiveComponent', 'delete'],
+    'sch.component.modify': ['sch_PrimitiveComponent', 'modify'],
+    'sch.component.createNetFlag': ['sch_PrimitiveComponent', 'createNetFlag'],
+    'sch.component.createNetPort': ['sch_PrimitiveComponent', 'createNetPort'],
+    'sch.component.getAllPins': ['sch_PrimitiveComponent', 'getAllPinsByPrimitiveId'],
+    'sch.wire.list': ['sch_PrimitiveWire', 'getAll'],
+    'sch.wire.get': ['sch_PrimitiveWire', 'get'],
+    'sch.wire.create': ['sch_PrimitiveWire', 'create'],
+    'sch.wire.delete': ['sch_PrimitiveWire', 'delete'],
+    'sch.net.list': ['sch_Net', 'getAllNets'],
+    'sch.net.listNames': ['sch_Net', 'getAllNetsName'],
+    'sch.document.save': ['sch_Document', 'save'],
+    'sch.drc.check': ['sch_Drc', 'check'],
   };
 
   function available(path) {

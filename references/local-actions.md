@@ -42,6 +42,39 @@ The provider-free `schematic-contract-audit` is the first Host Action. It
 validates portable design intent without importing an EDA API or claiming that
 the realized schematic matches.
 
+## Lay out Actions by provider subdirectory
+
+EDA Action files live under `scripts/actions/<provider>/`. Host Actions stay
+in the `scripts/actions/` root. The runner resolves the file path declared in
+the manifest, checking the provider subdirectory first when a Provider is
+active:
+
+```text
+scripts/actions/
+  manifest.json                  ← single public registry
+  schematic-contract-audit.js    ← host Action (provider-free)
+  easyeda-pro/                   ← EasyEDA Pro EDA Actions
+    eda-capabilities.js
+    pcb-ground-vias.js
+    schematic-inspect.js
+    ...
+  kicad/                         ← future provider (example template)
+    README.md
+  altium/                        ← future provider (example template)
+    README.md
+```
+
+To add a new EDA provider:
+
+1. Create `scripts/actions/<provider-id>/` with an `eda-capabilities.js` that
+   probes the new EDA's API surface.
+2. Register the provider and its Actions in `manifest.json`.
+3. Register the adapter root with `eda-host.mjs register --eda <provider-id>
+   --adapter-root <path>`.
+4. Write tests in `tests/<action-name>.test.mjs` using mock EDA objects.
+5. Only add the provider to the registry after at least one Action passes
+   its test with a live EDA connection.
+
 ## Make outputs useful without hiding coverage
 
 Default output should contain the Action identity, contract version, domain,

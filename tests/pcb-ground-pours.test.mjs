@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { loadAction } from './helpers/action-harness.mjs';
 
-const execute = await loadAction('pcb-ground-pours');
+const execute = await loadAction('pcb-ground-pours', 'easyeda-pro');
 
 function createMock() {
   const pours = [];

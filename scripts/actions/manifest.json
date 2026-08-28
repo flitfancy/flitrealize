@@ -9,7 +9,7 @@
   },
   "actions": {
     "eda-capabilities": {
-      "file": "eda-capabilities.js",
+      "file": "easyeda-pro/eda-capabilities.js",
       "description": "Read-only feature detection for the active EasyEDA document and API surface.",
       "contractVersion": 1,
       "domain": "system",
@@ -24,7 +24,7 @@
       }
     },
     "pcb-component-geometry": {
-      "file": "pcb-component-geometry.js",
+      "file": "easyeda-pro/pcb-component-geometry.js",
       "description": "Read exact component, pad, footprint-source, and bounding-box evidence.",
       "contractVersion": 1,
       "domain": "pcb",
@@ -39,7 +39,7 @@
       }
     },
     "pcb-functional-keepouts": {
-      "file": "pcb-functional-keepouts.js",
+      "file": "easyeda-pro/pcb-functional-keepouts.js",
       "description": "Inspect and transact bounded functional keepout Regions.",
       "contractVersion": 1,
       "domain": "pcb",
@@ -60,7 +60,7 @@
       }
     },
     "pcb-ground-pours": {
-      "file": "pcb-ground-pours.js",
+      "file": "easyeda-pro/pcb-ground-pours.js",
       "description": "Inspect and transact realized copper pours against a resolved outline.",
       "contractVersion": 1,
       "domain": "pcb",
@@ -81,7 +81,7 @@
       }
     },
     "pcb-ground-stitching": {
-      "file": "pcb-ground-stitching.js",
+      "file": "easyeda-pro/pcb-ground-stitching.js",
       "description": "Read-only planner for bounded return-path and global GND stitching candidates.",
       "contractVersion": 1,
       "domain": "pcb",
@@ -97,7 +97,7 @@
       }
     },
     "pcb-ground-vias": {
-      "file": "pcb-ground-vias.js",
+      "file": "easyeda-pro/pcb-ground-vias.js",
       "description": "Inspect, generate, plan, apply, verify, and roll back bounded GND-via transactions.",
       "contractVersion": 1,
       "domain": "pcb",
@@ -119,7 +119,7 @@
       }
     },
     "pcb-grounding-inspect": {
-      "file": "pcb-grounding-inspect.js",
+      "file": "easyeda-pro/pcb-grounding-inspect.js",
       "description": "Read-only grounding, copper, component, and keepout inventory.",
       "contractVersion": 1,
       "domain": "pcb",
@@ -134,7 +134,7 @@
       }
     },
     "pcb-layer-stack": {
-      "file": "pcb-layer-stack.js",
+      "file": "easyeda-pro/pcb-layer-stack.js",
       "description": "Inspect and transact the logical copper-layer structure.",
       "contractVersion": 1,
       "domain": "pcb",
@@ -164,6 +164,99 @@
       "defaultMode": "inspect",
       "modes": {
         "inspect": { "mutates": false }
+      }
+    },
+    "schematic-inspect": {
+      "file": "easyeda-pro/schematic-inspect.js",
+      "description": "Read-only capture of schematic components, wires, nets, and document identity.",
+      "contractVersion": 1,
+      "domain": "schematic",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false }
+      },
+      "requires": {
+        "all": ["document.current", "sch.component.list", "sch.wire.list", "sch.net.listNames"]
+      }
+    },
+    "schematic-component-place": {
+      "file": "easyeda-pro/schematic-component-place.js",
+      "description": "Inspect, plan, apply, verify, and roll back schematic component placement.",
+      "contractVersion": 1,
+      "domain": "schematic",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "plan": { "mutates": false },
+        "apply": { "mutates": true },
+        "verify": { "mutates": false },
+        "rollback": { "mutates": true }
+      },
+      "requires": {
+        "all": ["document.current", "sch.component.list", "sch.component.get"],
+        "apply": ["sch.component.create"],
+        "rollback": ["sch.component.delete"]
+      }
+    },
+    "schematic-wire-create": {
+      "file": "easyeda-pro/schematic-wire-create.js",
+      "description": "Inspect, plan, apply, verify, and roll back schematic wire creation.",
+      "contractVersion": 1,
+      "domain": "schematic",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "plan": { "mutates": false },
+        "apply": { "mutates": true },
+        "verify": { "mutates": false },
+        "rollback": { "mutates": true }
+      },
+      "requires": {
+        "all": ["document.current", "sch.wire.list", "sch.wire.get"],
+        "apply": ["sch.wire.create"],
+        "rollback": ["sch.wire.delete"]
+      }
+    },
+    "schematic-net-flag": {
+      "file": "easyeda-pro/schematic-net-flag.js",
+      "description": "Apply, verify, and roll back schematic net flags and net ports.",
+      "contractVersion": 1,
+      "domain": "schematic",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "apply": { "mutates": true },
+        "verify": { "mutates": false },
+        "rollback": { "mutates": true }
+      },
+      "requires": {
+        "all": ["document.current", "sch.component.list"],
+        "apply": ["sch.component.createNetFlag", "sch.component.createNetPort"],
+        "rollback": ["sch.component.delete"]
+      }
+    },
+    "schematic-save-verify": {
+      "file": "easyeda-pro/schematic-save-verify.js",
+      "description": "Save the schematic and run DRC verification.",
+      "contractVersion": 1,
+      "domain": "schematic",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "verify": { "mutates": false }
+      },
+      "requires": {
+        "all": ["document.current", "sch.document.save", "sch.drc.check"]
       }
     }
   }

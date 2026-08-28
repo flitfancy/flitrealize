@@ -2,8 +2,8 @@ import assert from 'node:assert/strict';
 
 import { loadAction } from './helpers/action-harness.mjs';
 
-const inspectAction = await loadAction('pcb-grounding-inspect');
-const viaAction = await loadAction('pcb-ground-vias');
+const inspectAction = await loadAction('pcb-grounding-inspect', 'easyeda-pro');
+const viaAction = await loadAction('pcb-ground-vias', 'easyeda-pro');
 
 function sourceRecord(type, id, data) {
   return `${JSON.stringify({ type, id })}||${JSON.stringify(data)}|\n`;

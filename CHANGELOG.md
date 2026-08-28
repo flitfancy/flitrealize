@@ -4,6 +4,48 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+## [0.1.0-test.10] - 2026-08-28
+
+### Changed
+
+- Moved all EDA Action files into provider subdirectories under
+  `scripts/actions/<provider>/`. Host Actions remain in the `scripts/actions/`
+  root. The runner resolves paths by checking the provider subdirectory first,
+  then falling back to the root. This is fully backward-compatible.
+- `action-runner.mjs`: `resolveActionFile()` now accepts an optional `provider`
+  parameter for subdirectory-aware file resolution.
+- `action-harness.mjs`: `loadAction()` now accepts an optional `provider`
+  parameter for test-time subdirectory loading.
+- All existing EDA tests updated to pass `'easyeda-pro'` as the provider.
+
+### Added
+
+- Five new EasyEDA Pro schematic Actions:
+  - `schematic-inspect`: read-only capture of components, wires, nets, and
+    document identity.
+  - `schematic-component-place`: inspect/plan/apply/verify/rollback for
+    schematic component placement.
+  - `schematic-wire-create`: inspect/plan/apply/verify/rollback for schematic
+    wire creation.
+  - `schematic-net-flag`: inspect/apply/verify/rollback for net flags and net
+    ports (power symbols, directional ports).
+  - `schematic-save-verify`: inspect/verify for schematic save and DRC.
+- `eda-capabilities.js` now probes `sch.*` API surface alongside `pcb.*`.
+- `references/providers/easyeda-pro/schematic-workflow.md`: workflow guide for
+  schematic Actions.
+- `scripts/actions/kicad/` and `scripts/actions/altium/`: example provider
+  directories with README templates showing how to add a new EDA backend.
+- `references/local-actions.md`: documented the provider subdirectory layout
+  and the steps to add a new provider.
+- Tests for `schematic-inspect` and `schematic-component-place` (mock-based).
+
+### Architecture
+
+- Provider subdirectory pattern enables clean multi-EDA support: each provider
+  owns its Action files, the manifest declares which providers each Action
+  supports, and the runner routes automatically. No framework code changes
+  needed when adding a new provider.
+
 ## [0.1.0-test.9] - 2026-08-28
 
 ### Fixed

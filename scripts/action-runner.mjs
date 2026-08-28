@@ -116,13 +116,21 @@ export async function loadManifest(path = MANIFEST_FILE) {
   return manifest;
 }
 
-function resolveActionFile(action) {
+function resolveActionFile(action, provider = null) {
   const path = resolve(ACTION_ROOT, action.file);
   const pathFromRoot = relative(ACTION_ROOT, path);
-  if (pathFromRoot.startsWith('..') || isAbsolute(pathFromRoot) || !existsSync(path)) {
-    fail('INVALID_ACTION_FILE', 'Registered action file is unavailable or outside scripts/actions: ' + action.file);
+  if (pathFromRoot.startsWith('..') || isAbsolute(pathFromRoot)) {
+    fail('INVALID_ACTION_FILE', 'Registered action file path escapes scripts/actions: ' + action.file);
   }
-  return path;
+  if (existsSync(path)) return path;
+  if (provider) {
+    const providerPath = resolve(ACTION_ROOT, provider, action.file);
+    const providerRelative = relative(ACTION_ROOT, providerPath);
+    if (!providerRelative.startsWith('..') && !isAbsolute(providerRelative) && existsSync(providerPath)) {
+      return providerPath;
+    }
+  }
+  fail('INVALID_ACTION_FILE', 'Registered action file is unavailable: ' + action.file);
 }
 
 function resolveProvider(manifest, actionName, action, requestedProvider) {
@@ -162,16 +170,17 @@ export function resolveActionRequest(manifest, actionName, input, allowWrite = f
       actionName + ' mode ' + mode + ' mutates ' + target + '; rerun with --allow-write only after the relevant write scope is satisfied.',
     );
   }
+  const provider = resolveProvider(manifest, actionName, action, requestedProvider);
   return {
     actionName,
     action,
     contractVersion: action.contractVersion,
     domain: action.domain,
     runtime: action.runtime,
-    provider: resolveProvider(manifest, actionName, action, requestedProvider),
+    provider,
     mode,
     mutates: Boolean(modeContract.mutates),
-    actionFile: resolveActionFile(action),
+    actionFile: resolveActionFile(action, provider),
   };
 }
 
