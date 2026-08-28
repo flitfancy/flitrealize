@@ -6,6 +6,11 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [0.1.0-test.10] - 2026-08-28
 
+Schematic EDA Actions and multi-provider architecture. FlitRealize can now
+place components, draw wires, add power symbols, and run DRC inside a live
+EasyEDA Pro schematic. New EDA backends can be added by dropping Action files
+into a provider subdirectory without modifying any framework code.
+
 ### Changed
 
 - Moved all EDA Action files into provider subdirectories under
@@ -48,6 +53,9 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [0.1.0-test.9] - 2026-08-28
 
+Cross-platform reproducible release packaging. Fixed Windows/Linux ZIP
+byte differences and added golden-digest regression.
+
 ### Fixed
 
 - Made release ZIP bytes reproducible across Windows and Linux by storing
@@ -65,6 +73,9 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [0.1.0-test.8] - 2026-08-28
 
+EasyEDA Pro provider workflow reorganization. Split guidance into separate
+references for PCB foundation, grounding, and environment.
+
 ### Changed
 
 - Reorganized EasyEDA Pro guidance around the actual execution flow: Provider
@@ -75,6 +86,11 @@ All notable changes to FlitRealize will be recorded here.
   future EDA integrations can follow the same structure.
 
 ## [0.1.0-test.7] - 2026-08-27
+
+Schematic contract system and host Action runtime. Introduced
+`SchematicContract v1` schema, `SchematicSnapshot v1` schema, and the
+first provider-free Action (`schematic-contract-audit`) for offline design
+intent validation.
 
 ### Added
 
@@ -114,6 +130,9 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [0.1.0-test.6] - 2026-08-27
 
+Release infrastructure and quick-start documentation. Added GitHub Release
+workflow, English/Chinese quick starts, and runtime architecture diagrams.
+
 ### Added
 
 - Added a minimal private `package.json` that declares Node.js 22 or newer and
@@ -145,6 +164,10 @@ All notable changes to FlitRealize will be recorded here.
   and pull-request event parsing plus exact CHANGELOG section extraction.
 
 ## [0.1.0-test.5] - 2026-08-27
+
+Action framework foundation. Established the versioned Action registry,
+unified runner, EasyEDA capability probe, write authorization, and compact
+report envelope.
 
 ### Added
 
@@ -178,6 +201,9 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [0.1.0-test.4] - 2026-08-26
 
+GND via edge-fence algorithm improvement. Replaced fixed-order selection
+with cumulative-perimeter sampling for better board-edge coverage.
+
 ### Changed
 
 - Replaced fixed-order edge-fence selection with cumulative-perimeter sampling,
@@ -190,6 +216,9 @@ All notable changes to FlitRealize will be recorded here.
   added live FireFly Audio read-only validation and deterministic coverage tests.
 
 ## [0.1.0-test.3] - 2026-08-26
+
+Grounding closure workflow. Added the three-stage grounding flow (reference
+copper, return paths, global stitching) and the read-only stitching planner.
 
 ### Added
 
@@ -219,6 +248,9 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [0.1.0-test.2] - 2026-08-26
 
+GND via edge-case fixes. Resolved circular-keepout clearance, coordinate
+roundoff, and candidate collision issues.
+
 ### Fixed
 
 - Added an exact circular-keepout clearance fallback for EasyEDA environments
@@ -236,6 +268,10 @@ All notable changes to FlitRealize will be recorded here.
   repository source.
 
 ## [0.1.0-test.1] - 2026-08-25
+
+Public skill establishment. Renamed to `flitrealize`, removed private paths,
+added EDA adapter registration, layer planning, grounding inspection, and
+the first seven EasyEDA PCB Actions.
 
 ### Changed
 
