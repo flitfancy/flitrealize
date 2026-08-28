@@ -86,6 +86,29 @@ inspection fingerprint changes whenever components or wires are added,
 removed, or moved. A stale fingerprint invalidates any pending plan or
 rollback request.
 
+## Schematic layout constraints
+
+Place components compactly in functional blocks. Do not spread components
+across the entire A4 sheet. Rules:
+
+- **Block spacing:** keep related ICs and their passives within 500–800 units
+  of each other. A decoupling capacitor should be within 300 units of its IC
+  power pin.
+- **Functional block separation:** separate distinct functional blocks by
+  800–1200 units, not more. The entire schematic should fit comfortably on one
+  A4 sheet (15000 × 10000 units) with room for wires and labels.
+- **Power flow:** lay out left-to-right in signal/power flow direction.
+  USB input on the left, output on the right.
+- **Vertical grouping:** keep ICs and their primary passives on the same
+  horizontal band. Place protection and secondary circuits below the main
+  power path.
+- **Net flag placement:** place GND flags directly below the IC's ground pin,
+  power flags directly above the IC's power pin. Do not cluster all flags in
+  one corner.
+- **Coordinate range:** the entire design should span roughly x=200–10000,
+  y=500–6000 for a single-sheet schematic. If coordinates exceed 12000 in
+  either axis, the layout is too spread out.
+
 ## Common traps
 
 - The `component` parameter for `sch_PrimitiveComponent.create()` accepts
