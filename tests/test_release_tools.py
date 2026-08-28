@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import scan_staged_secrets
+from check_release import evaluate_tag_target
 from extract_release_notes import extract_version_notes
 from package_release import (
     FIXED_TIME,
@@ -82,6 +83,34 @@ class RuntimePackagingTests(unittest.TestCase):
                 }
                 self.assertEqual(modes["fixture/notes/readme.md"], 0o100644)
                 self.assertEqual(modes["fixture/scripts/tool.mjs"], 0o100755)
+
+
+class ReleaseTagStateTests(unittest.TestCase):
+    def test_tag_at_head_is_accepted(self) -> None:
+        self.assertEqual(
+            evaluate_tag_target("v1", "a", "a", tag_is_ancestor=True),
+            (True, "points to HEAD"),
+        )
+
+    def test_published_ancestor_is_accepted_for_check_only_work(self) -> None:
+        acceptable, detail = evaluate_tag_target(
+            "v1",
+            "a",
+            "b",
+            tag_is_ancestor=True,
+        )
+        self.assertTrue(acceptable)
+        self.assertIn("unreleased changes require a new version", detail)
+
+    def test_divergent_tag_is_rejected(self) -> None:
+        acceptable, detail = evaluate_tag_target(
+            "v1",
+            "a",
+            "b",
+            tag_is_ancestor=False,
+        )
+        self.assertFalse(acceptable)
+        self.assertIn("neither HEAD nor an ancestor", detail)
 
 
 class StagedSecretScanTests(unittest.TestCase):

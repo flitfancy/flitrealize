@@ -34,6 +34,23 @@ def git(*arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+def evaluate_tag_target(
+    tag_name: str,
+    tag_commit: str,
+    head_commit: str,
+    *,
+    tag_is_ancestor: bool,
+) -> tuple[bool, str]:
+    if tag_commit == head_commit:
+        return True, "points to HEAD"
+    if tag_is_ancestor:
+        return (
+            True,
+            f"{tag_name} is a published ancestor of HEAD; unreleased changes require a new version",
+        )
+    return False, f"{tag_name} is neither HEAD nor an ancestor of HEAD"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -98,16 +115,17 @@ def main() -> int:
     else:
         tag_commit = git("rev-list", "-n", "1", tag_name)
         head_commit = git("rev-parse", "HEAD")
-        consistent = (
-            tag_commit.returncode == 0
-            and head_commit.returncode == 0
-            and tag_commit.stdout.strip() == head_commit.stdout.strip()
-        )
-        checks.check(
-            "Git tag target",
-            consistent,
-            "points to HEAD" if consistent else f"{tag_name} does not point to HEAD",
-        )
+        if tag_commit.returncode != 0 or head_commit.returncode != 0:
+            checks.check("Git tag target", False, "could not resolve tag or HEAD")
+        else:
+            ancestor = git("merge-base", "--is-ancestor", tag_name, "HEAD")
+            acceptable, detail = evaluate_tag_target(
+                tag_name,
+                tag_commit.stdout.strip(),
+                head_commit.stdout.strip(),
+                tag_is_ancestor=ancestor.returncode == 0,
+            )
+            checks.check("Git tag target", acceptable, detail)
 
     if checks.failures:
         print(f"\nRELEASE CHECK FAILED: {len(checks.failures)} item(s)")

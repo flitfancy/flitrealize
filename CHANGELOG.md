@@ -9,6 +9,9 @@ All notable changes to FlitRealize will be recorded here.
 - Made release ZIP bytes reproducible across Windows and Linux by storing
   entries without platform-dependent Deflate output and normalizing ZIP order,
   timestamps, creator metadata, permissions, comments, and extra fields.
+- Let check-only validation recognize the current published tag as a valid
+  ancestor during subsequent development, while publish preflight continues to
+  reject any attempt to reuse that tag.
 
 ### Verified
 
