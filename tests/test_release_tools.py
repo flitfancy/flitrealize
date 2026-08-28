@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -12,7 +14,13 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import scan_staged_secrets
 from extract_release_notes import extract_version_notes
-from package_release import runtime_files
+from package_release import (
+    FIXED_TIME,
+    ZIP_CREATE_SYSTEM,
+    ZIP_VERSION,
+    runtime_files,
+    write_archive,
+)
 
 
 class RuntimePackagingTests(unittest.TestCase):
@@ -30,6 +38,50 @@ class RuntimePackagingTests(unittest.TestCase):
             "references/providers/easyeda-pro/pcb-grounding.md",
             packaged,
         )
+
+    def test_archive_bytes_and_metadata_are_platform_independent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "source"
+            notes = root / "notes" / "readme.md"
+            tool = root / "scripts" / "tool.mjs"
+            notes.parent.mkdir(parents=True)
+            tool.parent.mkdir(parents=True)
+            notes.write_bytes(b"alpha\n")
+            tool.write_bytes(b"export default 1;\n")
+
+            first = Path(temporary) / "first.zip"
+            second = Path(temporary) / "second.zip"
+            write_archive(first, [tool, notes], root=root, archive_root="fixture")
+            write_archive(second, [notes, tool], root=root, archive_root="fixture")
+
+            first_bytes = first.read_bytes()
+            self.assertEqual(first_bytes, second.read_bytes())
+            self.assertEqual(
+                hashlib.sha256(first_bytes).hexdigest(),
+                "d4204573d5296bd90262d8810df87f5f54991e489cfc0b10498a674bec58ed53",
+            )
+
+            with zipfile.ZipFile(first) as bundle:
+                self.assertEqual(bundle.comment, b"")
+                self.assertEqual(
+                    [info.filename for info in bundle.infolist()],
+                    ["fixture/notes/readme.md", "fixture/scripts/tool.mjs"],
+                )
+                for info in bundle.infolist():
+                    self.assertEqual(info.date_time, FIXED_TIME)
+                    self.assertEqual(info.compress_type, zipfile.ZIP_STORED)
+                    self.assertEqual(info.create_system, ZIP_CREATE_SYSTEM)
+                    self.assertEqual(info.create_version, ZIP_VERSION)
+                    self.assertEqual(info.extract_version, ZIP_VERSION)
+                    self.assertEqual(info.extra, b"")
+                    self.assertEqual(info.comment, b"")
+
+                modes = {
+                    info.filename: info.external_attr >> 16
+                    for info in bundle.infolist()
+                }
+                self.assertEqual(modes["fixture/notes/readme.md"], 0o100644)
+                self.assertEqual(modes["fixture/scripts/tool.mjs"], 0o100755)
 
 
 class StagedSecretScanTests(unittest.TestCase):

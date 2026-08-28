@@ -4,6 +4,18 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+### Fixed
+
+- Made release ZIP bytes reproducible across Windows and Linux by storing
+  entries without platform-dependent Deflate output and normalizing ZIP order,
+  timestamps, creator metadata, permissions, comments, and extra fields.
+
+### Verified
+
+- Added a fixed-input golden-digest regression that also checks archive entry
+  order, metadata, storage mode, and executable permissions on every supported
+  CI platform.
+
 ## [0.1.0-test.8] - 2026-08-28
 
 ### Changed

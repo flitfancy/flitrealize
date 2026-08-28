@@ -14,6 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DIST = ROOT / "dist"
 ARCHIVE_ROOT = "flitrealize"
 FIXED_TIME = (2026, 1, 1, 0, 0, 0)
+ZIP_CREATE_SYSTEM = 3
+ZIP_VERSION = 20
 
 
 def runtime_files() -> list[Path]:
@@ -31,20 +33,49 @@ def runtime_files() -> list[Path]:
     ]
 
 
+def write_archive(
+    archive: Path,
+    sources: list[Path],
+    *,
+    root: Path = ROOT,
+    archive_root: str = ARCHIVE_ROOT,
+) -> None:
+    """Write a byte-reproducible, platform-independent runtime ZIP."""
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    ordered_sources = sorted(
+        sources,
+        key=lambda source: source.relative_to(root).as_posix(),
+    )
+
+    with zipfile.ZipFile(
+        archive,
+        "w",
+        compression=zipfile.ZIP_STORED,
+        strict_timestamps=True,
+    ) as bundle:
+        bundle.comment = b""
+        for source in ordered_sources:
+            relative = source.relative_to(root).as_posix()
+            info = zipfile.ZipInfo(f"{archive_root}/{relative}", date_time=FIXED_TIME)
+            info.compress_type = zipfile.ZIP_STORED
+            info.create_system = ZIP_CREATE_SYSTEM
+            info.create_version = ZIP_VERSION
+            info.extract_version = ZIP_VERSION
+            info.flag_bits = 0
+            info.internal_attr = 0
+            info.extra = b""
+            info.comment = b""
+            mode = 0o100755 if source.suffix in {".mjs", ".py"} else 0o100644
+            info.external_attr = mode << 16
+            bundle.writestr(info, source.read_bytes())
+
+
 def main() -> int:
     subprocess.run([sys.executable, str(ROOT / "scripts/validate.py")], check=True)
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     DIST.mkdir(exist_ok=True)
     archive = DIST / f"flitrealize-{version}.zip"
-
-    with zipfile.ZipFile(archive, "w") as bundle:
-        for source in runtime_files():
-            relative = source.relative_to(ROOT).as_posix()
-            info = zipfile.ZipInfo(f"{ARCHIVE_ROOT}/{relative}", date_time=FIXED_TIME)
-            info.compress_type = zipfile.ZIP_DEFLATED
-            mode = 0o100755 if source.suffix in {".mjs", ".py"} else 0o100644
-            info.external_attr = mode << 16
-            bundle.writestr(info, source.read_bytes(), compresslevel=9)
+    write_archive(archive, runtime_files())
 
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     checksum = archive.with_suffix(archive.suffix + ".sha256")
