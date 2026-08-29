@@ -25,6 +25,17 @@ from package_release import (
 
 
 class RuntimePackagingTests(unittest.TestCase):
+    def test_nested_provider_actions_are_packaged(self) -> None:
+        packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
+        self.assertIn(
+            "scripts/actions/easyeda-pro/eda-capabilities.js",
+            packaged,
+        )
+        self.assertIn(
+            "scripts/actions/easyeda-pro/schematic-component-place.js",
+            packaged,
+        )
+
     def test_nested_provider_references_are_packaged(self) -> None:
         packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
         self.assertIn(

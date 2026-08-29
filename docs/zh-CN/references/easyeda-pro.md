@@ -1,6 +1,6 @@
 > 本文件是英文参考文件 [easyeda-pro.md](../../../references/easyeda-pro.md) 的中文只读镜像，供人工阅读和审阅。实际执行仍以英文源文件为准。
-> 同步日期：2026-08-27（Asia/Shanghai）
-> 英文源文件 SHA-256：`A1660236E8DE44CFD59E031E12C4D77A64DBC0291C2B7CC68D2F31A1171A4B69`
+> 同步日期：2026-08-29（Asia/Shanghai）
+> 英文源文件 SHA-256：`E6D919FACEFFF46989CE44B8450AF1DC93B1090E55C8EC7B9C86252E13F88A62`
 
 # EasyEDA Pro Provider 边界
 
@@ -11,6 +11,7 @@
 - 本机 Adapter、Bridge、握手、重连或配对：[environment.md](providers/easyeda-pro/environment.md)
 - PCB 层结构、器件几何、功能性 keepout 或实际参考铜：[pcb-foundation.md](providers/easyeda-pro/pcb-foundation.md)
 - 必要接地过孔、换层回流或全局缝合：[pcb-grounding.md](providers/easyeda-pro/pcb-grounding.md)
+- 原理图器件放置、导线、网络标识和 DRC：[schematic-workflow.md](providers/easyeda-pro/schematic-workflow.md)
 - 跨 Provider Action 契约与 Host/EDA Runtime 边界：[local-actions.md](local-actions.md)
 - DRC 解释和制造输出验收：[pcb-review.md](pcb-review.md)
 

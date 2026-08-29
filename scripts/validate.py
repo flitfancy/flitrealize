@@ -95,19 +95,14 @@ def main() -> int:
         ROOT / "scripts/scan_staged_secrets.py",
         ROOT / "scripts/smoke_test_release.py",
         ROOT / "scripts/actions/manifest.json",
-        ROOT / "scripts/actions/eda-capabilities.js",
-        ROOT / "scripts/actions/pcb-grounding-inspect.js",
-        ROOT / "scripts/actions/pcb-ground-stitching.js",
-        ROOT / "scripts/actions/pcb-ground-vias.js",
-        ROOT / "scripts/actions/pcb-layer-stack.js",
-        ROOT / "scripts/actions/schematic-contract-audit.js",
         ROOT / "schemas/schematic-contract.v1.schema.json",
         ROOT / "schemas/schematic-snapshot.v1.schema.json",
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
     checks.check("required files", not missing, "present" if not missing else ", ".join(missing))
 
-    frontmatter = parse_frontmatter(ROOT / "SKILL.md") if not missing else {}
+    skill_path = ROOT / "SKILL.md"
+    frontmatter = parse_frontmatter(skill_path) if skill_path.is_file() else {}
     checks.check("skill name", frontmatter.get("name") == "flitrealize", frontmatter.get("name", "missing"))
     description = frontmatter.get("description", "")
     checks.check(
@@ -116,7 +111,8 @@ def main() -> int:
         "hardware scope and software boundary are explicit",
     )
 
-    openai_yaml = (ROOT / "agents/openai.yaml").read_text(encoding="utf-8") if not missing else ""
+    openai_path = ROOT / "agents/openai.yaml"
+    openai_yaml = openai_path.read_text(encoding="utf-8") if openai_path.is_file() else ""
     checks.check(
         "OpenAI metadata",
         'display_name: "FlitRealize T1"' in openai_yaml and "$flitrealize" in openai_yaml,
@@ -226,6 +222,7 @@ def main() -> int:
             manifest.get("schemaVersion") != 2
             or not isinstance(providers, dict)
             or not isinstance(actions, dict)
+            or not actions
         ):
             action_registry_failures.append("manifest schema/providers/actions")
             providers = {}
@@ -274,7 +271,10 @@ def main() -> int:
             for mode_name, contract in modes.items():
                 if not isinstance(contract, dict) or not isinstance(contract.get("mutates"), bool):
                     action_registry_failures.append(f"{action_name}/{mode_name}: mutates must be boolean")
-        actual_files = {path.name for path in (ROOT / "scripts/actions").glob("*.js")}
+        actual_files = set()
+        for path in (ROOT / "scripts/actions").rglob("*.js"):
+            rel = path.relative_to(ROOT / "scripts/actions").as_posix()
+            actual_files.add(rel)
         if registered_files != actual_files:
             missing_registry = sorted(actual_files - registered_files)
             missing_files = sorted(registered_files - actual_files)

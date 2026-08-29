@@ -68,6 +68,23 @@ def main() -> int:
             if extracted.read_bytes() != source.read_bytes():
                 fail(f"Packaged bytes differ from source: {relative}")
 
+        manifest_path = extracted_root / "scripts/actions/manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        action_root = extracted_root / "scripts/actions"
+        missing_action_files: list[str] = []
+        for action_name, action in manifest.get("actions", {}).items():
+            file_name = action.get("file") if isinstance(action, dict) else None
+            if not isinstance(file_name, str):
+                fail(f"Packaged manifest action has no file: {action_name}")
+            relative_action = PurePosixPath(file_name)
+            if relative_action.is_absolute() or ".." in relative_action.parts:
+                fail(f"Unsafe packaged action path: {file_name}")
+            action_path = action_root / Path(*relative_action.parts)
+            if not action_path.is_file():
+                missing_action_files.append(file_name)
+        if missing_action_files:
+            fail(f"Packaged manifest action files are missing: {sorted(missing_action_files)}")
+
         list_result = run(
             [node, str(extracted_root / "scripts/action-runner.mjs"), "list"],
             cwd=extracted_root,

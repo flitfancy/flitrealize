@@ -51,6 +51,12 @@ into a provider subdirectory without modifying any framework code.
   supports, and the runner routes automatically. No framework code changes
   needed when adding a new provider.
 
+### Fixed
+
+- Updated validation and deterministic release packaging to traverse Provider
+  Action subdirectories and verify every manifest Action is present in the ZIP.
+- Synchronized the Chinese mirrors and public version markers for this release.
+
 ## [0.1.0-test.9] - 2026-08-28
 
 Cross-platform reproducible release packaging. Fixed Windows/Linux ZIP

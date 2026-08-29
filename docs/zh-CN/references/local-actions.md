@@ -1,6 +1,6 @@
 > 本文件是英文参考文件 [local-actions.md](../../../references/local-actions.md) 的中文只读镜像，供人工阅读和审阅。实际执行仍以英文源文件为准。
-> 同步日期：2026-08-27（Asia/Shanghai）
-> 英文源文件 SHA-256：`7448DD6F27AF1C435738F3613287021B832EEAE13AA5D8D77B0C871469DAE068`
+> 同步日期：2026-08-29（Asia/Shanghai）
+> 英文源文件 SHA-256：`5C696683D243D46A5EB24D28F4B5D9BECDC40E216BCB801FCE703A23E4B7B1E4`
 
 # 可复用本地 Action 与 Provider 边界
 
@@ -30,6 +30,33 @@
 Host Action 根据结构化输入在本机执行，不经过 EDA Bridge。EDA Action 通过选中的主机 Adapter 执行，并继续遵守实时写入锁。两种 Runtime 共用同一套模式/修改授权、精简摘要和主机本地完整报告外壳。
 
 不依赖 Provider 的 `schematic-contract-audit` 是第一个 Host Action。它校验可移植设计意图，不导入 EDA API，也不声称实际原理图已经匹配。
+
+## 按 Provider 子目录组织 Action
+
+EDA Action 文件位于 `scripts/actions/<provider>/` 下，Host Action 则保留在 `scripts/actions/` 根目录。Runner 解析 manifest 中声明的文件路径；启用 Provider 时，会先检查对应的 Provider 子目录：
+
+```text
+scripts/actions/
+  manifest.json                  ← 唯一公开注册表
+  schematic-contract-audit.js    ← Host Action（与 Provider 无关）
+  easyeda-pro/                   ← EasyEDA Pro EDA Action
+    eda-capabilities.js
+    pcb-ground-vias.js
+    schematic-inspect.js
+    ...
+  kicad/                         ← 未来 Provider（示例模板）
+    README.md
+  altium/                        ← 未来 Provider（示例模板）
+    README.md
+```
+
+新增 EDA Provider：
+
+1. 创建 `scripts/actions/<provider-id>/`，其中包含用于探测新 EDA API 表面的 `eda-capabilities.js`。
+2. 在 `manifest.json` 中注册 Provider 及其 Action。
+3. 使用 `eda-host.mjs register --eda <provider-id> --adapter-root <path>` 注册 Adapter 根目录。
+4. 使用模拟 EDA 对象在 `tests/<action-name>.test.mjs` 中编写测试。
+5. 至少有一个 Action 通过实时 EDA 连接测试后，才将该 Provider 加入注册表。
 
 ## 让输出有价值，同时不隐藏覆盖范围
 
