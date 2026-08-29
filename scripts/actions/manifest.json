@@ -166,6 +166,19 @@
         "inspect": { "mutates": false }
       }
     },
+    "schematic-layout": {
+      "file": "schematic-layout.js",
+      "description": "Calculate component positions from contract blocks and output a SchematicSnapshot with coordinates.",
+      "contractVersion": 1,
+      "domain": "schematic",
+      "runtime": "host",
+      "providers": [],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "generate": { "mutates": false }
+      }
+    },
     "schematic-inspect": {
       "file": "easyeda-pro/schematic-inspect.js",
       "description": "Read-only capture of schematic components, wires, nets, and document identity.",
