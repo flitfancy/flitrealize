@@ -2,114 +2,126 @@
 
 [English](README.md)
 
-FlitRealize 是一个电子硬件工程 Skill，用于把有持续状态的项目从需求和架构推进到原理图、PCB、原型下单、安全上电以及证据驱动的改版。
+FlitRealize 是一个面向完整硬件项目的 Skill，用来把想法持续推进到可测试的实物。它让需求、器件决策、原理图意图、PCB、样机结果和后续改版保持在同一个项目上下文中，同时不会要求每个项目一开始就走完整套流程。
 
-> 当前状态：**FlitRealize T1**（`v1.0.0-test.1`），当前公开测试版本。用于可信单用户本机开发和干净环境测试，尚不是稳定版。
+> 当前公开测试版本：**FlitRealize T1 `v1.0.0-test.1`**。它仍是预发布版本，适合实际试用和持续迭代。
 
-## 适用范围
-
-FlitRealize 专用于项目级电子硬件工作，包括：
-
-- 需求、架构、器件和原理图决策；
-- PCB 布局、布线意图、制造评审和 EDA 自动化；
-- 原型下单、安全上电、调试和改版；
-- 在不同对话之间隔离并续接项目状态。
-
-它不是通用的软件、网站、内容创作或项目管理 Skill，也不会因为孤立器件事实或无需项目状态的一步式 EDA 问题而触发。
-
-## 30 秒开始
-
-安装完成后，可以从一个项目级请求开始：
+## 它能做什么
 
 ```text
-$flitrealize 继续这个硬件项目。先识别项目根目录和当前证据；在我明确授权写入前只做检查。
+想法和需求
+    -> 架构、接口和器件意图
+    -> 物料解析与确认
+    -> 原理图设计
+    -> EDA 原理图
+    -> PCB 约束、布局和布线
+    -> 制造文件与下单
+    -> 样机上电和测试
+    -> 改版
 ```
 
-FlitRealize 会按任务加载相关硬件参考，并在有合适动作时复用已注册的确定性 Action。EDA 写入仍需要单独授权。
+FlitRealize 理解整个流程，但每次只推进用户当前要求的阶段。做架构时不会自动创建 EDA 文件，检查原理图时也不会自动展开成正式生产发布流程。
 
-## 兼容性
+它适合：
 
-本 Skill 遵循开放的 Agent Skills 结构，并主要在 Codex 中测试。只有聊天或只读工具的宿主仍可规划和评审；相应的文件、终端、浏览器和 EDA 工具齐全时，才能执行对应操作。本地知识 catalog 是可选增强，不是运行前提。
-仓库工具链要求 Node.js 22 或更高版本以及 Python 3。
+- 从需求、架构和器件选择开始的新硬件项目；
+- 需要继续完成原理图、PCB、制造准备或样机验证的现有项目；
+- 需要跨任务续接，同时避免不同项目状态混在一起的工作；
+- 适合用经过测试的 Action 提升效率的重复 EDA 操作。
 
-## 在 Codex 本地安装
+它不用于纯软件工作、孤立器件知识、教材问题，或不需要项目上下文的一步式 EDA 问题。
 
-把本仓库放到：
+## 它怎样工作
+
+### 默认直接推进
+
+普通项目工作直接完成当前阶段需要的内容。需要器件事实时，默认使用可靠的制造商或官方分销商资料；不会影响当前设计的普通缺口可以转成明确的样机测试，不必把每个任务扩展成正式评审。
+
+### 只在必要位置深入
+
+`CURIOUS_MODE` 是临时的局部深入核验，不是整个项目的工作模式。只有准确型号、引脚、封装、关键行为、曲线、温升、保护功能或资料冲突确实影响当前决策时才进入。问题确认或转成具体测试项后，立即回到普通工作。
+
+### AI 做判断，脚本做重复工作
+
+AI 负责需求、架构、电路决策、关键计算和最终器件判断。脚本负责检索、下载、缓存、库存匹配、格式转换和重复 EDA 操作。自动化服务于设计，不代替设计判断。
+
+## 三个主要阶段
+
+### 1. 设计与原理图
+
+把产品想法整理成需求、架构、接口、电源关系、结构化器件意图、已确认器件和完整原理图方案。进入 EDA 前，确认会影响器件身份、引脚、额定值、连接或保护行为的关键事实。
+
+### 2. PCB 与制造准备
+
+先确定板框、接口位置、层叠、规则和关键布局约束，再进行布局、布线、铺铜和配置后的 DRC。准备下单时，让已保存源文件、Gerber、钻孔、BOM/CPL 和板厂预览保持一致。
+
+### 3. 样机验证与改版
+
+先检查实物和未上电电源轨，再限流上电；先确认各电源轨，再逐块启用功能，并测试产品真正关心的负载、上下电和故障行为。后续改版由测量结果驱动。
+
+## 器件选择和 EDA 相互独立
+
+器件意图和原理图设计是可移植的。电气身份、制造商型号、采购身份、资料依据以及 EDA 符号和封装绑定是相互关联但彼此独立的事实。
+
+EasyEDA Pro 是目前已经实现的 EDA Provider，但不是使用 FlitRealize 的前提。即使不使用 EasyEDA，项目仍然可以完成需求、架构、器件选择、计算和原理图意图。只有真正进入对应 EDA 阶段时，才加载 Provider 专属参考和 Action。
+
+## 项目续接
+
+新项目只依据当前项目自己的需求建立设计，不继承其他项目的器件、计算或 EDA 状态。现有项目只有在工作需要跨任务或跨对话继续时，才使用一个 `CURRENT_HANDOFF.md` 保存当前状态；普通的一次性任务不需要额外状态文件。
+
+## 开始使用
+
+可以让 `$skill-installer` 从 GitHub 仓库安装，也可以把仓库放到：
 
 ```text
 $HOME/.agents/skills/flitrealize
 ```
 
-GitHub 远端公开后，也可以让 `$skill-installer` 从仓库地址安装。使用 `$flitrealize` 可显式调用；请求匹配 description 时 Codex 也可以自动选择。新安装或改名后如果没有出现，请重启 Codex。
+之后用 `$flitrealize` 显式调用。符合 description 的项目级硬件任务，也可以由 Codex 自动选择本 Skill。
 
-当前发现和安装行为以 [OpenAI 官方 Skill 文档](https://developers.openai.com/codex/skills) 为准。独立 Skill 适合本地使用和试验；以后需要更广泛的可安装分发时，可以再包装成 Plugin。
+从新项目开始：
+
+```text
+$flitrealize 从 <PROJECT_ROOT> 的空白项目开始设计。
+当前只完成需求、架构和器件候选，在我审阅前不要写入 EDA。
+```
+
+继续现有项目：
+
+```text
+$flitrealize 继续 <PROJECT_ROOT> 的硬件项目。
+如果当前任务需要以前的决策，先读取项目交接，然后完成我这次要求的设计工作。
+```
+
+只处理一个阶段：
+
+```text
+$flitrealize 检查当前原理图，只列出会改变连接、额定值、保护行为或样机成功率的问题。
+```
+
+下单、付款、预留库存或产生其他新的外部承诺，仍然需要用户针对该动作明确授权。
 
 ## 仓库结构
 
 ```text
 flitrealize/
-├── SKILL.md                 # 运行入口
-├── agents/openai.yaml       # Codex 界面元数据
-├── references/              # 按需加载的运行参考
-├── schemas/                 # 带版本的可移植硬件数据契约
-├── docs/zh-CN/              # 中文人工阅读镜像
-├── scripts/                 # 本地/EDA Action、Provider 控制、校验与打包
-└── .github/workflows/       # 跨平台校验和 Tag 自动发布
+├── SKILL.md            # 运行入口和全流程路由
+├── references/         # 按需加载的阶段和 Provider 细节
+├── schemas/            # 可移植的机器可读硬件契约
+├── scripts/            # 已注册 Action、校验和打包工具
+├── tests/              # Action 与发布回归测试
+└── docs/zh-CN/         # 中文审阅镜像
 ```
 
-发布 ZIP 包含运行入口、界面元数据、参考文件、带版本的原理图 Contract/PlacementPlan/Snapshot Schema、Host/EDA Action Runner、主机可移植的 Provider 控制、不依赖 Provider 的原理图 Contract 审计、公开的 EasyEDA Components/Connect/Finalize 工作流，以及针对层结构、器件几何、功能性 keepout、实际铺铜、接地检查、必要 GND 过孔和全局缝合只读规划的已测试 EasyEDA Action。作者工作区、机器配置、具体项目记录、本地 catalog 和优化历史不会进入公开制品。
-
-## 运行结构
-
-```mermaid
-flowchart LR
-    A[项目请求] --> B[SKILL.md 决策层]
-    B --> C[只加载相关 Reference]
-    B --> D[Action Runner]
-    D --> E[Manifest 动作契约]
-    E --> F[Host Runtime：本机确定性工作]
-    E --> G[EDA Runtime]
-    G --> H[选定的 Provider Adapter 与 Bridge]
-    F --> I[精简结果与本机完整证据报告]
-    H --> I
-```
-
-## Reference 导航
-
-| Reference | 适用内容 |
-| --- | --- |
-| [`stage-gates.md`](docs/zh-CN/references/stage-gates.md) | 各硬件阶段的进入、退出条件和证据 |
-| [`continuation.md`](docs/zh-CN/references/continuation.md) | 项目隔离与跨对话续接 |
-| [`schematic-contract.md`](docs/zh-CN/references/schematic-contract.md) | 原理图输入、输出、评审契约和证据 |
-| [`parts.md`](docs/zh-CN/references/parts.md) | 可移植器件意图、库存匹配、采购身份和预留解析器边界 |
-| [`eda-select.md`](docs/zh-CN/references/eda-select.md) | 进入 Provider 专属流程前按需选择 EDA Provider |
-| [`easyeda-pro.md`](docs/zh-CN/references/easyeda-pro.md) | EasyEDA Pro Provider 身份、源证据、API 边界和流程路由 |
-| [`environment.md`](docs/zh-CN/references/providers/easyeda-pro/environment.md) | EasyEDA Pro 主机 Adapter、Bridge、握手与配对流程 |
-| [`pcb-foundation.md`](docs/zh-CN/references/providers/easyeda-pro/pcb-foundation.md) | EasyEDA Pro 层、功能性 keepout 和实际铜流程 |
-| [`pcb-grounding.md`](docs/zh-CN/references/providers/easyeda-pro/pcb-grounding.md) | EasyEDA Pro 必要回流与可选缝合流程 |
-| [`local-actions.md`](docs/zh-CN/references/local-actions.md) | 本地 Action 契约、Runtime/Provider 边界和证据驱动进化 |
-| [`pcb-review.md`](docs/zh-CN/references/pcb-review.md) | 布局、布线、层叠、接地、DRC 和制造评审 |
-| [`audio-systems.md`](docs/zh-CN/references/audio-systems.md) | 音频专项架构、布局、回流路径和验证 |
-| [`prototype-validation.md`](docs/zh-CN/references/prototype-validation.md) | 样机下单、安全上电和验证计划 |
-| [`debug-loop.md`](docs/zh-CN/references/debug-loop.md) | 证据驱动的诊断和改版闭环 |
-| [`production-handoff.md`](docs/zh-CN/references/production-handoff.md) | 制造输出和生产交接 |
-
-## 校验和打包
+开发和修改仓库时运行：
 
 ```powershell
 python scripts/validate.py
-python scripts/package_release.py
 npm test
 ./scripts/release.ps1 -DryRun
-# 人工复核并明确暂存准备发布的文件后：
-./scripts/release.ps1 -Publish -Message "feat: release FlitRealize T1 v1.0.0-test.1"
 ```
 
-打包命令会在 `dist/` 下生成可复现 ZIP 和 SHA-256 文件。默认模式及 `-DryRun` 只做检查：依次运行仓库校验、全部 Node Action 测试、可复现打包、版本/校验和/Tag 一致性、干净 ZIP 冒烟测试和暂存新增内容密钥扫描。只有 `-Publish` 会修改外部状态；它要求已经人工复核并明确暂存发布文件、工作区不存在未暂存或未跟踪文件、远端已经配置，并提供提交信息，然后才会提交、创建版本 Tag，并原子推送分支和 Tag。这个已经授权的 Tag 推送会触发独立回读校验：重新构建确定性制品、创建 Draft GitHub Release、上传 ZIP 与 SHA-256 文件，并且只有在所有检查通过后才发布。重试遇到已经发布的版本时，只有远端两个制品与本次重建字节完全一致才会成功。英文指令变化后，应同步修改相应中文内容，然后更新来源哈希：
-
-```powershell
-python scripts/update_translation_hashes.py
-```
+发布流程会生成可复现 ZIP 和 SHA-256 文件。英文运行指令发生变化后，应同步更新中文镜像，再运行 `python scripts/update_translation_hashes.py` 刷新来源哈希。
 
 ## 许可证
 

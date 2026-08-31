@@ -2,153 +2,170 @@
 
 [简体中文](README.zh-CN.md)
 
-FlitRealize is an electronics hardware engineering skill that advances a
-stateful project from requirements and architecture through schematic, PCB,
-prototype ordering, bring-up, and evidence-driven revision.
+FlitRealize is a hardware-project skill for turning an idea into testable
+electronics. It keeps requirements, part decisions, schematic intent, PCB work,
+prototype results, and revisions connected without forcing every project through
+the entire process at once.
 
-> Status: **FlitRealize T1** (`v1.0.0-test.1`), the current public test build.
-> It is intended for trusted single-user local development and clean-environment
-> testing, not as a stable release.
+> Current public test build: **FlitRealize T1 `v1.0.0-test.1`**. It is still a
+> prerelease and is intended for practical testing and iteration.
 
-## Scope
-
-FlitRealize is for project-level electronics hardware work, including:
-
-- requirements, architecture, parts, and schematic decisions;
-- PCB placement, routing intent, manufacturing review, and EDA automation;
-- prototype ordering, safe bring-up, debugging, and revision;
-- project-isolated continuation across conversations.
-
-It is not a general software, website, content-creation, or project-management
-skill. It also avoids activating for isolated component facts or one-step EDA
-questions that need no project state.
-
-## 30-second start
-
-After installation, start with a project-level request such as:
+## What it does
 
 ```text
-$flitrealize continue this hardware project. Identify the project root and
-current evidence first; inspect only until I explicitly authorize a write.
+Idea and requirements
+    -> architecture, interfaces, and part intent
+    -> part resolution and approval
+    -> schematic design
+    -> EDA schematic
+    -> PCB constraints, placement, and routing
+    -> manufacturing files and ordering
+    -> prototype bring-up and test
+    -> revision
 ```
 
-FlitRealize will route the task to the relevant hardware reference and reuse a
-registered deterministic Action when one fits. EDA writes remain separately
-authorization-gated.
+FlitRealize understands the whole flow but works only on the stage the user
+currently requested. A request for architecture does not automatically create
+EDA files, and a schematic review does not automatically become a production
+release process.
 
-## Compatibility
+It is designed for:
 
-The skill follows the open Agent Skills structure and is tested primarily with
-Codex. A host with only chat or read-only tools can still plan and review, while
-file, terminal, browser, and EDA tools are required for corresponding actions.
-Optional local knowledge catalogs improve continuity but are never required.
-Repository tooling requires Node.js 22 or newer and Python 3.
+- new hardware projects that need requirements, architecture, and part choices;
+- existing projects that need schematic, PCB, manufacturing, or bring-up work;
+- work that continues across tasks without mixing project state;
+- EDA automation where repeatable operations benefit from tested Actions.
 
-## Install for local Codex use
+It is not intended for software-only work, isolated component facts, textbook
+questions, or a one-step EDA question that does not need project context.
 
-Place this repository at:
+## How it works
+
+### Direct by default
+
+For ordinary project work, FlitRealize advances the requested stage directly.
+It uses reliable manufacturer or official distributor information when part
+facts are needed, and turns non-critical unknowns into explicit prototype tests
+instead of expanding every task into a formal review.
+
+### Curious only where it matters
+
+`CURIOUS_MODE` is a temporary local deep check, not a project-wide mode. It is
+used only when an exact part identity, pinout, package, critical behavior, curve,
+thermal limit, protection function, or conflicting source needs closer review.
+Once that question is answered or converted into a concrete test, normal work
+continues.
+
+### AI decides; scripts repeat
+
+The AI owns requirements, architecture, circuit decisions, calculations, and
+final part judgment. Scripts handle repeatable work such as searching,
+downloading, caching, inventory matching, format conversion, and EDA actions.
+Automation supports the design process; it does not replace engineering
+judgment.
+
+## Three working stages
+
+### 1. Design and schematic
+
+Turn product intent into requirements, architecture, interfaces, power
+relationships, structured part intent, resolved parts, and a complete schematic
+design. Before entering EDA, confirm the exact facts that affect identity,
+pinout, ratings, connectivity, or protection behavior.
+
+### 2. PCB and manufacturing preparation
+
+Establish the board outline, interface locations, stackup, rules, and critical
+placement constraints before placement, routing, copper, and configured DRC.
+When preparing an order, keep the saved source, Gerber, drill, BOM/CPL, and
+fabricator preview aligned.
+
+### 3. Prototype validation and revision
+
+Inspect the assembled board and unpowered rails, use current-limited power-up,
+verify rails before functional blocks, and test the loads, power cycles, and
+fault behavior that matter to the product. Measurements drive the next
+revision.
+
+## Parts and EDA stay separate
+
+Part intent and schematic design are portable. Electrical identity,
+manufacturer part number, procurement identity, source evidence, and EDA
+symbol/footprint binding are related but separate facts.
+
+EasyEDA Pro is the currently implemented EDA Provider, not a prerequisite for
+using FlitRealize. A project can complete requirements, architecture, part
+selection, calculations, and schematic intent without EasyEDA. Provider-specific
+references and Actions are loaded only when that EDA stage is requested.
+
+## Project continuity
+
+For a new project, FlitRealize starts from that project's own requirements and
+does not inherit another project's parts, calculations, or EDA state. Existing
+projects can use one `CURRENT_HANDOFF.md` when work must continue across tasks or
+conversations. Ordinary single-task work does not need extra state files.
+
+## Start using it
+
+Install from the GitHub repository with `$skill-installer`, or place the
+repository at:
 
 ```text
 $HOME/.agents/skills/flitrealize
 ```
 
-Or ask `$skill-installer` to install the skill from the repository URL after the
-GitHub remote is published. Invoke it explicitly with `$flitrealize`; Codex may
-also select it when a request matches the description. Restart Codex if a newly
-installed or renamed skill does not appear.
+Then invoke it explicitly with `$flitrealize`. Codex may also select it
+automatically for a matching project-level hardware request.
 
-See the [official OpenAI skill documentation](https://developers.openai.com/codex/skills)
-for current discovery and installation behavior. Standalone skills are intended
-for local use and experimentation; wider installable distribution can later use
-a plugin.
+Start a new project:
 
-## Repository layout
+```text
+$flitrealize Start a clean hardware project at <PROJECT_ROOT>.
+For now, complete only the requirements, architecture, and part candidates.
+Do not write to EDA until I review them.
+```
+
+Continue an existing project:
+
+```text
+$flitrealize Continue the hardware project at <PROJECT_ROOT>.
+Read its current handoff if earlier decisions are needed, then complete the
+next requested design task.
+```
+
+Ask for a focused stage:
+
+```text
+$flitrealize Review the current schematic and list only issues that can change
+connectivity, ratings, protection behavior, or prototype success.
+```
+
+Ordering, payment, stock reservation, and other new external commitments still
+require explicit authorization for that action.
+
+## Repository
 
 ```text
 flitrealize/
-├── SKILL.md                 # runtime entrypoint
-├── agents/openai.yaml       # Codex UI metadata
-├── references/              # runtime references loaded on demand
-├── schemas/                 # versioned portable hardware data contracts
-├── docs/zh-CN/              # human-readable Chinese mirror
-├── scripts/                 # local/EDA actions, provider control, validation, packaging
-└── .github/workflows/       # cross-platform validation and tag release automation
+├── SKILL.md            # Runtime entrypoint and whole-flow routing
+├── references/         # Stage and Provider details loaded on demand
+├── schemas/            # Portable machine-readable hardware contracts
+├── scripts/            # Registered Actions, validation, and packaging
+├── tests/              # Action and release regressions
+└── docs/zh-CN/         # Chinese review mirrors
 ```
 
-The release ZIP contains the runtime entrypoint, UI metadata, references,
-versioned schematic Contract/PlacementPlan/Snapshot schemas, the host/EDA
-Action runner, host-portable provider control, a provider-free schematic
-contract audit, public EasyEDA Components/Connect/Finalize workflows, and tested
-transactional EasyEDA actions for
-layer structure, component geometry, functional keepouts, realized copper
-pours, grounding inspection, necessary GND vias, and read-only global stitching
-planning. Author workspaces, machine
-profiles, project records, local catalogs, and optimization history are not part
-of the public artifact.
-
-## How the runtime fits together
-
-```mermaid
-flowchart LR
-    A[Project request] --> B[SKILL.md decision layer]
-    B --> C[Relevant reference only]
-    B --> D[Action runner]
-    D --> E[Manifest contract]
-    E --> F[Host runtime: deterministic local work]
-    E --> G[EDA runtime]
-    G --> H[Selected provider adapter and Bridge]
-    F --> I[Compact result plus local evidence report]
-    H --> I
-```
-
-## Reference map
-
-| Reference | Load it for |
-| --- | --- |
-| [`stage-gates.md`](references/stage-gates.md) | Entry and exit evidence for each hardware stage |
-| [`continuation.md`](references/continuation.md) | Project isolation and continuation across conversations |
-| [`schematic-contract.md`](references/schematic-contract.md) | Schematic inputs, outputs, review contracts, and evidence |
-| [`parts.md`](references/parts.md) | Portable part intent, inventory matching, sourcing identity, and reserved resolver boundary |
-| [`eda-select.md`](references/eda-select.md) | Lazy EDA Provider selection before loading Provider-specific workflows |
-| [`easyeda-pro.md`](references/easyeda-pro.md) | EasyEDA Pro Provider identity, source evidence, API boundaries, and workflow routing |
-| [`environment.md`](references/providers/easyeda-pro/environment.md) | EasyEDA Pro host Adapter, Bridge, handshake, and pairing flow |
-| [`pcb-foundation.md`](references/providers/easyeda-pro/pcb-foundation.md) | EasyEDA Pro layer, functional-keepout, and realized-copper flow |
-| [`pcb-grounding.md`](references/providers/easyeda-pro/pcb-grounding.md) | EasyEDA Pro necessary-return and optional-stitching flow |
-| [`local-actions.md`](references/local-actions.md) | Local Action contracts, runtime/provider boundaries, and evidence-led evolution |
-| [`pcb-review.md`](references/pcb-review.md) | Placement, routing, stackup, grounding, DRC, and manufacturing review |
-| [`audio-systems.md`](references/audio-systems.md) | Audio-specific architecture, layout, return paths, and validation |
-| [`prototype-validation.md`](references/prototype-validation.md) | Prototype ordering, safe bring-up, and validation planning |
-| [`debug-loop.md`](references/debug-loop.md) | Evidence-led diagnosis and revision closure |
-| [`production-handoff.md`](references/production-handoff.md) | Manufacturing outputs and production handoff |
-
-## Validate and package
+For repository development:
 
 ```powershell
 python scripts/validate.py
-python scripts/package_release.py
 npm test
 ./scripts/release.ps1 -DryRun
-# After reviewing and explicitly staging the intended files:
-./scripts/release.ps1 -Publish -Message "feat: release FlitRealize T1 v1.0.0-test.1"
 ```
 
-The package command creates a deterministic ZIP and SHA-256 sidecar under
-`dist/`. By default, and with `-DryRun`, the release entrypoint only runs
-repository validation, all Node Action tests, deterministic packaging,
-version/checksum/tag consistency, a clean-ZIP smoke test, and a staged-addition
-secret scan. `-Publish` is the only mutating mode: it requires an explicitly
-reviewed staged set, no unstaged or untracked files, a configured remote, and a
-commit message; it then commits, creates the version tag, and atomically pushes
-the branch and tag. The authorized tag push triggers an independent read-back
-validation that rebuilds the deterministic artifact, creates a draft GitHub
-Release, uploads the ZIP and SHA-256 sidecar, and publishes only after every
-check passes. A retry accepts an already-published release only when both remote
-assets exactly match the rebuilt bytes. If an English instruction changes,
-update the matching Chinese text and then refresh its source hash with:
-
-```powershell
-python scripts/update_translation_hashes.py
-```
+The release workflow builds a deterministic ZIP and SHA-256 sidecar. When an
+English runtime instruction changes, update its Chinese mirror and refresh the
+source hashes with `python scripts/update_translation_hashes.py`.
 
 ## License
 
