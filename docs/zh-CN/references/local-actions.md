@@ -1,86 +1,76 @@
 > 本文件是英文参考文件 [local-actions.md](../../../references/local-actions.md) 的中文只读镜像，供人工阅读和审阅。实际执行仍以英文源文件为准。
-> 同步日期：2026-08-29（Asia/Shanghai）
-> 英文源文件 SHA-256：`5C696683D243D46A5EB24D28F4B5D9BECDC40E216BCB801FCE703A23E4B7B1E4`
+> 同步日期：2026-08-30（Asia/Shanghai）
+> 英文源文件 SHA-256：`02EBCC6D053C307DA9E7063B005D0DDFB9CA35EF7447B64D445BD34E29B21BA5`
 
 # 可复用本地 Action 与 Provider 边界
 
-当重复项目工作应转化为确定性 Action、需要修改 Action Runner 或 Manifest，或者需要增加 EDA Provider 时读取本参考。普通的一次性分析不要加载。
+修改 Action runner 或 manifest、把重复操作提升为 Action，或实现真实 EDA Provider 时读取本参考。普通一次性分析不必加载。
 
-## 用职责分离维护唯一的项目事实
+## 只保留一个可移植边界
 
-- 项目合同拥有设计意图。
-- 源工件或结构化 Snapshot 记录实际实现状态。
-- Action 输入拥有一次边界明确的请求操作。
-- Action 报告是执行证据，不是第二套项目数据库。
-- 证据解释完成后，由 `CURRENT_HANDOFF.md` 记录当前结论和下一动作。
+- `SchematicContract` 保存可移植设计意图。
+- `schematic-contract-audit` 是进入 Provider 工作前的边界检查。
+- Provider 负责库身份、现场几何、写入和回读。
+- Snapshot 记录已实现状态；report 记录执行证据。
+- 生成的 plan 和 report 都不能变成第二套项目数据库。
 
-不要让生成报告静默地重新定义设计意图。设计意图发生变化时，应先更新其所属合同，再复用依赖该意图的写入操作。
-
-## 注册执行契约
-
-`scripts/actions/manifest.json` 是唯一公开注册表。Manifest schema 2 为每个 Action 声明：
-
-- `contractVersion`：输入/输出契约版本；
-- `domain`：它服务的硬件或系统领域；
-- `runtime`：`host` 表示本机确定性计算，`eda` 表示实时 EDA 操作；
-- `providers`：经过准确测试的 EDA Provider；host Action 使用空数组。
-
-只有当 EDA Action 正好声明一个 Provider 时，Runner 才会自动推断。否则必须显式选择 Provider。执行前拒绝未注册或与 Action 不兼容的 Provider。注册表只收录已经有实际测试 Adapter 的 Provider；不要创建空厂商目录，也不要宣称未来支持已经存在。
-
-Host Action 根据结构化输入在本机执行，不经过 EDA Bridge。EDA Action 通过选中的主机 Adapter 执行，并继续遵守实时写入锁。两种 Runtime 共用同一套模式/修改授权、精简摘要和主机本地完整报告外壳。
-
-不依赖 Provider 的 `schematic-contract-audit` 是第一个 Host Action。它校验可移植设计意图，不导入 EDA API，也不声称实际原理图已经匹配。
-
-## 按 Provider 子目录组织 Action
-
-EDA Action 文件位于 `scripts/actions/<provider>/` 下，Host Action 则保留在 `scripts/actions/` 根目录。Runner 解析 manifest 中声明的文件路径；启用 Provider 时，会先检查对应的 Provider 子目录：
+正常原理图入口刻意保持很小：
 
 ```text
-scripts/actions/
-  manifest.json                  ← 唯一公开注册表
-  schematic-contract-audit.js    ← Host Action（与 Provider 无关）
-  easyeda-pro/                   ← EasyEDA Pro EDA Action
-    eda-capabilities.js
-    pcb-ground-vias.js
-    schematic-inspect.js
-    ...
-  kicad/                         ← 未来 Provider（示例模板）
-    README.md
-  altium/                        ← 未来 Provider（示例模板）
-    README.md
+Contract Audit -> Components -> Connect -> Finalize
 ```
 
-新增 EDA Provider：
+`Contract Audit` 是公开 Host Action；另外三项是公开 workflow 描述，由内部细粒度 Action 支撑。Runner 不引入新的通用工作流执行引擎；Skill 按声明的阶段执行，并把上一步结果传给下一步。
 
-1. 创建 `scripts/actions/<provider-id>/`，其中包含用于探测新 EDA API 表面的 `eda-capabilities.js`。
-2. 在 `manifest.json` 中注册 Provider 及其 Action。
-3. 使用 `eda-host.mjs register --eda <provider-id> --adapter-root <path>` 注册 Adapter 根目录。
-4. 使用模拟 EDA 对象在 `tests/<action-name>.test.mjs` 中编写测试。
-5. 至少有一个 Action 通过实时 EDA 连接测试后，才将该 Provider 加入注册表。
+## 登记公开 Workflow 与内部 Action
 
-## 让输出有价值，同时不隐藏覆盖范围
+`scripts/actions/manifest.json` 是注册表。扁平 `actions` 对象保留稳定精确查找名。Action 声明 `contractVersion`、`domain`、`runtime`、支持的 `providers`、mode 和写入属性。`internal: true` 只把实现 Action 从正常发现界面隐藏，不会让它失去登记或测试能力。
 
-默认输出应包括 Action 身份、契约版本、领域、Runtime、Provider、模式、是否修改、适用时的文档身份、指纹、有用计数、问题数量，以及是否存在下一请求或回滚请求。完整响应保存在本地报告中。
+`workflows` 对象只提供发现和编排元数据。每个 workflow 指定一个已测试 Provider，以及 `prepare`、`apply`、`verify`、`rollback` 等阶段的有序步骤。Manifest 加载会拒绝未知 Action、mode、Provider、domain 不一致和非法 optional 步骤。
 
-分别报告 `unsupported`、`unknown`、阻断项和相关覆盖范围。`PASS` 只证明声明过的检查范围。API 对象缺失或图元未识别时，不能把它当成空设计。
+`action-runner.mjs list` 返回公开 Actions、公开 workflows、`actionGroups` 和 `workflowGroups`；`list --domain schematic` 同时筛选两种入口。内部 Action 仍可按精确名称运行，用于 workflow 编排、调试和回归测试。写入授权仍按每个 Action 执行。
 
-多个 Action 共享实际状态或授权差异时，使用带版本的 Snapshot 和 Patch 格式。Provider 原生 ID 保持不透明；Provider 扩展放入带命名空间的字段，不要泄漏到可移植的决策规则中。
+## Provider 代码必须对应真实实现
 
-## 根据证据进化，而不是不断堆积
+Host Actions 位于 `scripts/actions/`，EasyEDA 代码位于 `scripts/actions/easyeda-pro/`。Manifest 的 file 路径以 `scripts/actions/` 为基准且精确；旧的 Provider 相对 basename 回退只用于兼容。
 
-当确定性执行能提高可靠性或避免模型反复完成大量工作时，再把重复操作提升为 Action。遇到一次真实失败或未知情况后：
+不要用空的 KiCad、Altium 或其他目录表示架构。只有具备可工作的 Adapter 边界、能力探测、至少一个已实现 Action、mock 回归覆盖和有边界的现场检查时才登记 Provider。新 Provider 实现相同的可移植 Contract 边界和 workflow 结果，不必在内部模仿 EasyEDA primitive。
 
-1. 将其分类为输入错误、规则缺口、Provider 漂移、不支持的几何，或设计决策；
-2. 在适合时缩减为脱敏 Fixture；
-3. 加入一个会因已观察原因而失败的回归测试；
-4. 只修改最小的所属规则、Action 或 Adapter；
-5. 重新运行旧的正例、反例、边界和回滚案例；
-6. 发布实际行为和剩余不支持范围。
+扩展工作因此只需：
 
-单个项目特有的方法仍然只是候选，除非有权威证据或性质明显不同的项目支持提升。不要让本地 Action 根据一次运行自行改写可复用规则；它可以报告候选规则，等待审阅。
+1. 把可移植意图映射到原生库/器件/引脚身份；
+2. 把原生文档状态捕获到共享 Snapshot 边界；
+3. 用按 ID 回读实现有边界的原生写入；
+4. 只登记已经测试的 Actions 与 workflows；
+5. 保留 unknown 和 unsupported 覆盖，不能返回空成功。
 
-## 检测陈旧状态并失败关闭
+在两个真实 Provider 证明有需要以前，不增加 provider-to-file 抽象。
 
-把可复用计划绑定到相关合同、Snapshot、文档、Adapter 和能力指纹。手动修改源文件、切换选中文档、Provider/API 变化或所需能力失败后，使计划失效。写入后验证预期差异和受保护不变量；回读不能证明结果时，停止并给出准确的不支持证据。
+## 内部制品保持适度
 
-用原始数据到摘要的压缩比例、缓存或差异复用率、覆盖率、误报率、不支持数量、零未授权变化和经过验证的回滚来衡量价值，而不是只统计 Action 数量。
+只有跨越实质边界或被多个独立子系统消费的制品才提升为共享版本化 schema。Contract、PlacementPlan 和 Snapshot 达到这个标准。EasyEDA 连接规划只是内部瞬态结果，因此保留带版本的 Action 结果结构，但不提升为公开 JSON Schema。Provider binding 解析同样返回瞬态 `providerBindings` map；项目需要持久化时，可把选中的 binding 缓存在 `contract.components[].bindings.<provider>` 下，不需要单独的 BindingSet 数据库。
+
+## 保持 run 可丢弃
+
+把本次运行的工作文件放入一个事务目录：
+
+```text
+.flitrealize/runs/<run-id>/
+├── inputs/
+├── bridge/
+└── reports/
+```
+
+`inputs/` 用于 request、为执行复制的 Contract 和 plan；`bridge/` 用于生成的 Provider 代码或命令片段；`reports/` 用于瞬态 inspect/apply/verify 结果、Snapshot 和覆盖报告。通用 bridge 基础设施、Action runner 和可复用 Provider 逻辑保留在 Skill 或 adapter 中，不复制到每个项目。
+
+写入尚未完成、验证未结束或仍可能需要 rollback 数据时保留该 run。成功对账后删除整个 run；普通的已放弃失败也删除。只有 `BATTLE_LOG.md` 仍引用反复出现的活动故障时才保留故障 run。只把选定的耐久证据提升到 `evidence/`，并由当前项目状态引用。删除 `.flitrealize/` 绝不能丢失稳定设计意图、权威 EDA 源文件或保留证据的唯一副本。
+
+## 保留事务安全
+
+Provider 写入在 rollback 有意义时仍使用 plan/apply/verify/rollback。Plan 绑定选中文档及相关 Contract、binding、capability、Snapshot 和 geometry 指纹。手工修改或超时后必须重新 inspect。通过创建出的原生 ID 验证请求增量并保护原有 ID；全局枚举只是覆盖证据，不能替代目标回读。
+
+Save 必须显式执行且没有伪 rollback。分别报告 `unsupported`、`unknown`、blocker 和 coverage。`PASS` 只证明声明过的检查范围。
+
+## 从证据演进
+
+只有重复逻辑确实减少错误或大量重复工作时才提升。真实失败发生后，先分类，再缩减为脱敏 fixture，添加回归，修改最小归属规则，并记录剩余不支持范围。用可靠复用、过期 plan 拒绝、覆盖率和可验证恢复衡量价值，而不是 Action 数量。

@@ -50,12 +50,57 @@ interface, capture expectations, and targeted tests as one controlled delta.
 
 The runtime package includes
 `schemas/schematic-contract.v1.schema.json` for design intent and
-`schemas/schematic-snapshot.v1.schema.json` for a future provider-produced
-read-only realization. Keep block, power-domain, interface, component role,
-pin classification, net endpoint, constraint, exception, and evidence facts in
-the portable Contract. Put EDA-native library UUIDs and similar identities only
-under a namespaced component binding such as `bindings.easyedaPro`; do not make
-them portable facts.
+`schemas/schematic-placement-plan.v1.schema.json` for requested placement,
+and `schemas/schematic-snapshot.v1.schema.json` for provider-captured read-only
+realization. Keep block, power-domain, interface, component role, pin
+classification, net endpoint, constraint, exception, and evidence facts in the
+portable Contract. PlacementPlan is a provider-bound requested delta, and a
+Snapshot is realized evidence; neither replaces the Contract.
+
+EDA-native library UUIDs and similar identities are optional provider caches
+under a namespaced component binding such as `bindings.easyedaPro`, never
+portable facts. A provider resolver may instead return an ephemeral
+`providerBindings` map for the current realization. Do not introduce a separate
+BindingSet database merely to move those values between two adjacent steps.
+
+Contract endpoints should use stable semantic pin names when that makes design
+intent clearer. A Provider binding may then map one semantic pin to one or more
+native symbol pins without changing the portable net intent:
+
+```json
+{
+  "bindings": {
+    "easyedaPro": {
+      "libraryUuid": "<library-uuid>",
+      "deviceUuid": "<device-uuid>",
+      "pinMap": { "VBUS": ["A4B9"], "EP": ["25"] }
+    }
+  }
+}
+```
+
+Treat this mapping as part of the selected Provider device identity. Missing,
+ambiguous, or contradicted native pins block Provider-bound wire generation.
+Provider-captured symbol dimensions and pin-side geometry belong in a derived
+geometry catalog or Snapshot evidence, not in portable electrical intent.
+
+### Keep pin facts in one ownership chain
+
+- Archive manufacturer pin facts in `parts/datasheets/` only when their exact
+  revision materially supports the project.
+- Record the selected project pin roles, classifications, nets, safe defaults,
+  and must-connect decisions in `design/SCHEMATIC_CONTRACT.v1.json`.
+- Keep native symbol-pin translation in
+  `components[].bindings.<provider>.pinMap`; it is a provider identity mapping,
+  not a second electrical design.
+- When people need a pin-and-net table, derive `design/PIN_NET_MAP.md` from the
+  Contract and BOM. It may show component, semantic pin, datasheet name, project
+  role, net, classification, safe default, and must-connect status, but it must
+  never be maintained as an independent source of truth.
+
+Do not infer swappable pins from matching names, free text, or symbol geometry.
+Automatic pin swapping would require explicit, versioned Contract semantics and
+separate review; Contract v1 does not define that behavior.
 
 Run the provider-free `schematic-contract-audit` Host Action before a Contract
 drives capture comparison or generation:
@@ -72,9 +117,14 @@ returns `passed`, `conditional`, or `blocked` plus a stable fingerprint and
 compact issue list. This proves only internal contract consistency: it does not
 prove electrical correctness or that an EDA document realizes the Contract.
 
-The Snapshot schema is frozen as the target boundary for the next read-only EDA
-capture Action. Until that Action and a separate Contract-to-Snapshot comparer
-exist, never claim realized-schematic agreement from the Contract audit.
+After Audit, Provider workflows own library resolution, geometry, and writes.
+The EasyEDA Components workflow produces a PlacementPlan and places it; Connect
+captures a Snapshot and uses an internal transient plan to create bounded
+endpoint stubs; Finalize explicitly saves and runs DRC. The connection plan is
+not a portable public schema because it is consumed only inside one Provider
+stage. A full Contract-to-Snapshot connectivity comparer still does not exist,
+so never claim realized-schematic agreement from Contract audit, Snapshot
+capture, stub creation, or DRC alone.
 
 ## Use the right fact source
 
@@ -112,11 +162,12 @@ system behavior. Bound intentional exceptions.
 
 ## Add a human overview only when useful
 
-For a complex project or manual EDA collaboration, derive `ALL_VIEW.md` (or an
-equivalent overview) from the contract and BOM. Useful sections include component
-roles, functional blocks, swappable pins, and later the routing plan. Keep its
-revision pointer synchronized, but do not make this derived file a prerequisite
-for a small project whose contract is already readable.
+For a complex project or manual EDA collaboration, derive `design/ALL_VIEW.md`
+(or an equivalent overview) from the Contract and BOM. Useful sections include
+component roles, functional blocks, explicitly reviewed swappable-pin policy,
+and later the routing plan. Keep its revision pointer synchronized, but do not
+make this derived file a prerequisite for a small project whose Contract is
+already readable.
 
 ## Common traps
 

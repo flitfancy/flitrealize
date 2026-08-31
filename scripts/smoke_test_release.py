@@ -94,13 +94,32 @@ def main() -> int:
         listed = json.loads(list_result.stdout)
         listed_providers = listed.get("providers", [])
         listed_actions = listed.get("actions", [])
+        listed_groups = listed.get("actionGroups", {})
+        listed_workflows = listed.get("workflows", [])
+        listed_workflow_groups = listed.get("workflowGroups", {})
         if (
             listed.get("schemaVersion") != 2
             or listed.get("skillVersion") != version
             or [provider.get("id") for provider in listed_providers] != ["easyeda-pro"]
             or not listed_actions
+            or set(listed_groups) != {"pcb", "schematic", "system"}
+            or sorted(name for names in listed_groups.values() for name in names)
+            != sorted(action.get("name") for action in listed_actions)
+            or sorted(workflow.get("name") for workflow in listed_workflows)
+            != [
+                "easyeda-schematic-components",
+                "easyeda-schematic-connect",
+                "easyeda-schematic-finalize",
+            ]
+            or listed_workflow_groups.get("schematic")
+            != [
+                "easyeda-schematic-components",
+                "easyeda-schematic-connect",
+                "easyeda-schematic-finalize",
+            ]
             or any(
-                action.get("contractVersion") != 1
+                not isinstance(action.get("contractVersion"), int)
+                or action.get("contractVersion") < 1
                 or action.get("runtime") not in {"host", "eda"}
                 or (
                     action.get("providers") != []

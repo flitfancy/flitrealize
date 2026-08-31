@@ -30,6 +30,7 @@ return await (async () => {
     'drc.netClass.create': ['pcb_Drc', 'createNetClass'],
     'drc.netClass.addNet': ['pcb_Drc', 'addNetToNetClass'],
     'drc.differentialPair.list': ['pcb_Drc', 'getAllDifferentialPairs'],
+    'lib.device.search': ['lib_Device', 'search'],
     'sch.component.list': ['sch_PrimitiveComponent', 'getAll'],
     'sch.component.get': ['sch_PrimitiveComponent', 'get'],
     'sch.component.create': ['sch_PrimitiveComponent', 'create'],

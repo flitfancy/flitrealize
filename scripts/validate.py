@@ -55,6 +55,37 @@ def markdown_link_failures(files: list[Path]) -> list[str]:
     return failures
 
 
+def reachable_reference_files(entrypoint: Path) -> set[Path]:
+    """Return source references reachable through local Markdown links."""
+    references_root = (ROOT / "references").resolve()
+    pattern = re.compile(r"\]\(([^)]+)\)")
+    reachable: set[Path] = set()
+    visited: set[Path] = set()
+    pending = [entrypoint.resolve()]
+
+    while pending:
+        path = pending.pop()
+        if path in visited or not path.is_file() or path.suffix.lower() != ".md":
+            continue
+        visited.add(path)
+        text = path.read_text(encoding="utf-8")
+        for raw_target in pattern.findall(text):
+            target = raw_target.strip().split(maxsplit=1)[0].strip("<>")
+            if not target or target.startswith(("#", "http://", "https://", "mailto:")):
+                continue
+            target = unquote(target.split("#", 1)[0])
+            resolved = (path.parent / target).resolve()
+            try:
+                resolved.relative_to(references_root)
+            except ValueError:
+                continue
+            if resolved.is_file() and resolved.suffix.lower() == ".md" and resolved not in reachable:
+                reachable.add(resolved)
+                pending.append(resolved)
+
+    return reachable
+
+
 def parse_frontmatter(path: Path) -> dict[str, str]:
     text = path.read_text(encoding="utf-8")
     match = re.match(r"\A---\n(.*?)\n---(?:\n|\Z)", text, re.DOTALL)
@@ -96,6 +127,7 @@ def main() -> int:
         ROOT / "scripts/smoke_test_release.py",
         ROOT / "scripts/actions/manifest.json",
         ROOT / "schemas/schematic-contract.v1.schema.json",
+        ROOT / "schemas/schematic-placement-plan.v1.schema.json",
         ROOT / "schemas/schematic-snapshot.v1.schema.json",
     ]
     missing = [str(path.relative_to(ROOT)) for path in required if not path.is_file()]
@@ -173,16 +205,15 @@ def main() -> int:
         f"{len(pairs)}/{len(pairs)} match" if not hash_failures else "stale: " + ", ".join(hash_failures),
     )
 
-    reference_links = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+    reachable_references = reachable_reference_files(ROOT / "SKILL.md")
     undiscoverable = []
     for source in sorted((ROOT / "references").rglob("*.md")):
-        relative = source.relative_to(ROOT / "references").as_posix()
-        if f"references/{relative}" not in reference_links:
-            undiscoverable.append(relative)
+        if source.resolve() not in reachable_references:
+            undiscoverable.append(source.relative_to(ROOT / "references").as_posix())
     checks.check(
         "reference routing",
         not undiscoverable,
-        "all references linked from SKILL.md" if not undiscoverable else ", ".join(undiscoverable),
+        "all references reachable from SKILL.md" if not undiscoverable else ", ".join(undiscoverable),
     )
 
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / "VERSION").is_file() else ""
@@ -218,15 +249,18 @@ def main() -> int:
         manifest = json.loads((ROOT / "scripts/actions/manifest.json").read_text(encoding="utf-8"))
         providers = manifest.get("providers", {})
         actions = manifest.get("actions", {})
+        workflows = manifest.get("workflows", {})
         if (
             manifest.get("schemaVersion") != 2
             or not isinstance(providers, dict)
             or not isinstance(actions, dict)
             or not actions
+            or not isinstance(workflows, dict)
         ):
-            action_registry_failures.append("manifest schema/providers/actions")
+            action_registry_failures.append("manifest schema/providers/actions/workflows")
             providers = {}
             actions = {}
+            workflows = {}
         for provider_name, provider in providers.items():
             if (
                 not isinstance(provider_name, str)
@@ -256,6 +290,8 @@ def main() -> int:
                 action_registry_failures.append(f"{action_name}: invalid contractVersion")
             if not isinstance(action.get("domain"), str) or not action["domain"].strip():
                 action_registry_failures.append(f"{action_name}: invalid domain")
+            if "internal" in action and not isinstance(action["internal"], bool):
+                action_registry_failures.append(f"{action_name}: internal must be boolean")
             if runtime not in {"host", "eda"} or not isinstance(action_providers, list):
                 action_registry_failures.append(f"{action_name}: invalid runtime/providers")
             elif runtime == "host" and action_providers:
@@ -271,6 +307,32 @@ def main() -> int:
             for mode_name, contract in modes.items():
                 if not isinstance(contract, dict) or not isinstance(contract.get("mutates"), bool):
                     action_registry_failures.append(f"{action_name}/{mode_name}: mutates must be boolean")
+        for workflow_name, workflow in workflows.items():
+            if not isinstance(workflow, dict):
+                action_registry_failures.append(f"{workflow_name}: invalid workflow")
+                continue
+            provider = workflow.get("provider")
+            domain = workflow.get("domain")
+            phases = workflow.get("phases")
+            if provider not in providers or not isinstance(domain, str) or not isinstance(phases, dict) or not phases:
+                action_registry_failures.append(f"{workflow_name}: invalid provider/domain/phases")
+                continue
+            for phase_name, steps in phases.items():
+                if not isinstance(steps, list) or not steps:
+                    action_registry_failures.append(f"{workflow_name}/{phase_name}: invalid steps")
+                    continue
+                for index, step in enumerate(steps):
+                    action = actions.get(step.get("action")) if isinstance(step, dict) else None
+                    mode = step.get("mode") if isinstance(step, dict) else None
+                    if (
+                        not isinstance(step, dict)
+                        or not isinstance(action, dict)
+                        or mode not in action.get("modes", {})
+                        or action.get("domain") != domain
+                        or (action.get("runtime") == "eda" and provider not in action.get("providers", []))
+                        or ("optional" in step and not isinstance(step["optional"], bool))
+                    ):
+                        action_registry_failures.append(f"{workflow_name}/{phase_name}[{index}]: invalid action reference")
         actual_files = set()
         for path in (ROOT / "scripts/actions").rglob("*.js"):
             rel = path.relative_to(ROOT / "scripts/actions").as_posix()
@@ -293,6 +355,7 @@ def main() -> int:
     schema_failures: list[str] = []
     expected_schemas = {
         "schematic-contract.v1.schema.json": "flitrealize.schematic-contract",
+        "schematic-placement-plan.v1.schema.json": "flitrealize.schematic-placement-plan",
         "schematic-snapshot.v1.schema.json": "flitrealize.schematic-snapshot",
     }
     for file_name, expected_kind in expected_schemas.items():
@@ -312,7 +375,7 @@ def main() -> int:
     checks.check(
         "schematic schemas",
         not schema_failures,
-        "Contract v1 and Snapshot v1 are machine-readable" if not schema_failures else "; ".join(schema_failures),
+        "Contract, PlacementPlan, and Snapshot v1 are machine-readable" if not schema_failures else "; ".join(schema_failures),
     )
 
     if checks.failures:

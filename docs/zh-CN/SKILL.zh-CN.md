@@ -1,111 +1,129 @@
 ---
 name: flitrealize
-description: 以项目隔离和证据驱动决策，推进有持续状态的电子硬件项目，覆盖需求、原理图、PCB、原型下单、上电与改版。适用于项目级 EDA 工作或跨对话续接；不要用于纯软件工作、孤立器件事实、教材问题或无需项目状态的一步式 EDA 指导。
+description: 推进有持续状态的电子硬件项目，从想法、需求和器件选择到原理图、PCB、制造文件、样机上电和改版。适用于项目级 EDA 工作或跨对话续接；不用于纯软件工作、孤立器件事实、教材问题或不需要项目状态的一步式 EDA 指导。
 ---
 
 > 本文件是英文主执行文件 [SKILL.md](../../SKILL.md) 的中文只读镜像，供人工阅读和审阅。实际执行仍以英文源文件为准。
-> 同步日期：2026-08-29（Asia/Shanghai）
-> 英文源文件 SHA-256：`63AD2AAE12D7BCB0F73718C6538DAC800CB1710DC2EBE1C8DA7C46A87869EEED`
-
-本文件是主执行文件的完整翻译；整个 Skill 还包括 `references/` 中 14 个按需读取的中文专题参考，并不是只包含本文件。
+> 同步日期：2026-08-31（Asia/Shanghai）
+> 英文源文件 SHA-256：`361435F033FB53B6E9B92EC2A20B97A3BD08290B32864B6532DF109C375CA9F4`
 
 # FlitRealize
 
 ## 目标
 
-用最轻但可靠的过程推进当前硬件决策。默认目标是可测试的个人原型；项目事实留在正确项目内，后续改版由测量证据驱动。
+完成用户当前要求的硬件工作，从想法持续推进到可测试的实物。
 
-## 选择项目、意图和证据
+主流程覆盖完整项目，但每次只推进用户当前要求的阶段。没有要求的后续阶段不提前展开，也不创建对应文件或流程。
 
-### 项目与可写范围
+## 项目和权限
 
-- **NEW_PROJECT：**仅当用户明确要求新建或独立项目时使用；不得继承其他项目状态。
-- **EXISTING_PROJECT：**继续、修改、评审、调试或制造已识别的项目/制品。确认精确根目录后先读 `CURRENT_HANDOFF.md`；只有 `BATTLE_LOG.md` 描述活动子系统故障时才随后读取。
-- 只有当歧义会改变写入位置或受保护基线时，才问一个窄的身份/根目录问题。
+- **NEW_PROJECT：**仅当用户明确要求新建或独立项目时使用，不继承其他项目的设计、器件、计算或 EDA 状态。
+- **EXISTING_PROJECT：**继续已识别的项目。只有当前任务依赖以前的项目决策时，才读取 `CURRENT_HANDOFF.md`；`BATTLE_LOG.md` 只用于仍在反复实验的活动故障。
 
-研究、Skill/catalog 维护、只读 capture、项目编辑和实时 EDA 修改是不同范围。除非用户要求变更，否则分析保持只读。
+用户当前请求决定目标、范围和授权。
 
-对于已确认项目根目录内的普通请求修改，简短说明范围后即可执行。以下情况使用完整锁定：新根目录、批量迁移、删除/移动、已评审基线或制造输出、实时 EDA 写入。
+当前任务内的修改，包括已授权的 EDA 写入，直接执行。只有无法唯一确定写入目标，或者发现无法安全合并的实际冲突时，才询问用户。
+
+下单、付款、预留库存或其他会产生新外部承诺的操作，需要获得该次明确授权。
+
+初始化项目或准备采购、制造交付时，读取 [production-handoff.md](references/production-handoff.md)。
+
+## 全流程
 
 ```text
-PROJECT_ROOT: <精确根目录>
-ROUTE: NEW_PROJECT | EXISTING_PROJECT
-WRITABLE_SCOPE: <精确子树>
-PROTECTED: <基线或同级根目录>
-RECOVERY_AND_CHECK: <检查点与成功判据>
+想法和需求
+    → 架构、接口和器件意图
+    → 器件解析与确认
+    → 原理图方案
+    → EDA 原理图
+    → PCB 约束、布局和布线
+    → 制造文件与下单
+    → 样机上电和测试
+    → 改版
 ```
 
-实时 EDA 还要注明精确文档、预期增量和受影响对象上限。下单、付款或覆盖已评审基线等重大外部动作，需要针对该动作单独确认。初始化和制造身份细节见 [production-handoff.md](references/production-handoff.md)。
+用户只要求其中一部分时，完成该部分后停止。
 
-### 任务意图
+器件选择和原理图意图可以独立于具体 EDA 平台完成。EasyEDA、KiCad 或其他 EDA 只是后续 Provider；缺少某个平台的器件绑定，不得阻塞可移植设计和器件确认。
 
-- **FAST_PROTOTYPE：**个人和一次性板卡的默认模式。阻断很可能导致功能、安全或制造失败的问题；其他有边界的缺口记录为假设或到货测试。
-- **ENGINEERING_REVIEW：**只检查指定制品或问题，报告证据、不确定性和最小有用下一步。
-- **PRODUCTION_RELEASE：**仅用于明确的批量、PCBA、可复现性或正式发布。准备度必须有实物原型证据。
+## 工作方式
 
-对于市电、电池/充电、高压/大功率、医疗、法规或其他安全关键工作，应核对当前适用标准并取得所需专业评审；本通用 Skill 本身不能作为发布证据。
+正常情况下直接推进当前阶段。
 
-### 证据状态
+当某个具体判断出现以下情况时，只对相关局部进入 **CURIOUS_MODE**：
 
-证据缺失或冲突时为 **OPEN**；缺失证明的后果有边界并有复查测试，且继续原型工作是安全的，则为 **CONDITIONAL**；只有所需证据与活动版本一致时才是 **PASSED**。`automated-green`、`visual-accepted`、`manufacturing-checked` 和 `physical-verified` 证明不同事实，互不蕴含。
+- 准确型号、后缀、引脚、封装或关键参数缺少可靠依据，或者资料互相冲突；
+- 当前判断依赖曲线、瞬态、温升、降额、机械时序等普通参数表不能直接回答的行为；
+- 使用现有资料和普通计算，仍无法判断某项明确的核心需求是否满足；
+- 器件在需求或架构中明确承担保护、隔离或故障关断功能；
+- 用户明确要求深入核验。
 
-只有详细生命周期跟踪或正式生产确实有助于当前决策时，才读取 [stage-gates.md](references/stage-gates.md)。
+进入 CURIOUS_MODE 后，读取准确型号的当前制造商资料，只检查与当前问题有关的最坏情况、引脚对应、默认状态和故障行为。可靠的制造商或官方分销商资料默认可以直接使用；只有资料缺失或互相冲突时才增加来源核对。
 
-## 通过三个原型检查点推进
+问题确认或转为明确测试项后，退出 CURIOUS_MODE，继续当前阶段。CURIOUS_MODE 不扩大到整个项目，也不自动创建额外报告、状态或文件。
 
-### 1. 原理图正确性
+## 三个主要阶段
 
-检查需求、接口、电源、安全默认状态、主电路、引脚、额定值、数值、封装、替代、测试方法和保留 ERC 例外。陌生或后果较大的组合路径需要针对性证据，或保持条件通过。读取 [schematic-contract.md](references/schematic-contract.md)；音频路径另读 [audio-systems.md](references/audio-systems.md)。
+### 1. 设计与原理图
 
-只有当项目复杂度、手工 EDA 协作或用户确实受益时，才生成 `ALL_VIEW.md` 等人类总览；机器可读契约仍是权威。
+整理需求，确定架构、接口、电源关系和器件意图，然后完成当前设计需要的器件确认和原理图方案。
 
-### 2. 原型下单检查
+不影响架构、器件选择和连接的缺口，可以记录为样机测试。原理图方案完成后、写入 EDA 前，确认影响器件身份、引脚、额定值和保护功能的关键资料。
 
-把已保存源版本与导出配对。验证关键封装和方向、连通性、板框、孔、间距、铺铜、已配置 DRC、Gerber/钻孔内容和板厂预览。只有新的或不确定的 generator/template/fabricator 链路会带来实质制造风险时，才先跑 toy board 导出。
+### 2. PCB 与制造准备
 
-布线前，根据设计的回流路径、布线密度、隔离、电源/散热需求、制造能力和成本选择铜层数量及有序层角色，不凭习惯强制固定层数。把该决策与网络类、关键拓扑和有序布线计划一起记录到当前契约或选定的人类总览。接地按三个由设计支撑的阶段闭合：先建立并验证实际参考铜，再闭合必要的局部/换层回流，最后只在布线稳定后按需优化全局缝合。读取 [pcb-review.md](references/pcb-review.md)。使用 EasyEDA 时直接读取对应 Provider 流程：层叠、keepout 和实际铺铜读 [pcb-foundation.md](references/providers/easyeda-pro/pcb-foundation.md)；回流闭合与缝合读 [pcb-grounding.md](references/providers/easyeda-pro/pcb-grounding.md)；Provider 身份、源证据和导出/API 边界读 [easyeda-pro.md](references/easyeda-pro.md)。
+用户要求 PCB 时，确定板框、接口位置、层叠、网络规则和关键布局约束，再完成布局、布线、铺铜和 DRC。
 
-### 3. 实物上电
+准备制造或下单时，核对当前保存的源文件、Gerber、钻孔文件以及需要的 BOM、CPL 和板厂预览。
 
-先检查并测量未上电电源轨对地电阻；使用保守限流上电，先验证电源轨，再逐块启用。真实负载、可信故障、上下电和日志测试的时长与覆盖度，由原型风险和验收目标决定。读取 [prototype-validation.md](references/prototype-validation.md)。
+### 3. 样机验证与改版
 
-## 执行不变量
+样机到手后，先检查硬件和未上电电源轨，再使用限流电源上电。先确认电源轨，然后逐步启用功能块，并测试当前产品真正需要的负载、上下电和故障行为。
 
-- 当前用户明确指令拥有目标、范围和授权；项目契约、主数据手册、当前平台文档和制造商约束拥有技术事实。
-- 只有会改变架构、安全、制造、不可逆编辑、项目身份或完成定义的歧义才需要确认。
-- 保护已接受的手工 EDA 和已评审基线。大范围变更需要当前 capture；手工修改引脚、封装、布局、布线、板框或 keepout 后，冲突的生成 apply 脚本立即过期。
-- 在扩展陌生或重复 UI/API 工作前先验证一个代表对象；重复足以获益时优先数据驱动自动化。
-- 失败后使用新证据。只有活动子系统需要反复聚焦实验时才读取 [debug-loop.md](references/debug-loop.md)；普通实现或已完成任务不创建 battle log。
+把测量结果用于确认当前设计或形成下一版修改。
 
-如果宿主明确提供了工作区本地硬件知识 catalog 或用户偏好文件，仅在相关且处于可读范围时查询。缺少这些可选资料不得阻塞核心流程，也不得假定作者本机路径。单项目方法保持 candidate，直到实质不同项目提供真实支持证据；知识层晋升还要求该层在可写范围内。
+## 全局注意事项
 
-## 保存当前状态
+- 项目资料、准确数据手册和当前平台文档决定技术事实。
+- 其他项目只能作为参考；当前项目的器件、计算和连接必须由当前需求或资料重新确认。
+- AI 负责需求、架构、电路设计、关键计算和最终器件判断；脚本负责检索、下载、缓存、库存匹配、格式转换、去重和重复 EDA 操作。
+- 器件的电气身份、采购身份、资料来源和 EDA 绑定分别记录，不互相代替。
+- 需要检索、转换或重复操作时，先按当前阶段查询已注册的公共 Action，不遍历脚本目录。没有匹配 Action 时再采用一次性实现。
+- 陌生或重复操作在批量执行前，先验证一个代表对象。
+- 不为未进入的阶段创建额外状态、报告或项目文件。
+- 用户要求法规、合规或正式发布结论时，核对当前适用标准和需要的专业证据；本 Skill 本身不构成发布证明。
 
-每个项目根目录只有一个 `CURRENT_HANDOFF.md`，保存稳定身份、版本、决策、已验证事实、风险、权威制品和主要下一步。它保存当前状态而不是历史。`BATTLE_LOG.md` 是可选临时文件：只覆盖一个活动且不稳定的子系统，读取顺序在 handoff 之后；稳定结论合并回 handoff 后归档或删除。
+## 保存项目状态
 
-续接或更新状态时读取 [continuation.md](references/continuation.md)。即使未授权持久化，过期或不安全判定也立即生效；此时不得执行相关制品，并报告警告尚未持久化。
+只有项目需要跨任务或跨对话继续时，才创建或更新项目根目录中的 `CURRENT_HANDOFF.md`。
 
-## 只加载相关细节
+它只保存当前仍然有效的项目身份、主要决策、已确认事实、重要未决项、权威文件和下一步，不保存完整历史。
 
-- 原理图和器件：[schematic-contract.md](references/schematic-contract.md)
-- PCB 和制造图形：[pcb-review.md](references/pcb-review.md)
-- EasyEDA Pro Provider 身份与 API/源边界：[easyeda-pro.md](references/easyeda-pro.md)
-- EasyEDA Pro 主机环境与 Bridge：[environment.md](references/providers/easyeda-pro/environment.md)
-- EasyEDA Pro PCB 基础流程：[pcb-foundation.md](references/providers/easyeda-pro/pcb-foundation.md)
-- EasyEDA Pro PCB 接地流程：[pcb-grounding.md](references/providers/easyeda-pro/pcb-grounding.md)
-- EasyEDA Pro 原理图器件放置、导线、网络标识和 DRC：
-  [schematic-workflow.md](references/providers/easyeda-pro/schematic-workflow.md)
-- 可复用本地 Action 与 EDA Provider 边界：
-  [local-actions.md](references/local-actions.md)
+需要续接项目时读取 [continuation.md](references/continuation.md)。
+
+只有一个活动故障需要多轮实验时，才使用 `BATTLE_LOG.md` 并读取 [debug-loop.md](references/debug-loop.md)。问题稳定后，把结论合并回当前项目状态。
+
+## 按阶段加载详细说明
+
+只读取当前任务真正需要的文档：
+
+- 器件意图、库存匹配和资料解析：
+  [parts.md](references/parts.md)
+- 原理图和机器可读 Contract：
+  [schematic-contract.md](references/schematic-contract.md)
+- EDA Provider 选择：
+  [eda-select.md](references/eda-select.md)
+- PCB、布局、布线和制造图形：
+  [pcb-review.md](references/pcb-review.md)
+- 音频设计：
+  [audio-systems.md](references/audio-systems.md)
+- 样机上电和验证：
+  [prototype-validation.md](references/prototype-validation.md)
 - 活动且重复的调试：[debug-loop.md](references/debug-loop.md)
-- 音频路径：[audio-systems.md](references/audio-systems.md)
-- 上电：[prototype-validation.md](references/prototype-validation.md)
-- 续接与状态归属：[continuation.md](references/continuation.md)
-- 初始化、采购和制造包：[production-handoff.md](references/production-handoff.md)
-- 详细生命周期/正式发布：[stage-gates.md](references/stage-gates.md)
+- 跨任务续接：[continuation.md](references/continuation.md)
+- 项目初始化、采购和制造交付：
+  [production-handoff.md](references/production-handoff.md)
+- 完整生命周期跟踪、制造候选评审和正式发布：
+  [stage-gates.md](references/stage-gates.md)
 
-当前决策已有支持后停止加载。
-
-## 报告决策
-
-先给当前决策，再给阻塞项、已接受风险、不确定性、证据状态和最小有用下一步/测试。不得仅凭外观、理论评审、ERC/DRC 或制造文件声称板卡已可量产。
+当前任务已经有足够依据继续或完成时，停止加载更多资料。

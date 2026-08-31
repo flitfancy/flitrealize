@@ -38,7 +38,7 @@ assert.deepEqual(registeredFiles, actionFiles);
 
 for (const [name, action] of Object.entries(manifest.actions)) {
   assert.equal(typeof action.description, 'string', name);
-  assert.equal(action.contractVersion, 1, name);
+  assert.ok(Number.isInteger(action.contractVersion) && action.contractVersion >= 1, name);
   assert.ok(['system', 'pcb', 'schematic'].includes(action.domain), name);
   assert.ok(['host', 'eda'].includes(action.runtime), name);
   if (action.runtime === 'host') assert.deepEqual(action.providers, [], name);
@@ -55,6 +55,18 @@ for (const [name, action] of Object.entries(manifest.actions)) {
       assert.equal(resolveActionRequest(manifest, name, { mode }, true).mutates, true);
     } else {
       assert.equal(resolveActionRequest(manifest, name, { mode }, false).mutates, false);
+    }
+  }
+}
+
+for (const [name, workflow] of Object.entries(manifest.workflows)) {
+  assert.equal(workflow.domain, 'schematic', name);
+  assert.equal(workflow.provider, 'easyeda-pro', name);
+  for (const [phase, steps] of Object.entries(workflow.phases)) {
+    assert.ok(steps.length > 0, name + '/' + phase);
+    for (const step of steps) {
+      assert.ok(manifest.actions[step.action], name + ' references unknown Action ' + step.action);
+      assert.ok(manifest.actions[step.action].modes[step.mode], name + ' references unknown mode ' + step.mode);
     }
   }
 }
@@ -173,5 +185,39 @@ const rejectedHostProvider = spawnSync(process.execPath, [
 ], { encoding: 'utf8', windowsHide: true });
 assert.equal(rejectedHostProvider.status, 1);
 assert.match(rejectedHostProvider.stderr, /Unsupported EDA adapter: kicad/);
+
+const schematicList = spawnSync(process.execPath, [
+  fileURLToPath(new URL('../scripts/action-runner.mjs', import.meta.url)),
+  'list',
+  '--domain',
+  'schematic',
+], { encoding: 'utf8', windowsHide: true });
+assert.equal(schematicList.status, 0);
+const schematicCatalog = JSON.parse(schematicList.stdout);
+assert.equal(schematicCatalog.domainFilter, 'schematic');
+assert.deepEqual(Object.keys(schematicCatalog.actionGroups), ['schematic']);
+assert.ok(schematicCatalog.actions.length > 0);
+assert.ok(schematicCatalog.actions.every((action) => action.domain === 'schematic'));
+assert.deepEqual(
+  schematicCatalog.workflowGroups.schematic,
+  ['easyeda-schematic-components', 'easyeda-schematic-connect', 'easyeda-schematic-finalize'],
+);
+assert.ok(schematicCatalog.actions.some((action) => action.name === 'schematic-contract-audit'));
+assert.equal(schematicCatalog.actions.some((action) => action.name === 'schematic-wire-plan'), false);
+assert.equal(schematicCatalog.actions.some((action) => action.name === 'schematic-component-place'), false);
+assert.equal(schematicCatalog.workflows.length, 3);
+
+const relativeSchematicList = spawnSync(process.execPath, [
+  'scripts/action-runner.mjs',
+  'list',
+  '--domain',
+  'schematic',
+], {
+  cwd: fileURLToPath(new URL('../', import.meta.url)),
+  encoding: 'utf8',
+  windowsHide: true,
+});
+assert.equal(relativeSchematicList.status, 0);
+assert.equal(JSON.parse(relativeSchematicList.stdout).domainFilter, 'schematic');
 
 process.stdout.write('action architecture tests passed\n');

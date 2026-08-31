@@ -4,6 +4,68 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+## [1.0.0-test.1] - 2026-08-31
+
+### Added
+
+- Added the versioned `SchematicPlacementPlan v1` schema and internal
+  connection-planning Action.
+- Added provider pin maps and evidence-bearing EasyEDA library candidate
+  resolution so semantic Contract pins can map to one or more native pins.
+- Added public EasyEDA schematic `Components`, `Connect`, and `Finalize`
+  workflow metadata backed by internal fine-grained Actions.
+- Added regressions for schematic wire creation, net flags, save/DRC
+  separation, live pin capture, binding resolution, wire-plan staleness, and
+  PCB component geometry.
+
+### Changed
+
+- `schematic-layout` now emits requested placement intent instead of a fake
+  provider Snapshot; `schematic-component-place` consumes it directly and
+  enforces/readbacks designators.
+- `schematic-layout` now uses the Contract block order, per-component symbol
+  geometry, per-anchor clusters, connector directions, block bounding boxes,
+  routing-lane gaps, grid snapping, and overlap diagnostics.
+- `schematic-inspect` now emits a live `SchematicSnapshot v1` with component,
+  pin, wire, coverage, and semantic fingerprint evidence.
+- `schematic-resolve-bindings` now separates candidate search from resolution,
+  consumes the Contract directly, auto-selects only a unique strict exact
+  match, preserves unresolved blockers, and returns ephemeral provider bindings.
+- Wire, net-flag, and save flows now use explicit plan/apply/verify transaction
+  boundaries, document identity, semantic staleness checks, and readback-backed
+  rollback where applicable.
+- Schematic write Actions now use a common nested `request` transaction envelope
+  while retaining legacy top-level input compatibility.
+- Action discovery now shows public workflows and hides internal implementation
+  Actions while preserving exact Action lookup for orchestration and tests.
+- EDA subprocess deadlines now derive from
+  `FLITREALIZE_EDA_ACTION_TIMEOUT_MS`; a newly started EasyEDA bridge inherits
+  the same bounded request timeout unless explicitly configured otherwise.
+
+### Fixed
+
+- Use EasyEDA's flat wire polyline input and verify points/style on readback.
+- Verify created and deleted wires with `sch_PrimitiveWire.get(id/get(ids))` in
+  bounded batches; `getAll()` is now coverage evidence rather than the target
+  success condition.
+- Avoid duplicate endpoint stubs by comparing a live Snapshot's existing wire
+  segments with a bounded point-to-polyline tolerance; block ambiguous or
+  conflicting existing connectivity.
+- Component placement now uses fallback provider identity fields, tolerates
+  insignificant coordinate readback noise, and reports provider identity as
+  unknown instead of falsely claiming it was verified.
+- `schematic-save-verify` no longer saves in read-only `verify` mode.
+- Net-flag rollback no longer assumes zero remaining primitives without
+  querying the document.
+- Cleared the PCB bounding-box timeout after a prompt API response.
+
+### Removed
+
+- Removed the public WirePlan JSON schema and the unnecessary separate
+  BindingSet concept; both are transient EasyEDA workflow details.
+- Removed empty KiCad and Altium template directories. Providers are now added
+  only with a concrete Adapter, implementation, regression, and live checkpoint.
+
 ## [0.1.0-test.10] - 2026-08-28
 
 Schematic EDA Actions and multi-provider architecture. FlitRealize can now

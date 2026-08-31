@@ -1,22 +1,21 @@
 # Hardware lifecycle gates
 
-Use this detailed model only when lifecycle tracking, exact evidence qualifiers,
-or formal production improves the current decision.
+Read this detailed model only when the user explicitly requests full lifecycle
+tracking, manufacturing-candidate review, or formal release.
 
-## Separate three axes
+## Track route and evidence separately
 
 - **Project route:** NEW_PROJECT or EXISTING_PROJECT.
-- **Task intent:** FAST_PROTOTYPE, ENGINEERING_REVIEW, or PRODUCTION_RELEASE.
 - **Evidence phase:** how far the active revision has actually progressed.
 
 For ordinary prototypes, the three checkpoints in `SKILL.md` are enough:
 
 | Prototype checkpoint | Detailed phases |
 | --- | --- |
-| Schematic correctness | 0 problem, 1 architecture, 2 schematic contract |
-| Prototype order check | 3 footprints, 4 placement, 5 routing, 6 package |
-| Physical bring-up | 7 bring-up/EVT |
-| Separate productization path | 8 revision/productization |
+| Design and schematic | 0 problem, 1 architecture, 2 schematic contract |
+| PCB and manufacturing preparation | 3 footprints, 4 placement, 5 routing, 6 package |
+| Prototype validation and revision | 7 bring-up/EVT |
+| Separate productization path | 8 productization |
 
 Do not require both representations as duplicate project processes.
 
@@ -36,8 +35,9 @@ Evidence qualifiers are independent:
   were cross-checked;
 - `physical-verified`: measured prototypes meet defined criteria.
 
-FAST_PROTOTYPE may advance conditionally when safe, but neither assumptions nor a
-lower qualifier may be renamed as a passed engineering/production gate.
+Ordinary prototype work may carry a bounded gap as a specific prototype test,
+but neither assumptions nor a lower qualifier may be renamed as a passed
+engineering or production gate.
 
 ## Phase decisions
 

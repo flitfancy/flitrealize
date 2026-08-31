@@ -7,6 +7,61 @@
       "status": "tested"
     }
   },
+  "workflows": {
+    "easyeda-schematic-components": {
+      "description": "Resolve EasyEDA devices, calculate placement, and transact component creation.",
+      "domain": "schematic",
+      "provider": "easyeda-pro",
+      "phases": {
+        "prepare": [
+          { "action": "schematic-resolve-bindings", "mode": "resolve" },
+          { "action": "schematic-layout", "mode": "generate" },
+          { "action": "schematic-component-place", "mode": "plan" }
+        ],
+        "apply": [{ "action": "schematic-component-place", "mode": "apply" }],
+        "verify": [{ "action": "schematic-component-place", "mode": "verify" }],
+        "rollback": [{ "action": "schematic-component-place", "mode": "rollback" }]
+      }
+    },
+    "easyeda-schematic-connect": {
+      "description": "Capture live pins, plan and create endpoint stubs, and transact requested net flags.",
+      "domain": "schematic",
+      "provider": "easyeda-pro",
+      "phases": {
+        "prepare": [
+          { "action": "schematic-inspect", "mode": "inspect" },
+          { "action": "schematic-wire-plan", "mode": "generate" },
+          { "action": "schematic-wire-create", "mode": "plan" },
+          { "action": "schematic-net-flag", "mode": "plan", "optional": true }
+        ],
+        "apply": [
+          { "action": "schematic-wire-create", "mode": "apply" },
+          { "action": "schematic-net-flag", "mode": "apply", "optional": true }
+        ],
+        "verify": [
+          { "action": "schematic-wire-create", "mode": "verify" },
+          { "action": "schematic-net-flag", "mode": "verify", "optional": true }
+        ],
+        "rollback": [
+          { "action": "schematic-net-flag", "mode": "rollback", "optional": true },
+          { "action": "schematic-wire-create", "mode": "rollback" }
+        ]
+      }
+    },
+    "easyeda-schematic-finalize": {
+      "description": "Capture the final schematic, explicitly save it, and run schematic DRC.",
+      "domain": "schematic",
+      "provider": "easyeda-pro",
+      "phases": {
+        "prepare": [
+          { "action": "schematic-inspect", "mode": "inspect" },
+          { "action": "schematic-save-verify", "mode": "plan" }
+        ],
+        "apply": [{ "action": "schematic-save-verify", "mode": "apply" }],
+        "verify": [{ "action": "schematic-save-verify", "mode": "verify" }]
+      }
+    }
+  },
   "actions": {
     "eda-capabilities": {
       "file": "easyeda-pro/eda-capabilities.js",
@@ -168,8 +223,23 @@
     },
     "schematic-layout": {
       "file": "schematic-layout.js",
-      "description": "Calculate component positions from contract blocks and output a SchematicSnapshot with coordinates.",
-      "contractVersion": 1,
+      "description": "Calculate component positions from contract blocks and output a provider-bound SchematicPlacementPlan.",
+      "contractVersion": 3,
+      "internal": true,
+      "domain": "schematic",
+      "runtime": "host",
+      "providers": [],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "generate": { "mutates": false }
+      }
+    },
+    "schematic-wire-plan": {
+      "file": "schematic-wire-plan.js",
+      "description": "Derive bounded orthogonal wire stubs from a contract and live SchematicSnapshot pin coordinates.",
+      "contractVersion": 2,
+      "internal": true,
       "domain": "schematic",
       "runtime": "host",
       "providers": [],
@@ -181,8 +251,9 @@
     },
     "schematic-inspect": {
       "file": "easyeda-pro/schematic-inspect.js",
-      "description": "Read-only capture of schematic components, wires, nets, and document identity.",
-      "contractVersion": 1,
+      "description": "Capture a live SchematicSnapshot including component, pin-coordinate, wire, net, and document evidence.",
+      "contractVersion": 2,
+      "internal": true,
       "domain": "schematic",
       "runtime": "eda",
       "providers": ["easyeda-pro"],
@@ -191,13 +262,14 @@
         "inspect": { "mutates": false }
       },
       "requires": {
-        "all": ["document.current", "sch.component.list", "sch.wire.list", "sch.net.listNames"]
+        "all": ["document.current", "sch.component.list", "sch.component.getAllPins", "sch.wire.list", "sch.net.listNames"]
       }
     },
     "schematic-component-place": {
       "file": "easyeda-pro/schematic-component-place.js",
       "description": "Inspect, plan, apply, verify, and roll back schematic component placement.",
-      "contractVersion": 1,
+      "contractVersion": 3,
+      "internal": true,
       "domain": "schematic",
       "runtime": "eda",
       "providers": ["easyeda-pro"],
@@ -211,14 +283,33 @@
       },
       "requires": {
         "all": ["document.current", "sch.component.list", "sch.component.get"],
-        "apply": ["sch.component.create"],
+        "apply": ["sch.component.create", "sch.component.modify"],
         "rollback": ["sch.component.delete"]
+      }
+    },
+    "schematic-resolve-bindings": {
+      "file": "easyeda-pro/schematic-resolve-bindings.js",
+      "description": "Resolve Contract components into an internal EasyEDA binding map using explicit or uniquely proven matches.",
+      "contractVersion": 3,
+      "internal": true,
+      "domain": "schematic",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "search": { "mutates": false },
+        "resolve": { "mutates": false }
+      },
+      "requires": {
+        "search": ["lib.device.search"]
       }
     },
     "schematic-wire-create": {
       "file": "easyeda-pro/schematic-wire-create.js",
       "description": "Inspect, plan, apply, verify, and roll back schematic wire creation.",
-      "contractVersion": 1,
+      "contractVersion": 2,
+      "internal": true,
       "domain": "schematic",
       "runtime": "eda",
       "providers": ["easyeda-pro"],
@@ -231,21 +322,23 @@
         "rollback": { "mutates": true }
       },
       "requires": {
-        "all": ["document.current", "sch.wire.list", "sch.wire.get"],
+        "all": ["document.current", "sch.component.list", "sch.component.getAllPins", "sch.wire.list", "sch.wire.get"],
         "apply": ["sch.wire.create"],
         "rollback": ["sch.wire.delete"]
       }
     },
     "schematic-net-flag": {
       "file": "easyeda-pro/schematic-net-flag.js",
-      "description": "Apply, verify, and roll back schematic net flags and net ports.",
-      "contractVersion": 1,
+      "description": "Inspect, plan, apply, verify, and roll back schematic net flags and net ports.",
+      "contractVersion": 2,
+      "internal": true,
       "domain": "schematic",
       "runtime": "eda",
       "providers": ["easyeda-pro"],
       "defaultMode": "inspect",
       "modes": {
         "inspect": { "mutates": false },
+        "plan": { "mutates": false },
         "apply": { "mutates": true },
         "verify": { "mutates": false },
         "rollback": { "mutates": true }
@@ -258,18 +351,23 @@
     },
     "schematic-save-verify": {
       "file": "easyeda-pro/schematic-save-verify.js",
-      "description": "Save the schematic and run DRC verification.",
-      "contractVersion": 1,
+      "description": "Plan and apply an explicit schematic save, or run read-only DRC verification.",
+      "contractVersion": 2,
+      "internal": true,
       "domain": "schematic",
       "runtime": "eda",
       "providers": ["easyeda-pro"],
       "defaultMode": "inspect",
       "modes": {
         "inspect": { "mutates": false },
+        "plan": { "mutates": false },
+        "apply": { "mutates": true },
         "verify": { "mutates": false }
       },
       "requires": {
-        "all": ["document.current", "sch.document.save", "sch.drc.check"]
+        "all": ["document.current", "sch.component.list", "sch.wire.list"],
+        "apply": ["sch.document.save", "sch.drc.check"],
+        "verify": ["sch.drc.check"]
       }
     }
   }

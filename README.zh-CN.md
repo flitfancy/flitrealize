@@ -4,7 +4,7 @@
 
 FlitRealize 是一个电子硬件工程 Skill，用于把有持续状态的项目从需求和架构推进到原理图、PCB、原型下单、安全上电以及证据驱动的改版。
 
-> 当前状态：**FlitRealize T1**（`v0.1.0-test.10`），当前公开测试版本。用于可信单用户本机开发和干净环境测试，尚不是稳定版。
+> 当前状态：**FlitRealize T1**（`v1.0.0-test.1`），当前公开测试版本。用于可信单用户本机开发和干净环境测试，尚不是稳定版。
 
 ## 适用范围
 
@@ -57,7 +57,7 @@ flitrealize/
 └── .github/workflows/       # 跨平台校验和 Tag 自动发布
 ```
 
-发布 ZIP 包含运行入口、界面元数据、参考文件、带版本的原理图 Contract/Snapshot Schema、Host/EDA Action Runner、主机可移植的 Provider 控制、不依赖 Provider 的原理图合同审计，以及针对层结构、器件几何、功能性禁铜、实际铺铜、接地检查、必要 GND 过孔和全局缝合只读规划的已测试嘉立创 EDA Action。作者工作区、机器配置、具体项目记录、本地 catalog 和优化历史不会进入公开制品。
+发布 ZIP 包含运行入口、界面元数据、参考文件、带版本的原理图 Contract/PlacementPlan/Snapshot Schema、Host/EDA Action Runner、主机可移植的 Provider 控制、不依赖 Provider 的原理图 Contract 审计、公开的 EasyEDA Components/Connect/Finalize 工作流，以及针对层结构、器件几何、功能性 keepout、实际铺铜、接地检查、必要 GND 过孔和全局缝合只读规划的已测试 EasyEDA Action。作者工作区、机器配置、具体项目记录、本地 catalog 和优化历史不会进入公开制品。
 
 ## 运行结构
 
@@ -81,6 +81,8 @@ flowchart LR
 | [`stage-gates.md`](docs/zh-CN/references/stage-gates.md) | 各硬件阶段的进入、退出条件和证据 |
 | [`continuation.md`](docs/zh-CN/references/continuation.md) | 项目隔离与跨对话续接 |
 | [`schematic-contract.md`](docs/zh-CN/references/schematic-contract.md) | 原理图输入、输出、评审契约和证据 |
+| [`parts.md`](docs/zh-CN/references/parts.md) | 可移植器件意图、库存匹配、采购身份和预留解析器边界 |
+| [`eda-select.md`](docs/zh-CN/references/eda-select.md) | 进入 Provider 专属流程前按需选择 EDA Provider |
 | [`easyeda-pro.md`](docs/zh-CN/references/easyeda-pro.md) | EasyEDA Pro Provider 身份、源证据、API 边界和流程路由 |
 | [`environment.md`](docs/zh-CN/references/providers/easyeda-pro/environment.md) | EasyEDA Pro 主机 Adapter、Bridge、握手与配对流程 |
 | [`pcb-foundation.md`](docs/zh-CN/references/providers/easyeda-pro/pcb-foundation.md) | EasyEDA Pro 层、功能性 keepout 和实际铜流程 |
@@ -100,7 +102,7 @@ python scripts/package_release.py
 npm test
 ./scripts/release.ps1 -DryRun
 # 人工复核并明确暂存准备发布的文件后：
-./scripts/release.ps1 -Publish -Message "feat: release FlitRealize T1 v0.1.0-test.10"
+./scripts/release.ps1 -Publish -Message "feat: release FlitRealize T1 v1.0.0-test.1"
 ```
 
 打包命令会在 `dist/` 下生成可复现 ZIP 和 SHA-256 文件。默认模式及 `-DryRun` 只做检查：依次运行仓库校验、全部 Node Action 测试、可复现打包、版本/校验和/Tag 一致性、干净 ZIP 冒烟测试和暂存新增内容密钥扫描。只有 `-Publish` 会修改外部状态；它要求已经人工复核并明确暂存发布文件、工作区不存在未暂存或未跟踪文件、远端已经配置，并提供提交信息，然后才会提交、创建版本 Tag，并原子推送分支和 Tag。这个已经授权的 Tag 推送会触发独立回读校验：重新构建确定性制品、创建 Draft GitHub Release、上传 ZIP 与 SHA-256 文件，并且只有在所有检查通过后才发布。重试遇到已经发布的版本时，只有远端两个制品与本次重建字节完全一致才会成功。英文指令变化后，应同步修改相应中文内容，然后更新来源哈希：

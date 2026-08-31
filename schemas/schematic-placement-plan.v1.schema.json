@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/flitfancy/flitrealize/schemas/schematic-placement-plan.v1.schema.json",
+  "title": "FlitRealize SchematicPlacementPlan v1",
+  "description": "Provider-bound component placement intent derived from a schematic contract. This is a requested delta, not realized EDA evidence.",
+  "type": "object",
+  "required": [
+    "kind",
+    "schemaVersion",
+    "targetProvider",
+    "generatedAt",
+    "project",
+    "source",
+    "components",
+    "diagnostics",
+    "fingerprints"
+  ],
+  "properties": {
+    "kind": { "const": "flitrealize.schematic-placement-plan" },
+    "schemaVersion": { "const": 1 },
+    "targetProvider": { "$ref": "#/$defs/nonEmptyString" },
+    "generatedAt": { "type": "string", "format": "date-time" },
+    "project": { "$ref": "#/$defs/project" },
+    "source": {
+      "type": "object",
+      "required": ["contractFingerprint"],
+      "properties": {
+        "contractFingerprint": { "$ref": "#/$defs/nonEmptyString" },
+        "contractRevision": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/component" }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/diagnostic" }
+    },
+    "fingerprints": {
+      "type": "object",
+      "required": ["contract", "bindings", "layout", "plan"],
+      "properties": {
+        "contract": { "$ref": "#/$defs/nonEmptyString" },
+        "bindings": { "$ref": "#/$defs/nonEmptyString" },
+        "layout": { "$ref": "#/$defs/nonEmptyString" },
+        "plan": { "$ref": "#/$defs/nonEmptyString" }
+      },
+      "additionalProperties": false
+    },
+    "extensions": { "$ref": "#/$defs/extensions" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "extensions": { "type": "object", "additionalProperties": true },
+    "project": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "type": "string" },
+        "revision": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "position": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      },
+      "additionalProperties": false
+    },
+    "component": {
+      "type": "object",
+      "required": [
+        "designator",
+        "position",
+        "rotation",
+        "mirror",
+        "includeInBom",
+        "includeInPcb",
+        "bindings"
+      ],
+      "properties": {
+        "designator": { "$ref": "#/$defs/nonEmptyString" },
+        "position": { "$ref": "#/$defs/position" },
+        "rotation": { "type": "number" },
+        "mirror": { "type": "boolean" },
+        "includeInBom": { "type": "boolean" },
+        "includeInPcb": { "type": "boolean" },
+        "subPartName": { "type": ["string", "null"] },
+        "bindings": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "extensions": { "$ref": "#/$defs/extensions" }
+      },
+      "additionalProperties": false
+    },
+    "diagnostic": {
+      "type": "object",
+      "required": ["severity", "code", "message"],
+      "properties": {
+        "severity": { "enum": ["error", "warning", "info"] },
+        "code": { "$ref": "#/$defs/nonEmptyString" },
+        "message": { "$ref": "#/$defs/nonEmptyString" },
+        "designator": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

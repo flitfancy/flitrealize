@@ -1,123 +1,124 @@
 # Reusable local Actions and provider boundaries
 
-Read this reference when repeated project work should become a deterministic
-Action, when changing the Action runner or manifest, or when adding an EDA
-provider. Do not load it for ordinary one-off analysis.
+Read this reference when changing the Action runner or manifest, promoting a
+repeated operation into an Action, or implementing a real EDA provider. Do not
+load it for ordinary one-off analysis.
 
-## Keep one project truth with separate responsibilities
+## Keep one portable boundary
 
-- The project contract owns design intent.
-- A source artifact or structured Snapshot records the realized state.
-- An Action input owns one bounded requested operation.
-- An Action report is execution evidence, not a second project database.
-- `CURRENT_HANDOFF.md` records the current conclusion and next action after the
-  evidence is interpreted.
+- `SchematicContract` owns portable design intent.
+- `schematic-contract-audit` is the boundary check before provider work.
+- A provider owns library identity, live geometry, mutation, and readback.
+- A Snapshot records realized state; a report records execution evidence.
+- Neither a generated plan nor a report becomes a second project database.
 
-Do not let generated reports silently redefine design intent. A changed intent
-updates its owning contract before a dependent write is reused.
-
-## Register the execution contract
-
-`scripts/actions/manifest.json` is the single public registry. Manifest schema
-2 gives every Action:
-
-- `contractVersion`: the input/output contract revision;
-- `domain`: the hardware or system area it serves;
-- `runtime`: `host` for deterministic local computation or `eda` for a live EDA
-  operation; and
-- `providers`: the exact tested EDA providers, empty for a host Action.
-
-The runner infers a Provider only when an EDA Action declares exactly one.
-Otherwise require an explicit Provider. Reject an unregistered or
-Action-incompatible Provider before execution. Only providers with an actual
-tested adapter belong in the registry; empty vendor directories and claims of
-future support do not.
-
-Host Actions execute locally from structured input and do not cross the EDA
-Bridge. EDA Actions execute through the selected host Adapter and retain the
-live-write lock. Both runtimes use the same mode/mutation authorization,
-compact summary, and host-local full report envelope.
-
-The provider-free `schematic-contract-audit` is the first Host Action. It
-validates portable design intent without importing an EDA API or claiming that
-the realized schematic matches.
-
-## Lay out Actions by provider subdirectory
-
-EDA Action files live under `scripts/actions/<provider>/`. Host Actions stay
-in the `scripts/actions/` root. The runner resolves the file path declared in
-the manifest, checking the provider subdirectory first when a Provider is
-active:
+The normal schematic surface is deliberately small:
 
 ```text
-scripts/actions/
-  manifest.json                  ← single public registry
-  schematic-contract-audit.js    ← host Action (provider-free)
-  easyeda-pro/                   ← EasyEDA Pro EDA Actions
-    eda-capabilities.js
-    pcb-ground-vias.js
-    schematic-inspect.js
-    ...
-  kicad/                         ← future provider (example template)
-    README.md
-  altium/                        ← future provider (example template)
-    README.md
+Contract Audit -> Components -> Connect -> Finalize
 ```
 
-To add a new EDA provider:
+`Contract Audit` is a public host Action. The other three entries are public
+workflow descriptions backed by internal fine-grained Actions. The runner does
+not execute a workflow as a new general-purpose engine; the Skill follows its
+declared phases and passes each result to the next Action.
 
-1. Create `scripts/actions/<provider-id>/` with an `eda-capabilities.js` that
-   probes the new EDA's API surface.
-2. Register the provider and its Actions in `manifest.json`.
-3. Register the adapter root with `eda-host.mjs register --eda <provider-id>
-   --adapter-root <path>`.
-4. Write tests in `tests/<action-name>.test.mjs` using mock EDA objects.
-5. Only add the provider to the registry after at least one Action passes
-   its test with a live EDA connection.
+## Register public workflows and internal Actions
 
-## Make outputs useful without hiding coverage
+`scripts/actions/manifest.json` is the registry. Its flat `actions` object keeps
+stable exact lookup names. An Action declares `contractVersion`, `domain`,
+`runtime`, supported `providers`, modes, and mutation state. `internal: true`
+hides implementation Actions from normal discovery without making them
+unregistered or untestable.
 
-Default output should contain the Action identity, contract version, domain,
-runtime, Provider, mode, mutation state, document identity when applicable,
-fingerprints, useful counts, issue count, and whether a next or rollback request
-exists. Keep the complete response in the local report.
+The `workflows` object is discovery and orchestration metadata. Each workflow
+names one tested Provider and ordered phase steps such as `prepare`, `apply`,
+`verify`, and `rollback`. Manifest loading rejects unknown Actions, modes,
+Providers, domain mismatches, and invalid optional steps.
 
-Report `unsupported`, `unknown`, blockers, and relevant coverage separately.
-`PASS` proves only the declared checked scope. Do not treat a missing API object
-or unrecognized primitive as an empty design.
+`action-runner.mjs list` returns public Actions, public workflows,
+`actionGroups`, and `workflowGroups`; `list --domain schematic` filters both
+surfaces. An internal Action may still be run by exact name for workflow
+orchestration, debugging, and regression tests. Mutation authorization remains
+enforced per Action.
 
-Use versioned Snapshot and Patch formats when multiple Actions share realized
-state or authorized deltas. Keep provider-native IDs opaque and place provider
-extensions under a namespaced field rather than leaking them into portable
-decision rules.
+## Keep Provider code concrete
 
-## Evolve from evidence, not accumulation
+Host Actions live in `scripts/actions/`. EasyEDA code lives in
+`scripts/actions/easyeda-pro/`. A manifest file path is exact and relative to
+`scripts/actions/`; the older provider-relative basename fallback remains only
+for compatibility.
 
-Promote a repeated operation into an Action when deterministic execution
-improves reliability or avoids repeated substantial model work. After a real
-failure or unknown case:
+Do not add empty KiCad, Altium, or other Provider directories as architecture.
+Add a Provider only with a working Adapter boundary, a capability probe, at
+least one implemented Action, mock regression coverage, and a bounded live
+checkpoint. A new Provider implements the same portable Contract boundary and
+workflow outcome; it does not need to imitate EasyEDA primitives internally.
 
-1. classify it as input error, rule gap, provider drift, unsupported geometry,
-   or a design decision;
-2. reduce it to a sanitized fixture when practical;
-3. add a regression that fails for the observed reason;
-4. change the smallest owning rule, Action, or Adapter;
-5. rerun old positive, negative, boundary, and rollback cases; and
-6. publish the behavior and remaining unsupported scope.
+This keeps extension work small:
 
-A single project-specific method remains a candidate unless authoritative
-evidence or a materially different project supports promotion. Never let a
-local Action rewrite its own reusable rules from one run. It may report a rule
-candidate for review.
+1. map portable intent to native library/component/pin identity;
+2. capture native document state into the shared Snapshot boundary;
+3. implement bounded native mutations with ID-based readback;
+4. register only the tested Actions and workflows; and
+5. preserve unknown and unsupported coverage instead of returning empty success.
 
-## Detect staleness and fail closed
+There is no provider-to-file abstraction until two real Providers demonstrate
+that it is needed.
 
-Bind reusable plans to the relevant contract, Snapshot, document, Adapter, and
-capability fingerprints. Invalidate them after a manual source change,
-different selected document, Provider/API change, or required-capability
-failure. Verify the expected delta and protected invariants after a write; stop
-with exact unsupported evidence when readback cannot prove the result.
+## Keep internal artifacts proportional
 
-Measure value through reduced raw-to-summary size, cache or delta reuse,
-coverage, false positives, unsupported counts, zero unauthorized changes, and
-verified rollback—not through Action count alone.
+Use a versioned shared schema only when the artifact crosses a meaningful
+boundary or is consumed by more than one independent subsystem. The Contract,
+PlacementPlan, and Snapshot meet that bar. EasyEDA connection planning is an
+internal transient result, so it keeps a versioned Action result shape without
+being promoted to a public JSON Schema. Provider binding resolution likewise
+returns an ephemeral `providerBindings` map; the selected binding may be cached
+under `contract.components[].bindings.<provider>` when the project chooses to
+persist it, but no separate BindingSet database is required.
+
+## Keep runs disposable
+
+Put run-scoped working files under one transaction directory:
+
+```text
+.flitrealize/runs/<run-id>/
+├── inputs/
+├── bridge/
+└── reports/
+```
+
+Use `inputs/` for requests, Contracts copied for execution, and plans; `bridge/`
+for generated provider code or command snippets; and `reports/` for transient
+inspect/apply/verify results, Snapshots, and coverage reports. Generic bridge
+infrastructure, the Action runner, and reusable provider logic remain in the
+Skill or adapter rather than being copied into each project.
+
+Keep the run while a mutation is pending, verification is incomplete, or
+rollback data may still be needed. After successful reconciliation, remove the
+whole run; remove an ordinary abandoned failure as well. Retain a repeated
+active-fault run only while `BATTLE_LOG.md` references it. Promote only selected
+durable evidence into `evidence/` and reference it from current project state.
+Deleting `.flitrealize/` must never erase stable design intent, authoritative
+EDA source, or the only copy of retained evidence.
+
+## Preserve transaction safety
+
+Provider writes remain plan/apply/verify/rollback transactions where rollback
+is meaningful. Bind plans to the selected document and relevant contract,
+binding, capability, Snapshot, and geometry fingerprints. Re-inspect after
+manual edits or timeouts. Verify the requested delta through created native IDs
+and protect pre-existing IDs; global enumeration is coverage evidence, not a
+substitute for targeted readback.
+
+Save is explicit and has no fake rollback. Report `unsupported`, `unknown`,
+blockers, and coverage separately. `PASS` proves only the declared checked
+scope.
+
+## Evolve from evidence
+
+Promote repeated logic only when it reduces error or substantial repeated work.
+For a real failure, classify it, reduce it to a sanitized fixture, add a
+regression, change the smallest owning rule, and document the remaining
+unsupported scope. Measure value through reliable reuse, stale-plan rejection,
+coverage, and verified recovery—not Action count.

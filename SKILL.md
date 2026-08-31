@@ -1,188 +1,171 @@
 ---
 name: flitrealize
-description: Advance stateful electronics hardware projects through requirements, schematic, PCB, prototype ordering, bring-up, and revision with project isolation and evidence-based decisions. Use for project-level EDA work or cross-chat continuation; do not use for software-only work, isolated component facts, textbook questions, or one-step EDA guidance that needs no project state.
+description: Advance stateful electronics hardware projects from ideas and requirements through part selection, schematic, PCB, manufacturing files, bring-up, and revision. Use for project-level EDA work or cross-chat continuation; do not use for software-only work, isolated component facts, textbook questions, or one-step EDA guidance that needs no project state.
 ---
 
 # FlitRealize
 
 ## Objective
 
-Advance the current hardware decision with the lightest reliable process. Default
-to a testable personal prototype, keep facts inside the correct project, and let
-measured evidence drive later revisions.
+Complete the hardware work the user currently requested and keep a clear path
+from idea to testable hardware.
 
-## Choose project, intent, and evidence
+Cover the whole project flow, but advance only the requested stage. Do not open
+later stages or create their files and process unless the user asks for them.
 
-### Project and writable scope
+## Project and authorization
 
-- **NEW_PROJECT:** only when the user explicitly requests a new or independent
-  project. Do not inherit another project's state.
-- **EXISTING_PROJECT:** continue, revise, review, debug, or manufacture an
-  identified project or artifact. Resolve its exact root, then read
-  `CURRENT_HANDOFF.md`; read `BATTLE_LOG.md` next only when it describes an
-  active subsystem fault.
-- Ask one narrow identity/root question only when ambiguity would change the
-  write destination or protected baseline.
+- **NEW_PROJECT:** use only when the user explicitly requests a new or
+  independent project. Do not inherit another project's design, parts,
+  calculations, or EDA state.
+- **EXISTING_PROJECT:** continue an identified project. Read
+  `CURRENT_HANDOFF.md` only when the current task depends on earlier project
+  decisions. Read `BATTLE_LOG.md` only for an active fault still under repeated
+  experiment.
 
-Research, skill/catalog maintenance, read-only capture, project edits, and live
-EDA mutation are separate scopes. Analysis stays read-only unless the user asks
-for a change.
+The current user request owns the objective, scope, and authorization.
 
-For an ordinary requested edit inside a resolved project root, give a compact
-scope note and proceed. Use the full lock below for a new root, bulk migration,
-delete/move, reviewed baseline or manufacturing output, or live EDA write:
+Perform in-scope changes directly, including authorized EDA writes. Ask only
+when the write target cannot be determined uniquely or an actual conflict
+cannot be merged safely.
+
+Ordering, paying, reserving stock, or another new external commitment requires
+authorization for that action.
+
+Read [production-handoff.md](references/production-handoff.md) when initializing
+a project or preparing procurement or manufacturing delivery.
+
+## Whole flow
 
 ```text
-PROJECT_ROOT: <exact root>
-ROUTE: NEW_PROJECT | EXISTING_PROJECT
-WRITABLE_SCOPE: <exact subtree>
-PROTECTED: <baseline or sibling roots>
-RECOVERY_AND_CHECK: <checkpoint and success test>
+Idea and requirements
+    -> architecture, interfaces, and part intent
+    -> part resolution and approval
+    -> schematic design
+    -> EDA schematic
+    -> PCB constraints, placement, and routing
+    -> manufacturing files and ordering
+    -> prototype bring-up and test
+    -> revision
 ```
 
-For live EDA also name the exact document, intended delta, and affected-object
-bound. Consequential external actions such as ordering, paying, or overwriting a
-reviewed baseline require confirmation for that action. Detailed initialization
-and manufacturing identity live in
-[production-handoff.md](references/production-handoff.md).
+Stop when the user's current deliverable is complete.
 
-### Task intent
+Part selection and schematic intent remain portable. EasyEDA, KiCad, and other
+EDA systems are later Providers; a missing Provider binding must not block
+portable design or part decisions.
 
-- **FAST_PROTOTYPE:** default for personal and one-off boards. Block likely
-  functional, safety, or manufacturing failure; record bounded gaps as
-  assumptions or arrival tests.
-- **ENGINEERING_REVIEW:** inspect the named artifact or question and report
-  evidence, uncertainty, and the smallest useful next step.
-- **PRODUCTION_RELEASE:** only for an explicit batch, PCBA, reproducibility, or
-  formal release. Physical prototype evidence is required before readiness.
+## Working style
 
-For mains, batteries/charging, high voltage or power, medical, regulatory, or
-other safety-critical work, verify current applicable standards and obtain the
-needed specialist review; this general skill alone is not release evidence.
+Normally, continue the current stage directly.
 
-### Evidence state
+Enter **CURIOUS_MODE** only for the affected question when:
 
-Use **OPEN** for missing/conflicting evidence, **CONDITIONAL** when prototype
-progress is safe with a bounded consequence and revisit test, and **PASSED** only
-when the required evidence matches the active revision. Qualifiers prove
-different facts: `automated-green`, `visual-accepted`,
-`manufacturing-checked`, and `physical-verified` do not imply one another.
+- exact MPN, suffix, pinout, package, or a critical parameter lacks reliable
+  support or sources conflict;
+- the decision depends on curves, transients, temperature rise, derating, or
+  mechanical timing that a normal parameter table does not answer;
+- available sources and ordinary calculations still cannot decide a stated core
+  requirement;
+- the requirements or architecture explicitly assign protection, isolation, or
+  fault-shutdown responsibility to the part; or
+- the user explicitly requests deeper verification.
 
-Load [stage-gates.md](references/stage-gates.md) only when detailed lifecycle
-tracking or formal production improves the decision.
+In CURIOUS_MODE, read the current manufacturer material for the exact part and
+check only the relevant worst case, pin mapping, default state, and fault
+behavior. A reliable manufacturer or official distributor source is sufficient
+by default; add sources only to resolve missing or conflicting information.
 
-## Advance through three prototype checkpoints
+Leave CURIOUS_MODE when the question is resolved or converted into a specific
+prototype test, then continue the current stage. Do not expand it into a whole
+project review or create extra reports, states, or files.
 
-### 1. Schematic correctness
+## Three main stages
 
-Check requirements, interfaces, power, safe defaults, primary circuits, pins,
-ratings, values, footprints, substitutions, test method, and retained ERC
-exceptions. Unfamiliar or consequential combined paths need focused evidence or
-a conditional gate. Read
-[schematic-contract.md](references/schematic-contract.md), adding
-[audio-systems.md](references/audio-systems.md) for audio paths.
+### 1. Design and schematic
 
-Create a derived human overview such as `ALL_VIEW.md` only when project
-complexity, manual EDA collaboration, or the user benefits from it; keep the
-machine-readable contract authoritative.
+Organize requirements, architecture, interfaces, power relationships, and part
+intent. Resolve the parts needed for the current decision, then complete the
+schematic design.
 
-### 2. Prototype order check
+Gaps that cannot change architecture, part selection, or connectivity may become
+prototype tests. After the schematic design and before EDA entry, confirm facts
+that affect exact part identity, pinout, ratings, or protection behavior.
 
-Match the saved source revision to its export. Verify critical footprints and
-orientation, connectivity, outline, holes, clearances, pours, configured DRC,
-Gerber/drill contents, and the manufacturer's preview. Use a toy-board export
-only when a new or uncertain generator/template/fabricator path creates material
-manufacturing risk.
+### 2. PCB and manufacturing preparation
 
-Before routing, choose the copper-layer count and ordered layer roles from the
-design's return paths, routing density, isolation, power/thermal needs,
-manufacturing capability, and cost; never force a fixed layer count by habit.
-Record that decision with net classes, critical topology, and the ordered
-routing plan in the current contract or chosen human overview. Close grounding
-in three design-backed stages: establish realized reference copper, close
-necessary local/transition returns, then optionally optimize global stitching
-after routing is stable. Read
-[pcb-review.md](references/pcb-review.md). For EasyEDA, read the exact Provider
-workflow needed: [pcb-foundation.md](references/providers/easyeda-pro/pcb-foundation.md)
-for layers, keepouts, and realized pours;
-[pcb-grounding.md](references/providers/easyeda-pro/pcb-grounding.md) for return
-closure and stitching; or [easyeda-pro.md](references/easyeda-pro.md) for
-Provider identity, source evidence, and export/API boundaries.
+When the user requests a PCB, establish outline, interface locations, stackup,
+net rules, and critical placement constraints before placement, routing, copper,
+and configured DRC.
 
-### 3. Physical bring-up
+When preparing an order, match the saved source with Gerber, drill, required
+BOM/CPL, and the fabricator preview.
 
-Inspect first, measure unpowered rail resistance, power with a conservative
-current limit, verify rails before loads, then enable blocks incrementally. Test
-the real load, credible faults, power cycles, and logging to the duration and
-coverage justified by the prototype's risk and acceptance goal. Read
-[prototype-validation.md](references/prototype-validation.md).
+### 3. Prototype validation and revision
 
-## Execution invariants
+Inspect the hardware and unpowered rails before current-limited power-up. Verify
+rails first, then enable functional blocks and test the loads, power cycles, and
+fault behavior that matter to the product.
 
-- Current explicit user instruction owns objective, scope, and authorization.
-  Project contracts, primary datasheets, current platform documentation, and
-  manufacturer constraints own technical facts.
-- Confirm only ambiguities that change architecture, safety, manufacturing,
-  irreversible edits, project identity, or the definition of done.
-- Protect accepted manual EDA work and reviewed baselines. Broad changes need a
-  current capture; a conflicting generated apply script becomes stale after a
-  manual pin, footprint, placement, routing, outline, or keepout change.
-- Validate one representative object before scaling unfamiliar or repeated UI/API
-  work. Prefer data-driven automation when repetition justifies it.
-- Use new evidence after failure. For an actively changing subsystem with
-  repeated focused experiments, read
-  [debug-loop.md](references/debug-loop.md); do not create a battle log for
-  ordinary implementation or a completed task.
+Use measurements to confirm the current design or define the next revision.
 
-If the host explicitly provides a workspace-local hardware-knowledge catalog or
-user-preference file, query it only when relevant and within readable scope. Its
-absence must not block the core workflow; never assume an author-specific path.
-Single-project methods remain candidates until a materially different project
-supplies realistic supporting evidence; knowledge-layer promotion also needs
-writable scope there.
+## Shared rules
 
-## Preserve current state
+- Project records, exact datasheets, and current platform documentation own
+  technical facts.
+- Other projects are examples only. Re-establish current parts, calculations,
+  and connectivity from this project's requirements or sources.
+- AI owns requirements, architecture, circuit decisions, critical calculations,
+  and final part judgment. Scripts own search, download, caching, inventory
+  matching, format conversion, deduplication, and repeated EDA work.
+- Keep electrical identity, procurement identity, source evidence, and EDA
+  binding separate; none substitutes for another.
+- When search, conversion, or repeated work is needed, query registered public
+  Actions for the current domain instead of scanning the scripts directory. Use
+  a one-off implementation only when no matching Action exists.
+- Validate one representative object before scaling an unfamiliar repeated
+  operation.
+- Do not create state, reports, or project files for a stage that has not been
+  requested.
+- When the user requests a regulatory, compliance, or formal release claim,
+  verify the applicable current standards and specialist evidence. This Skill
+  is not release evidence.
 
-One `CURRENT_HANDOFF.md` per project root owns stable identity, revision,
-decisions, verified facts, risks, authoritative artifacts, and the primary next
-action. Keep it current rather than historical. `BATTLE_LOG.md` is optional and
-temporary: it covers one active unstable subsystem, is read after the handoff,
-and is archived or removed after its stable conclusion is merged back.
+## Preserve project state
 
-Read [continuation.md](references/continuation.md) when resuming or updating
-state. A stale or unsafe finding applies immediately even when persistence was
-not authorized; in that case do not execute the artifact and report that the
-warning is not yet durable.
+Create or update one `CURRENT_HANDOFF.md` at the project root only when work must
+continue across tasks or conversations. Keep current identity, decisions,
+confirmed facts, important open items, authoritative files, and the next action;
+do not turn it into full history.
 
-## Load only relevant detail
+Read [continuation.md](references/continuation.md) for continuation and state
+ownership.
 
-- Schematic and parts: [schematic-contract.md](references/schematic-contract.md)
-- PCB and manufacturing artwork: [pcb-review.md](references/pcb-review.md)
-- EasyEDA Pro Provider identity and API/source boundaries:
-  [easyeda-pro.md](references/easyeda-pro.md)
-- EasyEDA Pro host environment and Bridge:
-  [environment.md](references/providers/easyeda-pro/environment.md)
-- EasyEDA Pro PCB foundation flow:
-  [pcb-foundation.md](references/providers/easyeda-pro/pcb-foundation.md)
-- EasyEDA Pro PCB grounding flow:
-  [pcb-grounding.md](references/providers/easyeda-pro/pcb-grounding.md)
-- EasyEDA Pro schematic placement, wires, net flags, and DRC:
-  [schematic-workflow.md](references/providers/easyeda-pro/schematic-workflow.md)
-- Reusable local Actions and EDA-provider boundaries:
-  [local-actions.md](references/local-actions.md)
+Use `BATTLE_LOG.md` and read [debug-loop.md](references/debug-loop.md) only when
+one active fault needs repeated experiments. Merge the stable conclusion back
+into current project state.
+
+## Load detail by stage
+
+Read only what the current task needs:
+
+- Part intent, inventory matching, and sourcing resolution:
+  [parts.md](references/parts.md)
+- Schematic and machine-readable Contract:
+  [schematic-contract.md](references/schematic-contract.md)
+- EDA Provider selection:
+  [eda-select.md](references/eda-select.md)
+- PCB, routing, and manufacturing artwork:
+  [pcb-review.md](references/pcb-review.md)
+- Audio design:
+  [audio-systems.md](references/audio-systems.md)
+- Prototype bring-up and validation:
+  [prototype-validation.md](references/prototype-validation.md)
 - Active repeated debugging: [debug-loop.md](references/debug-loop.md)
-- Audio paths: [audio-systems.md](references/audio-systems.md)
-- Bring-up: [prototype-validation.md](references/prototype-validation.md)
-- Resume and state ownership: [continuation.md](references/continuation.md)
-- Initialization, procurement, and manufacturing package:
+- Cross-task continuation: [continuation.md](references/continuation.md)
+- Initialization, procurement, and manufacturing delivery:
   [production-handoff.md](references/production-handoff.md)
-- Detailed lifecycle/formal release: [stage-gates.md](references/stage-gates.md)
+- Full lifecycle tracking, manufacturing-candidate review, or formal release:
+  [stage-gates.md](references/stage-gates.md)
 
-Stop loading when the current decision is supported.
-
-## Report the decision
-
-Lead with the decision, then blockers, accepted risks, uncertainty, evidence
-state, and the smallest useful next action or test. Never call a board
-production-ready from appearance, theoretical review, ERC/DRC, or manufacturing
-files alone.
+Stop loading when the current task has enough support to proceed or finish.

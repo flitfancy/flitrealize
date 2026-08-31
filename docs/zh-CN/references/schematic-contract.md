@@ -1,6 +1,6 @@
 > 本文件是英文参考文件 [schematic-contract.md](../../../references/schematic-contract.md) 的中文只读镜像，供人工阅读和审阅。实际执行仍以英文源文件为准。
-> 同步日期：2026-08-25（Asia/Shanghai）
-> 英文源文件 SHA-256：`4EF232BB63A187BDC6B95381FA0C525BB8A86662DDEF19F47F094CE9E031A10F`
+> 同步日期：2026-08-30（Asia/Shanghai）
+> 英文源文件 SHA-256：`27C76705B0ED9FA514778C4A70CDDCB77B57EC3318A3ADD48C0482E81F8F83E3`
 
 # 从概念到原理图契约
 
@@ -39,7 +39,37 @@
 
 ### 使用带版本的可移植格式
 
-运行包现在包含用于设计意图的 `schemas/schematic-contract.v1.schema.json`，以及用于未来 Provider 只读实际状态的 `schemas/schematic-snapshot.v1.schema.json`。功能块、电源域、接口、器件角色、引脚分类、网络端点、约束、例外和证据事实放在可移植 Contract 中。EDA 原生库 UUID 等身份只能放入带命名空间的器件 Binding，例如 `bindings.easyedaPro`；不要把它们当成可移植事实。
+运行包包含用于设计意图的 `schemas/schematic-contract.v1.schema.json`、用于请求放置的 `schemas/schematic-placement-plan.v1.schema.json`，以及用于 Provider 捕获只读实际状态的 `schemas/schematic-snapshot.v1.schema.json`。功能块、电源域、接口、器件角色、引脚分类、网络端点、约束、例外和证据事实保存在可移植 Contract 中。PlacementPlan 是绑定 Provider 的请求增量，Snapshot 是已实现证据；两者都不能替代 Contract。
+
+EDA 原生库 UUID 等身份是可选 Provider 缓存，只能位于 `bindings.easyedaPro` 之类的命名空间下，不能成为可移植事实。Provider resolver 也可为本次实现返回瞬态 `providerBindings` map。不要仅为了在相邻两步之间搬运这些值而建立单独的 BindingSet 数据库。
+
+当语义引脚名能让设计意图更清楚时，Contract 端点应使用稳定的语义名称。Provider Binding 可以把一个语义引脚映射到一个或多个原生符号引脚，而不改变可移植的网络意图：
+
+```json
+{
+  "bindings": {
+    "easyedaPro": {
+      "libraryUuid": "...",
+      "deviceUuid": "...",
+      "pinMap": {
+        "VIN": ["1", "2"],
+        "GND": ["3"]
+      }
+    }
+  }
+}
+```
+
+把此映射视为所选 Provider 器件身份的一部分。原生引脚映射缺失、存在歧义或与现场证据冲突时，必须阻止 Provider 绑定的导线生成。Provider 捕获的符号尺寸与引脚侧几何属于派生几何 Catalog 或 Snapshot 证据，不属于可移植电气意图。
+
+### 让引脚事实保持单一归属链
+
+- 只有精确版本对项目有实质支撑时，才把制造商引脚事实归档到 `parts/datasheets/`。
+- 把本项目选定的引脚作用、分类、网络、安全默认状态和必连决策记录在 `design/SCHEMATIC_CONTRACT.v1.json`。
+- 原生符号引脚转换保存在 `components[].bindings.<provider>.pinMap`；它是 Provider 身份映射，不是第二份电气设计。
+- 人工确实需要引脚/网络表时，从 Contract 和 BOM 派生 `design/PIN_NET_MAP.md`。它可以展示元件、语义引脚、数据手册名称、项目作用、网络、分类、安全默认状态和必连状态，但不得作为独立真值源维护。
+
+不得根据名称相似、自由文本或符号几何推断可互换引脚。自动换脚需要显式且带版本的 Contract 语义和独立评审；Contract v1 不定义该行为。
 
 在 Contract 用于 Capture 对账或生成前，运行不依赖 Provider 的 `schematic-contract-audit` Host Action：
 
@@ -50,7 +80,7 @@ node scripts/action-runner.mjs run --action schematic-contract-audit \
 
 它检查 v1 结构、身份唯一性、交叉引用、引脚/网络归属、NC/DNC 隔离、电源域与差分对引用、功能块归属、显式证据状态和不透明 Provider 边界。输出 `passed`、`conditional` 或 `blocked`，以及稳定指纹和精简问题列表。这只能证明合同内部一致，不能证明电路理论正确，也不能证明 EDA 文档已经实现该 Contract。
 
-Snapshot Schema 已冻结为下一步只读 EDA Capture Action 的目标边界。在该 Action 和独立的 Contract-to-Snapshot 比较器出现前，不能根据 Contract Audit 声称实际原理图一致。
+Audit 以后，Provider workflow 负责库解析、几何和写入。EasyEDA Components workflow 生成 PlacementPlan 并放置；Connect 捕获 Snapshot，并用内部瞬态计划创建受限端点 stub；Finalize 显式保存并运行 DRC。连接计划只在一个 Provider 阶段内部消费，因此不是可移植公开 schema。完整的 Contract-to-Snapshot 连通性比较器仍不存在，所以不能仅凭 Contract Audit、Snapshot 捕获、stub 创建或 DRC 声称实际原理图已经一致。
 
 ## 使用正确事实源
 
@@ -77,7 +107,7 @@ ERC 是已配置连通性证据，不证明拓扑、额定值或系统行为。�
 
 ## 仅在有用时增加人类总览
 
-复杂项目或手工 EDA 协作可从契约和 BOM 派生 `ALL_VIEW.md`（或等效总览），内容可包括元件作用、功能块、可互换引脚以及后续布线计划。同步其版本指针，但对于契约已经易读的小项目，不把该派生文件作为前置条件。
+复杂项目或手工 EDA 协作可从 Contract 和 BOM 派生 `design/ALL_VIEW.md`（或等效总览），内容可包括元件作用、功能块、经过明确评审的可换脚策略以及后续布线计划。同步其版本指针，但对于 Contract 已经易读的小项目，不把该派生文件作为前置条件。
 
 ## 常见陷阱
 

@@ -105,12 +105,21 @@ const contract = {
   exceptions: [],
 };
 
+for (const component of contract.components) {
+  component.bindings = {
+    easyedaPro: {
+      libraryUuid: `lib-${component.designator}`,
+      deviceUuid: `dev-${component.designator}`,
+    },
+  };
+}
+
 const catalog = {
-  U1: { role: 'main-ic', pinCount: 4 },
-  R1: { role: 'passive', near: 'U1' },
-  C1: { role: 'passive', near: 'U1' },
-  U2: { role: 'main-ic', pinCount: 4 },
-  R2: { role: 'passive', near: 'U2' },
+  U1: { role: 'main-ic', pinCount: 24, symbol: { width: 300, height: 500 } },
+  R1: { role: 'passive', near: 'U1', symbol: { width: 120, height: 80 } },
+  C1: { role: 'passive', near: 'U1', symbol: { width: 120, height: 80 } },
+  U2: { role: 'main-ic', pinCount: 28, symbol: { width: 320, height: 560 } },
+  R2: { role: 'passive', near: 'U2', symbol: { width: 120, height: 80 } },
 };
 
 // Test inspect mode
@@ -119,43 +128,56 @@ assert.equal(inspectResult.status, 'inspected');
 assert.equal(inspectResult.blockCount, 2);
 assert.equal(inspectResult.componentCount, 5);
 assert.equal(inspectResult.catalogCoverage.cataloged, 5);
-assert.equal(inspectResult.catalogCoverage.inferred, 0);
+assert.equal(inspectResult.catalogCoverage.explicitGeometry, 5);
+assert.deepEqual(inspectResult.blockOrder, ['block-a', 'block-b']);
 
 // Test generate mode
 const genResult = await layoutAction(null, { mode: 'generate', contract, catalog });
 assert.equal(genResult.status, 'generated');
 assert.equal(genResult.placementCount, 5);
 assert.equal(genResult.netCount, 5);
-assert.ok(genResult.snapshot);
-assert.equal(genResult.snapshot.kind, 'flitrealize.schematic-snapshot');
-assert.equal(genResult.snapshot.schemaVersion, 1);
-assert.equal(genResult.snapshot.components.length, 5);
-assert.equal(genResult.snapshot.nets.length, 5);
+assert.ok(genResult.placementPlan);
+assert.equal(genResult.placementPlan.kind, 'flitrealize.schematic-placement-plan');
+assert.equal(genResult.placementPlan.schemaVersion, 1);
+assert.equal(genResult.placementPlan.components.length, 5);
+assert.equal(genResult.placementPlan.targetProvider, 'easyeda-pro');
 
 // Verify block ordering: block-a (signal) and block-b (power-output) should be ordered
-const u1 = genResult.snapshot.components.find(c => c.designator === 'U1');
-const u2 = genResult.snapshot.components.find(c => c.designator === 'U2');
+const u1 = genResult.placementPlan.components.find(c => c.designator === 'U1');
+const u2 = genResult.placementPlan.components.find(c => c.designator === 'U2');
 assert.ok(u1.position.x !== u2.position.x, 'U1 and U2 should be in different columns');
 
 // Verify R2 connects to U2's FB pin → should be placed to the right
-const r2 = genResult.snapshot.components.find(c => c.designator === 'R2');
+const r2 = genResult.placementPlan.components.find(c => c.designator === 'R2');
 assert.ok(r2.position.x >= u2.position.x, `R2.x=${r2.position.x} should be near U2.x=${u2.position.x}`);
 
 // Verify R1 is near U1 (same x column or adjacent)
-const r1 = genResult.snapshot.components.find(c => c.designator === 'R1');
+const r1 = genResult.placementPlan.components.find(c => c.designator === 'R1');
 assert.ok(Math.abs(r1.position.x - u1.position.x) <= 400, `R1.x=${r1.position.x} should be near U1.x=${u1.position.x}`);
 
-// Verify pins have net assignments
-const u1Pin1 = u1.pins.find(p => p.number === '1');
-assert.equal(u1Pin1.net, 'VBUS');
-const u2Pin2 = u2.pins.find(p => p.number === '2');
-assert.equal(u2Pin2.net, 'GND');
-
 // Verify fingerprints exist
-assert.ok(genResult.snapshot.fingerprints.document.startsWith('fnv1a32-'));
-assert.ok(genResult.fingerprint.startsWith('fnv1a32-'));
+assert.ok(genResult.placementPlan.fingerprints.plan.startsWith('fnv1a32-'));
+assert.ok(genResult.placementPlan.fingerprints.bindings.startsWith('fnv1a32-'));
+assert.ok(genResult.planFingerprint.startsWith('fnv1a32-'));
 
-// Test signal flow ordering: connector block should come before power block
+// The generated symbol rectangles must respect the configured clearance.
+const rectangles = genResult.placementPlan.components.map((component) => ({
+  designator: component.designator,
+  minX: component.position.x - component.extensions.layout.width / 2,
+  maxX: component.position.x + component.extensions.layout.width / 2,
+  minY: component.position.y - component.extensions.layout.height / 2,
+  maxY: component.position.y + component.extensions.layout.height / 2,
+}));
+for (let left = 0; left < rectangles.length; left += 1) {
+  for (let right = left + 1; right < rectangles.length; right += 1) {
+    const a = rectangles[left];
+    const b = rectangles[right];
+    const separated = a.maxX + 40 <= b.minX || b.maxX + 40 <= a.minX || a.maxY + 40 <= b.minY || b.maxY + 40 <= a.minY;
+    assert.ok(separated, `${a.designator} and ${b.designator} must not overlap`);
+  }
+}
+
+// Contract block order is authoritative by default.
 const flowContract = {
   ...contract,
   blocks: [
@@ -169,25 +191,69 @@ const flowContract = {
       identity: { selection: 'exact' }, footprint: { selection: 'exact' },
       pinMapCoverage: 'complete', pins: [{ number: '1', function: 'VBUS', classification: 'power-in' }],
       includeInBom: true, includeInPcb: true,
+      bindings: { easyedaPro: { libraryUuid: 'lib-J1', deviceUuid: 'dev-J1' } },
     },
   ],
 };
 const flowResult = await layoutAction(null, { mode: 'generate', contract: flowContract, catalog });
 assert.equal(flowResult.status, 'generated');
-const j1 = flowResult.snapshot.components.find(c => c.designator === 'J1');
-const u2Flow = flowResult.snapshot.components.find(c => c.designator === 'U2');
-assert.ok(j1.position.x < u2Flow.position.x, `Connector J1.x=${j1.position.x} should be left of U2.x=${u2Flow.position.x} (signal flow)`);
-assert.deepEqual(flowResult.sortedBlockOrder, ['usb-input', 'power-stage']);
+const j1 = flowResult.placementPlan.components.find(c => c.designator === 'J1');
+const u2Flow = flowResult.placementPlan.components.find(c => c.designator === 'U2');
+assert.ok(u2Flow.position.x < j1.position.x, 'Default layout must preserve Contract block order');
+assert.deepEqual(flowResult.sortedBlockOrder, ['power-stage', 'usb-input']);
 
-// Test inspect mode shows block flow types
-const flowInspect = await layoutAction(null, { mode: 'inspect', contract: flowContract, catalog });
-assert.ok(flowInspect.blockFlowTypes.some(b => b.flowType === 'connector'));
-assert.ok(flowInspect.blockFlowTypes.some(b => b.flowType === 'power-output'));
+// An explicit layout block order may override the Contract presentation order.
+const reordered = await layoutAction(null, {
+  mode: 'generate', contract: flowContract, catalog,
+  layout: { blockOrder: ['usb-input', 'power-stage'] },
+});
+const reorderedJ1 = reordered.placementPlan.components.find(c => c.designator === 'J1');
+const reorderedU2 = reordered.placementPlan.components.find(c => c.designator === 'U2');
+assert.ok(reorderedJ1.position.x < reorderedU2.position.x);
+assert.deepEqual(reordered.sortedBlockOrder, ['usb-input', 'power-stage']);
 
 // Test with inferred roles (no catalog)
 const inferredResult = await layoutAction(null, { mode: 'generate', contract, catalog: {} });
 assert.equal(inferredResult.status, 'generated');
 assert.equal(inferredResult.placementCount, 5);
+
+const missingBindingContract = structuredClone(contract);
+delete missingBindingContract.components[0].bindings;
+const missingBindingResult = await layoutAction(null, { mode: 'generate', contract: missingBindingContract, catalog });
+assert.equal(missingBindingResult.status, 'generated-with-blockers');
+assert.ok(missingBindingResult.diagnostics.some((item) => item.code === 'PROVIDER_BINDING_MISSING'));
+
+const externalBindingResult = await layoutAction(null, {
+  mode: 'generate',
+  contract: missingBindingContract,
+  catalog,
+  providerBindings: {
+    U1: { libraryUuid: 'resolved-lib-U1', deviceUuid: 'resolved-dev-U1' },
+  },
+});
+assert.equal(externalBindingResult.status, 'generated');
+assert.equal(
+  externalBindingResult.placementPlan.components.find((component) => component.designator === 'U1').bindings.easyedaPro.deviceUuid,
+  'resolved-dev-U1',
+);
+
+const staleBindingResult = await layoutAction(null, {
+  mode: 'generate',
+  contract,
+  catalog,
+  bindingFingerprint: 'fnv1a32-stale',
+});
+assert.equal(staleBindingResult.status, 'generated-with-blockers');
+assert.ok(staleBindingResult.diagnostics.some((item) => item.code === 'BINDING_FINGERPRINT_MISMATCH'));
+
+const extraBindingResult = await layoutAction(null, {
+  mode: 'generate',
+  contract,
+  catalog,
+  providerBindings: { U99: { libraryUuid: 'lib-U99', deviceUuid: 'dev-U99' } },
+});
+assert.equal(extraBindingResult.status, 'generated-with-blockers');
+assert.ok(extraBindingResult.diagnostics.some((item) => item.code === 'PROVIDER_BINDING_COMPONENT_UNKNOWN'));
 
 // Test missing contract
 await assert.rejects(

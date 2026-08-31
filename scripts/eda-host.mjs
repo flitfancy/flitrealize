@@ -18,6 +18,16 @@ const SUPPORTED_EDAS = new Set(
 const STATE_ROOT = stateRoot();
 const PROFILE_FILE = join(STATE_ROOT, 'host.json');
 
+function edaActionTimeoutMs() {
+  const raw = process.env.FLITREALIZE_EDA_ACTION_TIMEOUT_MS;
+  if (!raw) return 45_000;
+  const value = Number.parseInt(raw, 10);
+  if (!Number.isInteger(value) || value < 1000 || value > 600_000) {
+    throw new Error('FLITREALIZE_EDA_ACTION_TIMEOUT_MS must be an integer between 1000 and 600000');
+  }
+  return value;
+}
+
 function stateRoot() {
   if (process.env.FLITREALIZE_HOME) return resolve(process.env.FLITREALIZE_HOME);
   if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
@@ -173,11 +183,17 @@ async function runControl(arguments_) {
     if (arguments_.requireEda) childArguments.push('--require-eda');
     if (arguments_.windowId) childArguments.push('--window-id', arguments_.windowId);
     if (effectiveCodeFile) childArguments.push('--code-file', effectiveCodeFile);
+    const actionTimeout = edaActionTimeoutMs();
+    const childEnvironment = {
+      ...process.env,
+      EASYEDA_BRIDGE_REQUEST_TIMEOUT_MS: process.env.EASYEDA_BRIDGE_REQUEST_TIMEOUT_MS || String(actionTimeout),
+    };
     const completed = spawnSync(process.execPath, childArguments, {
       cwd: root,
       windowsHide: true,
       encoding: 'utf8',
-      timeout: 45_000,
+      timeout: actionTimeout + 10_000,
+      env: childEnvironment,
     });
     if (completed.error) throw completed.error;
     const result = parseControlOutput(completed);

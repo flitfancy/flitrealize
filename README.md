@@ -6,7 +6,7 @@ FlitRealize is an electronics hardware engineering skill that advances a
 stateful project from requirements and architecture through schematic, PCB,
 prototype ordering, bring-up, and evidence-driven revision.
 
-> Status: **FlitRealize T1** (`v0.1.0-test.10`), the current public test build.
+> Status: **FlitRealize T1** (`v1.0.0-test.1`), the current public test build.
 > It is intended for trusted single-user local development and clean-environment
 > testing, not as a stable release.
 
@@ -76,9 +76,10 @@ flitrealize/
 ```
 
 The release ZIP contains the runtime entrypoint, UI metadata, references,
-versioned schematic Contract/Snapshot schemas, the host/EDA Action runner,
-host-portable provider control, a provider-free schematic contract audit, and
-tested transactional EasyEDA actions for
+versioned schematic Contract/PlacementPlan/Snapshot schemas, the host/EDA
+Action runner, host-portable provider control, a provider-free schematic
+contract audit, public EasyEDA Components/Connect/Finalize workflows, and tested
+transactional EasyEDA actions for
 layer structure, component geometry, functional keepouts, realized copper
 pours, grounding inspection, necessary GND vias, and read-only global stitching
 planning. Author workspaces, machine
@@ -107,6 +108,8 @@ flowchart LR
 | [`stage-gates.md`](references/stage-gates.md) | Entry and exit evidence for each hardware stage |
 | [`continuation.md`](references/continuation.md) | Project isolation and continuation across conversations |
 | [`schematic-contract.md`](references/schematic-contract.md) | Schematic inputs, outputs, review contracts, and evidence |
+| [`parts.md`](references/parts.md) | Portable part intent, inventory matching, sourcing identity, and reserved resolver boundary |
+| [`eda-select.md`](references/eda-select.md) | Lazy EDA Provider selection before loading Provider-specific workflows |
 | [`easyeda-pro.md`](references/easyeda-pro.md) | EasyEDA Pro Provider identity, source evidence, API boundaries, and workflow routing |
 | [`environment.md`](references/providers/easyeda-pro/environment.md) | EasyEDA Pro host Adapter, Bridge, handshake, and pairing flow |
 | [`pcb-foundation.md`](references/providers/easyeda-pro/pcb-foundation.md) | EasyEDA Pro layer, functional-keepout, and realized-copper flow |
@@ -126,7 +129,7 @@ python scripts/package_release.py
 npm test
 ./scripts/release.ps1 -DryRun
 # After reviewing and explicitly staging the intended files:
-./scripts/release.ps1 -Publish -Message "feat: release FlitRealize T1 v0.1.0-test.10"
+./scripts/release.ps1 -Publish -Message "feat: release FlitRealize T1 v1.0.0-test.1"
 ```
 
 The package command creates a deterministic ZIP and SHA-256 sidecar under

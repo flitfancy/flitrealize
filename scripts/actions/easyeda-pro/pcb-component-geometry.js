@@ -46,15 +46,18 @@ return await (async () => {
 
   async function bboxWithTimeout(primitiveId) {
     if (typeof eda?.pcb_Primitive?.getPrimitivesBBox !== 'function') return { status: 'unsupported', value: null };
+    let timeoutId;
     try {
       const value = await Promise.race([
         eda.pcb_Primitive.getPrimitivesBBox([primitiveId]),
-        new Promise((resolve) => setTimeout(() => resolve('__timeout__'), 2000)),
+        new Promise((resolve) => { timeoutId = setTimeout(() => resolve('__timeout__'), 2000); }),
       ]);
       if (value === '__timeout__') return { status: 'timeout', value: null };
       return { status: value ? 'ok' : 'empty', value: clone(value) };
     } catch (error) {
       return { status: 'error', value: null, error: error.message };
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
