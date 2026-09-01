@@ -1,76 +1,92 @@
 # Action and EDA Provider development
 
-Read this document only when changing the Action runner, Action manifest, an existing Provider, or implementing another EDA Provider.
+Read this document only when changing the Action runner, Action manifest, an existing Provider, or implementing a new EDA Provider.
 
-Normal hardware design and ordinary EDA operation do not need it.
+Ordinary hardware design and normal EDA operation do not need it.
 
 ## System boundary
 
-`SchematicContract` stores design intent that is independent of EDA.
+`SchematicContract` stores design intent that is independent of a specific EDA.
 
-An EDA Provider maps that intent to native libraries and part identity, pins and nets, document objects and geometry, plus writes, saves, and readback.
+An EDA Provider maps that intent into the target EDA's library and part identity, pins and nets, document objects and geometry, and write, save, and readback results.
 
-Action plans, snapshots, and reports are execution artifacts, not another project database. Stable intent remains in the project Contract and EDA source.
+Action plans, snapshots, and reports are execution artifacts, not a project database.
 
-## Actions and workflows
+Stable results belong in:
 
-`scripts/actions/manifest.json` registers executable Actions and workflows.
+- the Contract or corresponding machine artifact;
+- EDA source;
+- manufacturing or test artifacts;
+- the corresponding human-readable section of `CURRENT_HANDOFF.md`.
 
-An Action is independently runnable and verifiable. A workflow only gives an order for existing Actions; it does not define another general workflow language.
+## Actions and Workflows
 
-An internal Action may be hidden from normal discovery but must remain registered, callable by exact name, explicit about input and output, and independently testable.
+`scripts/actions/manifest.json` registers executable Actions and Workflows.
 
-Do not register an unimplemented Provider, Action, or workflow.
+An Action is an operation that can run and be verified independently.
+
+A Workflow describes the order of existing Actions. It does not create another general workflow language.
+
+An internal Action may be hidden from ordinary discovery, but it still has:
+
+- a manifest registration;
+- an exact callable name;
+- explicit input and output;
+- independent tests.
+
+Register only implemented Providers, Actions, and Workflows.
 
 ## Add a Provider
 
-A new Provider need not imitate EasyEDA internals, but it should support the real capabilities required by its workflow, including:
+A new EDA Provider does not need to imitate EasyEDA internally, but it should support the capabilities required by its workflow:
 
-1. detect the environment and available capabilities;
-2. map portable intent to native parts, pins, and document objects;
-3. read actual document state;
-4. apply a bounded edit to target objects;
-5. read results back through native IDs or equivalent identity;
-6. return success, unsupported, or unknown state explicitly.
+1. Detect the current environment and capabilities.
+2. Map portable design into native parts, pins, and document objects.
+3. Read actual document state.
+4. Make bounded changes to target objects.
+5. Read back results by native ID or equivalent identity.
+6. Return success, unsupported, or unknown state explicitly.
 
-Add a Provider to the public manifest only after it completes at least one real operation with corresponding tests. An empty directory, placeholder Adapter, or mock that always succeeds is not Provider support.
+Add a Provider to the public manifest after at least one real operation and its corresponding tests exist.
 
 ## Write transactions
 
-When recovery has real value, use:
+When recovery has practical value, use:
 
 ```text
-inspect → plan → apply → verify
+inspect -> plan -> apply -> verify
 ```
 
-Before applying, confirm that the target document and related objects still match the plan. Read actual state again after manual edits, reopening, or a long interruption.
+Before execution, confirm the target document and related objects still match the plan. Read actual state again after manual edits, reopening the document, or a long interruption.
 
-After writing, read the target objects directly and confirm both the requested increment and preservation of existing objects. Saving is separate and explicit. Do not claim rollback for an operation that cannot truly restore state.
+After a write, read back the target objects to confirm the requested increment and check that existing objects were not overwritten unexpectedly.
 
-Report completed, unsupported, unknown, actual blocker, and verified coverage separately.
+Saving is a separate operation. Do not claim rollback for an operation that cannot actually be restored.
 
 ## Temporary run files
 
-One execution may use:
+Inputs, Bridge fragments, and reports from one execution may live under:
 
 ```text
 .flitrealize/runs/<run-id>/
 ```
 
-These files serve only the current transaction. Remove the run after completion and reconciliation when recovery is no longer needed. Move any durable design, evidence, or manufacturing artifact into the project's normal directories and reference it from `CURRENT_HANDOFF.md` or the owning stage artifact.
+They serve only the current transaction. Delete the run after execution completes and recovery is no longer needed.
 
-`.flitrealize/runs` must not be the only copy of stable design intent, EDA source, or validation evidence.
+Stable design, EDA source, and retained validation evidence belong in the project's normal directories. Synchronize results that affect project judgment into the corresponding section of `CURRENT_HANDOFF.md`.
 
-## Extend and maintain
+`.flitrealize/runs` never owns the only copy of a stable artifact.
 
-Add an Action or workflow only when repeated work materially reduces errors or effort.
+## Extension and maintenance
+
+Add an Action or Workflow only when the repeated operation materially reduces errors or work.
 
 When changing an implementation:
 
-1. start from a real failure or repeated need;
-2. reduce it to a reproducible input;
-3. change the smallest module that owns the behavior;
-4. add a test that observes the real result;
-5. retain explicit unsupported boundaries.
+1. Ground the problem in a real failure or repeated need.
+2. Reduce it to reproducible input.
+3. Change the smallest module that owns the behavior.
+4. Add a test that observes the actual result.
+5. Preserve the remaining unsupported scope.
 
-Value comes from reliable reuse, rejection of stale operations, and verified results, not from Action count.
+The system's value comes from reliable reuse, rejection of stale operations, and verification of real results, not from Action count.

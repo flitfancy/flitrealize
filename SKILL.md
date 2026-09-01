@@ -1,148 +1,165 @@
 ---
 name: flitrealize
-description: Advance stateful electronics hardware projects from ideas, requirements, and part selection through schematic, PCB, manufacturing files, bring-up, and revision. Use for project-level EDA work or cross-task continuation; do not use for software-only work, isolated component facts, textbook questions, or one-step EDA guidance that needs no project state.
+description: Advance stateful electronics hardware projects from ideas, requirements, and part selection through schematic, PCB, manufacturing files, prototype bring-up, and revision. Use for project-level EDA work or cross-task continuation; do not use for software-only work, isolated component facts, textbook questions, or one-step EDA guidance that needs no project state.
 ---
 
 # FlitRealize
 
 ## Goal
 
-Complete the hardware work the user currently asks for, and keep the project moving from an idea toward a testable physical prototype.
+Complete the hardware work the user currently requests and keep moving the idea toward a testable physical prototype.
 
-The workflow covers a full project, but each task advances only the requested stage. Do not expand later stages or create their files before they are needed.
+The workflow covers a complete project, but each task advances only the stage the user requested. Every project uses one `CURRENT_HANDOFF.md` as its human-readable project manuscript, updated continuously across requirements, parts, schematic, PCB, manufacturing, and prototype validation.
 
-## Project and permissions
+## Project entry
 
-- **NEW_PROJECT:** Use only when the user explicitly asks for a new or independent project. Do not inherit design choices, parts, calculations, or EDA state from another project.
-- **EXISTING_PROJECT:** Continue an identified project. Read `CURRENT_HANDOFF.md` only when the task depends on earlier project decisions. Use `DEBUG_NOTES.md` only for an active fault that still needs repeated experiments.
+- **NEW_PROJECT:** Start an independent project in the root specified by the user and create `CURRENT_HANDOFF.md` from the current requirements. Do not inherit design, part, calculation, or EDA state from another project.
+- **EXISTING_PROJECT:** Continue an identified project. Read `CURRENT_HANDOFF.md` first. If it does not exist, reconstruct the first project manuscript from the current project's design, part, EDA, manufacturing, and test artifacts.
 
-The user's current request defines the goal, scope, and authorization.
+The user's current request defines the objective, scope, and authorization.
 
-Make changes within the current task directly, including EDA writes the user has already authorized. Ask only when the write target cannot be identified uniquely or an actual conflict cannot be merged safely.
+Make changes within the current task, including authorized EDA writes, directly. Ask only when the write target cannot be identified uniquely or an actual conflict cannot be merged safely.
 
-Ordering, payment, inventory reservation, or any other new external commitment requires explicit authorization for that action.
+Placing an order, paying, reserving inventory, or making another new external commitment requires authorization for that action.
 
-Initialize only the structure needed by the current task. Read [4.1 Manufacturing files and prototype ordering](references/4.1-production-handoff.md) when preparing manufacturing files or a prototype order.
+## Project manuscript
+
+`CURRENT_HANDOFF.md` provides the human-readable view of the current project, including:
+
+- the current objective, stage, and next step;
+- requirements, architecture, interfaces, and power relationships;
+- part decisions and source status;
+- schematic blocks, pin/net intent, key calculations, and test points;
+- PCB constraints, layout, routing, and manufacturing state;
+- prototype measurements, revision conclusions, and current open questions.
+
+For an ordinary task, read the current handoff at the top and the sections relevant to the request, then read the machine artifacts that own the corresponding facts. When the current stage produces stable results, update its section and the current handoff.
+
+The manuscript describes the current design. It does not accumulate chat transcripts, complete logs, or obsolete alternatives.
+
+The Contract, EDA source, manufacturing outputs, and raw test records continue to own their respective machine facts. The manuscript organizes those facts into one continuous, reviewable project description.
 
 ## Full workflow
 
 ```text
 Idea and requirements
-    → architecture, interfaces, and part intent
-    → part resolution and confirmation
-    → schematic design
-    → EDA schematic
-    → PCB constraints, placement, and routing
-    → manufacturing files and ordering
-    → prototype bring-up and testing
-    → revision
+    -> architecture, interfaces, and part intent
+    -> part resolution and confirmation
+    -> schematic design
+    -> EDA schematic
+    -> PCB constraints, layout, and routing
+    -> manufacturing files and ordering
+    -> prototype bring-up and testing
+    -> revision
 ```
 
-When the user asks for only one part of this flow, complete that part and stop.
+When the user requests only part of this workflow, complete that part and stop.
 
-Part selection and schematic intent remain independent of a specific EDA platform. EasyEDA, KiCad, and other EDA tools are later Providers. Missing bindings for one platform must not block portable design or part confirmation.
+Part selection and schematic intent can be completed independently of a specific EDA platform. EasyEDA, KiCad, or another EDA becomes a Provider when the design enters the actual tool. Missing bindings for one platform do not prevent requirements, part work, and portable schematic design from continuing.
 
-## Working mode
+## Working modes
 
-Proceed in **DEFAULT_MODE** unless one specific decision needs deeper investigation.
+Ordinary work uses `DEFAULT_MODE` and completes the current stage directly with a concise, reliable process.
 
-Enter **CURIOUS_MODE** only for the affected item when:
+Enter **CURIOUS_MODE** only for the affected local decision when:
 
-- the exact model, suffix, pinout, package, or a critical parameter lacks reliable support or conflicts across sources;
-- the decision depends on curves, transients, temperature rise, derating, or mechanical timing that a normal parameter table cannot answer;
-- ordinary sources and calculations still cannot show whether a stated core requirement is met;
-- the part explicitly provides protection, isolation, or fault shutdown in the architecture;
+- the exact model, suffix, pinout, package, or critical parameter lacks reliable support or sources conflict;
+- the decision depends on curves, transients, temperature rise, derating, mechanical timing, or behavior not answered directly by an ordinary parameter table;
+- available sources and ordinary calculations still cannot determine whether a specific core requirement is met;
+- a part explicitly owns protection, isolation, or fault shutdown in the requirements or architecture;
 - the user asks for deeper verification.
 
-In CURIOUS_MODE, read the current manufacturer material for the exact part and inspect only the worst cases, pin mapping, default states, and fault behavior relevant to the question. Treat reliable manufacturer and authorized-distributor material as usable by default; add source comparison only when evidence is missing or contradictory.
+In CURIOUS_MODE, read current manufacturer material for the exact part and inspect only the worst cases, pin correspondence, default state, and fault behavior relevant to the question. Reliable manufacturer and authorized-distributor sources may be used directly. Add source comparison only when information is missing or conflicting.
 
-Return to DEFAULT_MODE once the question is resolved or converted into a clear prototype test. CURIOUS_MODE stays local to the affected question and does not create extra reports, states, or files by itself.
+Return to DEFAULT_MODE when the question is resolved or converted into an explicit test. CURIOUS_MODE remains local to the affected issue and does not create extra reports or process for the rest of the project.
 
 ## Three main stages
 
 ### 1. Design and schematic
 
-Clarify requirements, architecture, interfaces, power relationships, and part intent. Then confirm the parts and schematic details needed by the current design.
+Organize product requirements, establish the functional architecture, power tree, and interface relationships, confirm the main parts, then complete the schematic design, key calculations, pin/net intent, and prototype test intent.
 
-Gaps that do not affect architecture, part choice, or connectivity may become prototype tests. Before writing the finished schematic into EDA, confirm the evidence that affects part identity, pins, ratings, and protection behavior.
+Ordinary gaps that do not affect architecture, part selection, or connections may remain as explicit prototype tests. Before writing into EDA, confirm the key sources that affect part identity, pins, ratings, and protection behavior.
 
 ### 2. PCB and manufacturing preparation
 
-When PCB work is requested, establish the outline, interface locations, stackup, net rules, and important placement constraints, then complete placement, routing, copper, and DRC.
+Use the schematic and product structure to determine the board outline, interface positions, stackup, functional partitioning, net rules, and critical topologies, then complete placement, routing, copper, and DRC.
 
-When manufacturing or ordering is requested, pair the current saved source with its Gerber, drill, BOM, CPL, and board-house preview as applicable.
+When preparing manufacturing outputs, keep the saved source aligned with Gerber, drill, BOM, CPL, and the fabricator preview.
 
 ### 3. Prototype validation and revision
 
-When hardware is available, inspect the assembly and unpowered rails before applying power through a conservative current limit. Verify power rails first, then enable functional blocks and test the loads, power cycles, and fault behavior the product actually needs.
+When hardware arrives, inspect the assembly and unpowered rails, then power it through a conservative current limit. Verify the rails first, enable blocks in stages, and test the loads, power transitions, and fault behavior that matter to the product.
 
-Use measured results to accept the current design or define the next revision.
+Use measurements to confirm the current design or define the next revision. Update the manuscript section that owns each conclusion.
 
-## Tools and EDA entry
+## Tools
 
-Before repeated work or EDA writes, check whether the Skill already provides a suitable script, Action, or Provider. Reuse it when it fits. When repetition clearly benefits from automation, validate one representative object before scaling.
+AI owns requirements, architecture, circuit design, key calculations, part judgment, and cross-stage organization.
 
-Keep requirements, architecture, part selection, and the schematic Contract portable. Select an EDA Provider only when the task needs an EDA file to be created or changed:
+Scripts own repeatable work such as:
 
-- Use the Provider the user already specified.
-- Continue with the Provider of an existing authoritative EDA source unless the user requests migration.
-- If no EDA has been selected, finish the portable design first and choose only when EDA work begins.
-- If the selected EDA has no working Provider, preserve the portable artifacts and describe the manual remainder. Do not create placeholder support.
+- source retrieval and download;
+- local caching and inventory matching;
+- format conversion and deduplication;
+- Contract checks;
+- EDA placement, connection, readback, and other repetitive operations.
 
-After selecting a Provider, read only its entrypoint and the operation needed by the current stage.
+Use an existing script, Action, or Provider when it fits the current stage. Before scaling a batch operation over unfamiliar objects, validate one representative object.
+
+## Entering EDA
+
+Requirements, architecture, part selection, and the schematic Contract remain independent of a specific EDA. Select a Provider only when the task needs to create or modify EDA files:
+
+- use the Provider named by the user;
+- continue with the Provider that owns an existing project's authoritative EDA source unless the user requests migration;
+- finish the portable design first when no EDA has been selected;
+- when the selected EDA has no usable Provider, preserve the completed design artifacts and state which work remains manual.
+
+After selecting a Provider, read only its entry reference and the workflow needed for the current operation.
 
 Currently implemented:
 
-- EasyEDA Pro: [EasyEDA Pro Provider](references/0.3-easyeda-pro.md)
+- EasyEDA Pro: [0.3-easyeda-pro.md](references/0.3-easyeda-pro.md)
 
-When one Provider operation fails for a clear reason, correct it and continue. Only when the same problem needs repeated observation or experiments should that problem enter CURIOUS_MODE and use [0.2 Repeated-failure debugging](references/0.2-debug-loop.md).
+If a failure has an understood cause, correct it and continue. Read [0.2-debug-loop.md](references/0.2-debug-loop.md) only when the same problem needs multiple rounds of observation or experiment.
 
-## Global notes
+## Shared principles
 
-- Project artifacts, exact datasheets, and current platform documentation own technical facts.
-- Other projects may provide ideas, but the current project's parts, calculations, and connections must be confirmed against its own requirements and evidence.
-- AI owns requirements, architecture, circuit decisions, key calculations, and final part judgment. Scripts own retrieval, download, caching, inventory matching, format conversion, deduplication, and repeated EDA operations.
-- Electrical identity, purchasing identity, source evidence, and EDA binding are separate facts and do not replace one another.
-- Use the script, Action, or Provider already supplied for the current stage before creating a one-off implementation.
-- Validate one representative object before scaling an unfamiliar or repeated operation.
-- Do not create state, reports, or project files for a stage the project has not entered.
-- When the user requests regulatory, compliance, or formal release conclusions, check the current applicable standards and required professional evidence. This Skill is not release evidence by itself.
+- Current project materials, exact datasheets, and current platform documentation own technical facts.
+- Other projects may provide ideas, but parts, calculations, and connections for this project are confirmed from its current requirements and sources.
+- A part's electrical identity, purchasing identity, source evidence, and EDA binding are recorded separately and do not substitute for one another.
+- When the manuscript and a machine artifact disagree, read the current artifact that owns the fact and reconcile them.
+- Do not expand stages the user has not requested.
+- When the user asks for regulatory, compliance, or formal-release conclusions, check current applicable standards and required professional evidence. This Skill is not itself release evidence.
 
-## Save project state
+## Continuation and debugging
 
-Create or update `CURRENT_HANDOFF.md` at the project root only when the project must continue across tasks or conversations.
+For ordinary continuation, use [0.1-continuation.md](references/0.1-continuation.md) to read and update `CURRENT_HANDOFF.md`.
 
-It stores only the currently valid project identity, major decisions, confirmed facts, important open items, authoritative files, and next step. It is not a full history.
+Use `DEBUG_NOTES.md` and read [0.2-debug-loop.md](references/0.2-debug-loop.md) only when one active fault needs multiple experiments. When it stabilizes, update the affected manuscript section and end the debug record.
 
-Read [0.1 Continue an existing project](references/0.1-continuation.md) when resuming work.
+## Load stage details on demand
 
-Use `DEBUG_NOTES.md` and read [0.2 Repeated-failure debugging](references/0.2-debug-loop.md) only when one active fault needs multiple experiments. Merge a stable result back into the current project state.
-
-## Load details by stage
-
-Read only what the current task needs. The numbered map is in [0.0 Reference map](references/0.0-overview.md).
+Read only the documents needed for the current task. The stage map is in [0.0-overview.md](references/0.0-overview.md).
 
 - Requirements, functional blocks, interfaces, and power architecture:
-  [1.1 Requirements and architecture](references/1.1-requirements-and-architecture.md)
-- Part intent, inventory matching, and source retrieval:
-  [1.2 Parts and source material](references/1.2-parts.md)
+  [1.1-requirements-and-architecture.md](references/1.1-requirements-and-architecture.md)
+- Part intent, inventory matching, and source resolution:
+  [1.2-parts.md](references/1.2-parts.md)
 - Schematic design and the machine-readable Contract:
-  [2.1 Schematic design and Contract](references/2.1-schematic-contract.md)
+  [2.1-schematic-contract.md](references/2.1-schematic-contract.md)
 - EasyEDA Pro Provider:
-  [0.3 EasyEDA Pro Provider](references/0.3-easyeda-pro.md)
-- PCB design, placement, routing, and checks:
-  [3.1 PCB design and review](references/3.1-pcb-review.md)
+  [0.3-easyeda-pro.md](references/0.3-easyeda-pro.md)
+- PCB design, placement, routing, and review:
+  [3.1-pcb-review.md](references/3.1-pcb-review.md)
 - Audio design:
-  [1.3 Audio hardware design](references/1.3-audio-systems.md)
-- Prototype bring-up and validation:
-  [5.1 Prototype bring-up, testing, and revision](references/5.1-prototype-validation.md)
-- Active repeated debugging:
-  [0.2 Repeated-failure debugging](references/0.2-debug-loop.md)
-- Cross-task continuation:
-  [0.1 Continue an existing project](references/0.1-continuation.md)
+  [1.3-audio-systems.md](references/1.3-audio-systems.md)
 - Manufacturing files and prototype ordering:
-  [4.1 Manufacturing files and prototype ordering](references/4.1-production-handoff.md)
+  [4.1-production-handoff.md](references/4.1-production-handoff.md)
+- Prototype bring-up and validation:
+  [5.1-prototype-validation.md](references/5.1-prototype-validation.md)
 - Productization and formal release:
-  [6.1 Productization and formal release](references/6.1-production-release.md)
+  [6.1-production-release.md](references/6.1-production-release.md)
 
 Stop loading references once the current task has enough support to continue or finish.

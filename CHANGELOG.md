@@ -4,6 +4,36 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+## [1.0.0-test.3] - 2026-09-01
+
+This release consolidates the project's human-readable design and continuation
+state into one `CURRENT_HANDOFF.md` that follows the hardware from requirements
+through parts, schematic, PCB, manufacturing, and prototype validation.
+
+### Changed
+
+- Reworked the main Skill around one project manuscript while keeping the
+  Contract, EDA source, manufacturing outputs, and raw test records as the
+  owners of their respective machine facts.
+- Rewrote the continuation, requirements, parts, schematic, PCB, manufacturing,
+  validation, and release references so each stage updates only its own section
+  of the project manuscript.
+- Allowed confirmed schematic blocks to enter EDA independently while unresolved
+  blocks remain visible in the manuscript, avoiding an unnecessary whole-project
+  gate.
+- Kept `DEFAULT_MODE` as the ordinary direct path and limited `CURIOUS_MODE` to
+  the local decision that needs deeper evidence.
+- Synchronized the English runtime documents and Chinese review mirrors, including
+  source hashes and the maintainer Action-system documentation.
+
+### Validation status
+
+- Repository validation, all 18 Node Action tests, all 16 Python release tests,
+  Skill validation, deterministic packaging, and clean-archive smoke testing are
+  covered by the release workflow.
+- Live EDA behavior and physical hardware remain practical validation work; this
+  documentation release does not claim new board-level evidence.
+
 ## [1.0.0-test.2] - 2026-09-01
 
 This release simplifies FlitRealize around the hardware work the user actually
