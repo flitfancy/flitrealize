@@ -4,7 +4,7 @@
 
 FlitRealize 是一个面向完整硬件项目的 Skill，用来把想法持续推进到可测试的实物。它让需求、器件决策、原理图意图、PCB、样机结果和后续改版保持在同一个项目上下文中，同时不会要求每个项目一开始就走完整套流程。
 
-> 当前公开测试版本：**FlitRealize T1 `v1.0.0-test.1`**。它仍是预发布版本，适合实际试用和持续迭代。
+> 当前公开测试版本：**FlitRealize T1 `v1.0.0-test.2`**。它仍是预发布版本，适合实际试用和持续迭代。
 
 ## 它能做什么
 
@@ -107,8 +107,11 @@ $flitrealize 检查当前原理图，只列出会改变连接、额定值、保�
 flitrealize/
 ├── SKILL.md            # 运行入口和全流程路由
 ├── references/         # 按需加载的阶段和 Provider 细节
+├── development/        # 仅供维护者使用的 Action 与 Provider 说明
 ├── schemas/            # 可移植的机器可读硬件契约
-├── scripts/            # 已注册 Action、校验和打包工具
+├── scripts/            # Action、物料工具、校验和打包
+│   ├── actions/        # 已注册的 Host 与 EDA Action
+│   └── parts/          # 器件资料解析器
 ├── tests/              # Action 与发布回归测试
 └── docs/zh-CN/         # 中文审阅镜像
 ```

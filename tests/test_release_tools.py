@@ -36,18 +36,22 @@ class RuntimePackagingTests(unittest.TestCase):
             packaged,
         )
 
+    def test_part_resolver_is_packaged(self) -> None:
+        packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
+        self.assertIn("scripts/parts/parts-resolver.mjs", packaged)
+
     def test_nested_provider_references_are_packaged(self) -> None:
         packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
         self.assertIn(
-            "references/providers/easyeda-pro/environment.md",
+            "references/providers/easyeda-pro/0.4-environment.md",
             packaged,
         )
         self.assertIn(
-            "references/providers/easyeda-pro/pcb-foundation.md",
+            "references/providers/easyeda-pro/3.2-pcb-foundation.md",
             packaged,
         )
         self.assertIn(
-            "references/providers/easyeda-pro/pcb-grounding.md",
+            "references/providers/easyeda-pro/3.3-pcb-grounding.md",
             packaged,
         )
 

@@ -28,6 +28,7 @@ def runtime_files() -> list[Path]:
         ROOT / "scripts/eda-host.mjs",
         ROOT / "scripts/actions/manifest.json",
         *sorted((ROOT / "scripts/actions").rglob("*.js")),
+        *sorted((ROOT / "scripts/parts").rglob("*.mjs")),
         *sorted((ROOT / "schemas").glob("*.json")),
         *sorted((ROOT / "references").rglob("*.md")),
     ]

@@ -4,6 +4,55 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+## [1.0.0-test.2] - 2026-09-01
+
+This release simplifies FlitRealize around the hardware work the user actually
+requested. The main Skill now owns the whole-flow route and shared behavior,
+while numbered references own the details of each stage.
+
+### Added
+
+- Added a numbered reference map from project continuation and requirements
+  through schematic, PCB, manufacturing, prototype validation, and formal
+  release.
+- Added a lightweight parts resolver that checks a shared local database first,
+  retrieves missing LCSC product metadata and PDFs when available, records a
+  small manifest, and returns a focused lookup request when an exact source
+  cannot be resolved automatically.
+- Added a requirements-and-architecture reference and a maintainer-only Action
+  system note so runtime guidance and implementation details remain separate.
+
+### Changed
+
+- Rewrote the main Skill around direct `DEFAULT_MODE` execution and local
+  `CURIOUS_MODE` investigation without adding project-wide gates or reports.
+- Reorganized and rewrote the English references and Chinese review mirrors by
+  hardware stage, with shorter routing and clearer ownership between design,
+  EDA, manufacturing, and validation.
+- Simplified project continuation, debugging, evidence, and authorization rules
+  so ordinary in-scope work can continue without ceremonial state management.
+- Clarified the PCB sequence as two passes through physical foundation: establish
+  layers, outline, and keepouts before layout; then rebuild and confirm reference
+  copper before grounding and final review.
+- Kept part selection and schematic intent portable while routing EasyEDA Pro
+  work only through the relevant Provider reference.
+- Updated the public README and Skill metadata to match the new workflow and
+  package layout.
+
+### Removed
+
+- Removed the old unnumbered reference set and duplicated Action-system details
+  from the runtime path.
+- Removed broad requirements for lifecycle paperwork, repeated evidence labels,
+  and extra state files during ordinary prototype work.
+
+### Validation status
+
+- Repository validation, Node Action tests, Python release tests, deterministic
+  packaging, and clean-archive smoke tests are part of the release workflow.
+- Real hardware behavior and live end-to-end EDA use remain practical test work
+  for this prerelease; this release does not claim physical prototype validation.
+
 ## [1.0.0-test.1] - 2026-08-31
 
 ### Added

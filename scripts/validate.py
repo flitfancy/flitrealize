@@ -13,7 +13,7 @@ from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parents[1]
 TEXT_SUFFIXES = {".js", ".json", ".md", ".mjs", ".py", ".ps1", ".txt", ".yaml", ".yml"}
-IGNORED_PARTS = {".git", "dist", "__pycache__"}
+IGNORED_PARTS = {".git", ".flitrealize", "dist", "__pycache__"}
 
 
 class Checks:

@@ -7,7 +7,7 @@ electronics. It keeps requirements, part decisions, schematic intent, PCB work,
 prototype results, and revisions connected without forcing every project through
 the entire process at once.
 
-> Current public test build: **FlitRealize T1 `v1.0.0-test.1`**. It is still a
+> Current public test build: **FlitRealize T1 `v1.0.0-test.2`**. It is still a
 > prerelease and is intended for practical testing and iteration.
 
 ## What it does
@@ -15,7 +15,7 @@ the entire process at once.
 ```text
 Idea and requirements
     -> architecture, interfaces, and part intent
-    -> part resolution and approval
+    -> part resolution and confirmation
     -> schematic design
     -> EDA schematic
     -> PCB constraints, placement, and routing
@@ -149,8 +149,11 @@ require explicit authorization for that action.
 flitrealize/
 ├── SKILL.md            # Runtime entrypoint and whole-flow routing
 ├── references/         # Stage and Provider details loaded on demand
+├── development/        # Maintainer-only Action and Provider notes
 ├── schemas/            # Portable machine-readable hardware contracts
-├── scripts/            # Registered Actions, validation, and packaging
+├── scripts/            # Actions, part tools, validation, and packaging
+│   ├── actions/        # Registered host and EDA Actions
+│   └── parts/          # Part source resolver
 ├── tests/              # Action and release regressions
 └── docs/zh-CN/         # Chinese review mirrors
 ```

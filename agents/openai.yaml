@@ -1,4 +1,4 @@
 interface:
   display_name: "FlitRealize T1"
-  short_description: "Advance and verify electronics hardware projects"
-  default_prompt: "Use $flitrealize to lock project identity and authorized scope, classify intent and evidence, then advance the next hardware decision with the lightest reliable process."
+  short_description: "Advance electronics hardware from design to prototype"
+  default_prompt: "Use $flitrealize to advance the user's current hardware stage directly, loading only the relevant reference and using CURIOUS_MODE only for a local unresolved question."

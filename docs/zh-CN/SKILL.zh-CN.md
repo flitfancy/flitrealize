@@ -4,8 +4,8 @@ description: 推进有持续状态的电子硬件项目，从想法、需求和�
 ---
 
 > 本文件是英文主执行文件 [SKILL.md](../../SKILL.md) 的中文只读镜像，供人工阅读和审阅。实际执行仍以英文源文件为准。
-> 同步日期：2026-08-31（Asia/Shanghai）
-> 英文源文件 SHA-256：`361435F033FB53B6E9B92EC2A20B97A3BD08290B32864B6532DF109C375CA9F4`
+> 同步日期：2026-09-01（Asia/Shanghai）
+> 英文源文件 SHA-256：`DB363D05011BD870CFD65DCFBDE22851970F52EE619180D1619C4AF6DF2947A2`
 
 # FlitRealize
 
@@ -18,7 +18,7 @@ description: 推进有持续状态的电子硬件项目，从想法、需求和�
 ## 项目和权限
 
 - **NEW_PROJECT：**仅当用户明确要求新建或独立项目时使用，不继承其他项目的设计、器件、计算或 EDA 状态。
-- **EXISTING_PROJECT：**继续已识别的项目。只有当前任务依赖以前的项目决策时，才读取 `CURRENT_HANDOFF.md`；`BATTLE_LOG.md` 只用于仍在反复实验的活动故障。
+- **EXISTING_PROJECT：**继续已识别的项目。只有当前任务依赖以前的项目决策时，才读取 `CURRENT_HANDOFF.md`；`DEBUG_NOTES.md` 只用于仍在反复实验的活动故障。
 
 用户当前请求决定目标、范围和授权。
 
@@ -26,7 +26,7 @@ description: 推进有持续状态的电子硬件项目，从想法、需求和�
 
 下单、付款、预留库存或其他会产生新外部承诺的操作，需要获得该次明确授权。
 
-初始化项目或准备采购、制造交付时，读取 [production-handoff.md](references/production-handoff.md)。
+新项目只初始化当前任务需要的结构。准备制造文件或原型下单时，读取 `4.1-production-handoff.md`。
 
 ## 全流程
 
@@ -82,13 +82,32 @@ description: 推进有持续状态的电子硬件项目，从想法、需求和�
 
 把测量结果用于确认当前设计或形成下一版修改。
 
+## 使用工具与进入 EDA
+
+开始重复操作或 EDA 写入前，先检查 Skill 是否已有对应脚本、Action 或 Provider。能够直接复用时不重新实现；重复操作明显适合自动化时，先验证一个代表对象，再扩大到完整任务。
+
+需求、架构、器件选择和原理图契约应尽量保持与具体 EDA 无关。只有任务需要创建或修改 EDA 文件时，才确定 EDA Provider：
+
+- 用户已经指定 EDA 时，直接使用对应 Provider；
+- 现有项目已经有 EDA 源文件时，继续使用该 EDA，除非用户要求迁移；
+- 用户尚未选择 EDA 时，先完成可移植设计，在真正进入 EDA 前再确认；
+- 当前 EDA 没有可用 Provider 时，保留已经完成的可移植制品，并说明需要手工完成的部分，不建立占位支持。
+
+选定 Provider 后，只读取它的入口和当前阶段需要的操作文档。
+
+当前已实现：
+
+- EasyEDA Pro：[EasyEDA Pro Provider](references/0.3-easyeda-pro.md)
+
+Provider 操作一次失败且原因明确时，直接修正并继续。只有同一问题需要经过多轮观察或实验才能判断时，才对该问题进入 CURIOUS_MODE，并读取 [0.2-debug-loop.md](references/0.2-debug-loop.md)。
+
 ## 全局注意事项
 
 - 项目资料、准确数据手册和当前平台文档决定技术事实。
 - 其他项目只能作为参考；当前项目的器件、计算和连接必须由当前需求或资料重新确认。
 - AI 负责需求、架构、电路设计、关键计算和最终器件判断；脚本负责检索、下载、缓存、库存匹配、格式转换、去重和重复 EDA 操作。
 - 器件的电气身份、采购身份、资料来源和 EDA 绑定分别记录，不互相代替。
-- 需要检索、转换或重复操作时，先按当前阶段查询已注册的公共 Action，不遍历脚本目录。没有匹配 Action 时再采用一次性实现。
+- 需要检索、转换或重复操作时，先使用当前阶段已经提供的脚本、Action 或 Provider。没有合适工具时再采用一次性实现。
 - 陌生或重复操作在批量执行前，先验证一个代表对象。
 - 不为未进入的阶段创建额外状态、报告或项目文件。
 - 用户要求法规、合规或正式发布结论时，核对当前适用标准和需要的专业证据；本 Skill 本身不构成发布证明。
@@ -99,31 +118,35 @@ description: 推进有持续状态的电子硬件项目，从想法、需求和�
 
 它只保存当前仍然有效的项目身份、主要决策、已确认事实、重要未决项、权威文件和下一步，不保存完整历史。
 
-需要续接项目时读取 [continuation.md](references/continuation.md)。
+需要续接项目时读取 [0.1-continuation.md](references/0.1-continuation.md)。
 
-只有一个活动故障需要多轮实验时，才使用 `BATTLE_LOG.md` 并读取 [debug-loop.md](references/debug-loop.md)。问题稳定后，把结论合并回当前项目状态。
+只有一个活动故障需要多轮实验时，才使用 `DEBUG_NOTES.md` 并读取 [0.2-debug-loop.md](references/0.2-debug-loop.md)。问题稳定后，把结论合并回当前项目状态。
 
 ## 按阶段加载详细说明
 
 只读取当前任务真正需要的文档：
 
+中文参考的阶段关系与逐份重写状态见 [0.0-overview.md](references/0.0-overview.md)。
+
+- 需求、功能块、接口和电源架构：
+  [1.1-requirements-and-architecture.md](references/1.1-requirements-and-architecture.md)
 - 器件意图、库存匹配和资料解析：
-  [parts.md](references/parts.md)
+  [1.2-parts.md](references/1.2-parts.md)
 - 原理图和机器可读 Contract：
-  [schematic-contract.md](references/schematic-contract.md)
-- EDA Provider 选择：
-  [eda-select.md](references/eda-select.md)
-- PCB、布局、布线和制造图形：
-  [pcb-review.md](references/pcb-review.md)
+  [2.1-schematic-contract.md](references/2.1-schematic-contract.md)
+- EasyEDA Pro Provider：
+  [0.3-easyeda-pro.md](references/0.3-easyeda-pro.md)
+- PCB 设计、布局、布线和检查：
+  [3.1-pcb-review.md](references/3.1-pcb-review.md)
 - 音频设计：
-  [audio-systems.md](references/audio-systems.md)
+  [1.3-audio-systems.md](references/1.3-audio-systems.md)
 - 样机上电和验证：
-  [prototype-validation.md](references/prototype-validation.md)
-- 活动且重复的调试：[debug-loop.md](references/debug-loop.md)
-- 跨任务续接：[continuation.md](references/continuation.md)
-- 项目初始化、采购和制造交付：
-  [production-handoff.md](references/production-handoff.md)
-- 完整生命周期跟踪、制造候选评审和正式发布：
-  [stage-gates.md](references/stage-gates.md)
+  [5.1-prototype-validation.md](references/5.1-prototype-validation.md)
+- 活动且重复的调试：[0.2-debug-loop.md](references/0.2-debug-loop.md)
+- 跨任务续接：[0.1-continuation.md](references/0.1-continuation.md)
+- 制造文件与原型下单：
+  [4.1-production-handoff.md](references/4.1-production-handoff.md)
+- 产品化和正式发布：
+  [6.1-production-release.md](references/6.1-production-release.md)
 
 当前任务已经有足够依据继续或完成时，停止加载更多资料。
