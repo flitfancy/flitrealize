@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -298,5 +298,7 @@ test('CLI uses the real runner and preserves a missing-adapter report in isolate
   const result = JSON.parse(completed.stdout);
   assert.equal(result.status, 'plan-failed'); assert.equal(result.readOnly, true); assert.equal(result.steps.length, 1);
   const report = await json(result.steps[0].reportFile);
-  assert.equal(report.response.error.code, 'EDA_HOST_ERROR'); assert.equal(report.projectRoot, f.projectRoot);
+  assert.equal(report.response.error.code, 'EDA_HOST_ERROR');
+  // Windows TEMP may use an 8.3 alias; the runner records the canonical directory.
+  assert.equal(report.projectRoot, await realpath(f.projectRoot));
 });
