@@ -1,0 +1,150 @@
+# 3.2 EasyEDA Pro PCB foundation
+
+Read this reference when the PCB foundation from [3.1 PCB design and review](../../3.1-pcb-review.md) must be created or changed in EasyEDA Pro: layers, outline, functional keepouts, and reference copper.
+
+This flow owns only the physical foundation. 3.1 owns placement, routing, and net rules. [3.3 PCB return paths and grounding](3.3-pcb-grounding.md) owns return and ground vias.
+
+Use this flow twice when needed:
+
+```text
+First pass: read the PCB → layers and outline → functional keepouts
+After placement and critical routing: create or repour reference copper → check and save
+```
+
+## Confirm inputs
+
+Before writing, confirm:
+
+- current project and target PCB document;
+- outline, mounting holes, and mechanical interfaces;
+- selected copper-layer count and role of each layer;
+- reference layers for important signals;
+- functional keepouts to implement;
+- plane and pour nets to create or preserve;
+- existing placement, routing, vias, and copper that must remain;
+- current fabricator capability or explicit stage assumptions.
+
+Each applicable item may be confirmed, provisional, or not applicable. Pause only when a gap prevents the current edit or risks overwriting important existing content.
+
+## Use existing Actions
+
+Relevant Actions include:
+
+- `pcb-layer-stack`: read and change the logical copper-layer structure;
+- `pcb-component-geometry`: read component, pad, and package geometry;
+- `pcb-functional-keepouts`: read and change purpose-specific keepouts;
+- `pcb-ground-pours`: read and change bounded reference copper.
+
+Actual support comes from the current manifest, capability check, and execution result. A local operation outside existing Action coverage may use a current EasyEDA method if its result is read back.
+
+## 1. Read the current PCB
+
+Read objects relevant to this task:
+
+- outline and slots;
+- copper layers and order;
+- components, pads, and mounting holes;
+- existing tracks, vias, and planes;
+- keepouts and other Regions;
+- current save state.
+
+Canvas appearance helps interpretation but does not replace object identity, layer, net, or geometry.
+
+When manual placement or routing already exists, identify the objects affected by this change. Do not regenerate the whole foundation over existing work.
+
+## 2. Establish layers and outline
+
+Implement the 3.1 decision:
+
+- copper count and order;
+- main role of each layer;
+- reference layers and plane nets;
+- outline, slots, and required mechanical boundaries;
+- mounting holes and edge-interface locations.
+
+Layer naming or plane-net configuration does not prove that copper exists. Dielectric thickness, copper weight, and impedance parameters still come from the fabricator or project assumption.
+
+Adding a layer is often local. Removing a layer, changing the role of an occupied layer, or moving an outline that already contains copper and components may destroy content. When such a real conflict exists, identify affected objects and the intended treatment before continuing.
+
+Read back layer order, outline, and critical mechanical objects after writing.
+
+## 3. Implement functional keepouts
+
+Create keepouts only for a defined engineering purpose, such as:
+
+- antenna clearance;
+- microphone, pressure, optical, or airflow opening;
+- electrical isolation;
+- mounting or moving mechanical space;
+- a manufacturer-defined no-copper area;
+- an area that restricts parts, tracks, vias, or copper.
+
+For each keepout, define:
+
+- purpose;
+- source;
+- boundary;
+- affected layers and object types;
+- any necessary local exception.
+
+Silkscreen outline, courtyard, and visual whitespace are not automatically copper keepouts. Confirm the boundary from the actual component, package, or mechanical geometry.
+
+Read back the Region's layer, rule, and geometry, and check that it does not cover pads, outline, required routes, or other protected objects.
+
+## 4. Create reference copper
+
+Run this section after placement and critical routing when the resulting copper shape and return channels can be checked against real geometry.
+
+After outline and keepouts are clear, create the required plane or pour.
+
+Confirm:
+
+- target net;
+- layer;
+- pour boundary;
+- clearance to edge, holes, pads, and other nets;
+- actual keepout effect;
+- thermal or direct connection style;
+- slots, partitions, and return channels that must remain.
+
+A pour boundary does not prove that copper was generated. Repour and inspect the actual fill, islands, necks, disconnects, and critical clearances.
+
+On a complex board, prove one representative layer or region before expanding. If one geometry cannot be resolved, pause that region rather than blocking unrelated PCB work.
+
+## 5. Check and save
+
+After the foundation increment:
+
+1. Repour affected copper.
+2. Read back changed layers, Regions, and pours.
+3. Confirm the outline, mechanical objects, and prior content remain.
+4. Visually inspect critical keepouts and copper shape.
+5. Run configured DRC.
+6. Save the PCB.
+7. Confirm the saved document retains the result.
+
+DRC covers configured rule geometry only. Whether reference copper provides a good return path still depends on actual placement and routing.
+
+## Failure and recovery
+
+Follow [0.3 EasyEDA Pro Provider](../../0.3-easyeda-pro.md) and read current state again before recovery. PCB-foundation recovery may complete or undo only layers, outline objects, Regions, and pours that this operation can identify precisely.
+
+## Finish the first pass
+
+Before returning to 3.1 for placement and critical routing, confirm:
+
+- layer order and roles match the design;
+- outline, mounting holes, and main mechanical interfaces are correct;
+- functional keepouts were implemented and read back.
+
+Return to [3.1 PCB design and review](../../3.1-pcb-review.md) for placement and critical routing.
+
+## Finish the copper pass
+
+After placement and critical routing, return here and confirm:
+
+- required reference copper was actually generated;
+- critical regions have no obvious islands, disconnects, or wrong clearance;
+- the PCB is saved and DRC has no unexplained current issue.
+
+Then read [3.3 PCB return paths and grounding](3.3-pcb-grounding.md).

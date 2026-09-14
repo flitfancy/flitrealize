@@ -8,23 +8,90 @@
     }
   },
   "workflows": {
+    "easyeda-schematic-reflow": {
+      "description": "按功能块重排原理图器件，或整体重排器件、短线和文字组合。",
+      "discovery": {
+        "keywords": [
+          "原理图重排",
+          "布局美化",
+          "功能块重排",
+          "reflow"
+        ],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md",
+        "entrypoint": "scripts/schematic-reflow.mjs",
+        "limitations": [
+          "只处理原理图，不是 PCB 布局优化器。"
+        ]
+      },
+      "domain": "schematic",
+      "provider": "easyeda-pro",
+      "phases": {
+        "prepare": [{ "action": "schematic-reflow", "mode": "plan" }],
+        "apply": [{ "action": "schematic-reflow", "mode": "apply" }],
+        "verify": [{ "action": "schematic-reflow", "mode": "verify" }]
+      }
+    },
     "easyeda-schematic-components": {
-      "description": "Resolve EasyEDA devices, calculate placement, and transact component creation.",
+      "description": "编排已确认器件的绑定、放置计划、分批写入、回读与保存，并核对中断批次。",
+      "discovery": {
+        "keywords": [
+          "库存批量放件",
+          "批量写入",
+          "批量放置",
+          "批量放件",
+          "中断续放",
+          "component placement"
+        ],
+        "reference": "references/providers/easyeda-pro/2.3-component-batch.md",
+        "entrypoint": "scripts/schematic-components.mjs",
+        "limitations": [
+          "输入器件须先完成库存与身份确认；本流程不替代库存匹配或选料。",
+          "使用封装脚本，不把 Workflow 名称传给 run --action；默认只计划，--apply 才写入。",
+          "只放置和保存器件，不连线、不运行整图 DRC；未知写入无确定回执时停止，不强制续跑。",
+          "封装脚本不自动删除或回滚；仅通过隔离模拟验证，真实 EDA 集成仍需代表批次验收。"
+        ]
+      },
       "domain": "schematic",
       "provider": "easyeda-pro",
       "phases": {
         "prepare": [
+          { "action": "schematic-contract-audit", "mode": "inspect" },
           { "action": "schematic-resolve-bindings", "mode": "resolve" },
           { "action": "schematic-layout", "mode": "generate" },
+          { "action": "schematic-component-place", "mode": "inspect" },
           { "action": "schematic-component-place", "mode": "plan" }
         ],
         "apply": [{ "action": "schematic-component-place", "mode": "apply" }],
         "verify": [{ "action": "schematic-component-place", "mode": "verify" }],
-        "rollback": [{ "action": "schematic-component-place", "mode": "rollback" }]
+        "save": [
+          { "action": "schematic-save-verify", "mode": "plan" },
+          { "action": "schematic-save-verify", "mode": "apply" },
+          { "action": "schematic-component-place", "mode": "inspect" }
+        ]
       }
     },
     "easyeda-schematic-connect": {
-      "description": "Capture live pins, plan and create endpoint stubs, and transact requested net flags.",
+      "description": "从 Contract 与现场派生端点短线、网络标识及 NC，检查已有连接，按配置重排、保存并执行严格 DRC。",
+      "discovery": {
+        "keywords": [
+          "原理图连接",
+          "连接收尾",
+          "schematic connect",
+          "原理图连线",
+          "连接",
+          "短线",
+          "网络标签",
+          "connect"
+        ],
+        "reference": "references/providers/easyeda-pro/2.4-schematic-connect.md",
+        "entrypoint": "scripts/schematic-connect.mjs",
+        "limitations": [
+          "入口默认只计划；--apply 写入与收尾，--check 只读验证。",
+          "自动创建限于 endpoint-stubs；长线、总线及层次连接沿用相应实现方法。",
+          "NC 从 Contract 或有理由的显式物理引脚声明派生；不把所有悬空引脚自动设为 NC。",
+          "重排需提供项目布局配置；未请求时保留现场布局并记录。"
+        ]
+      },
       "domain": "schematic",
       "provider": "easyeda-pro",
       "phases": {
@@ -32,24 +99,48 @@
           { "action": "schematic-inspect", "mode": "inspect" },
           { "action": "schematic-wire-plan", "mode": "generate" },
           { "action": "schematic-wire-create", "mode": "plan" },
-          { "action": "schematic-net-flag", "mode": "plan", "optional": true }
+          { "action": "schematic-net-flag", "mode": "plan" },
+          { "action": "schematic-no-connect", "mode": "plan" }
         ],
         "apply": [
           { "action": "schematic-wire-create", "mode": "apply" },
-          { "action": "schematic-net-flag", "mode": "apply", "optional": true }
+          { "action": "schematic-net-flag", "mode": "apply" },
+          { "action": "schematic-no-connect", "mode": "apply" }
         ],
         "verify": [
           { "action": "schematic-wire-create", "mode": "verify" },
-          { "action": "schematic-net-flag", "mode": "verify", "optional": true }
+          { "action": "schematic-net-flag", "mode": "verify" },
+          { "action": "schematic-no-connect", "mode": "verify" },
+          { "action": "schematic-inspect", "mode": "inspect" }
+        ],
+        "reflow": [
+          { "action": "schematic-reflow", "mode": "plan", "optional": true },
+          { "action": "schematic-reflow", "mode": "apply", "optional": true },
+          { "action": "schematic-reflow", "mode": "verify", "optional": true }
+        ],
+        "finalize": [
+          { "action": "schematic-save-verify", "mode": "plan" },
+          { "action": "schematic-save-verify", "mode": "apply" },
+          { "action": "schematic-inspect", "mode": "inspect" }
         ],
         "rollback": [
+          { "action": "schematic-no-connect", "mode": "rollback", "optional": true },
           { "action": "schematic-net-flag", "mode": "rollback", "optional": true },
           { "action": "schematic-wire-create", "mode": "rollback" }
         ]
       }
     },
     "easyeda-schematic-finalize": {
-      "description": "Capture the final schematic, explicitly save it, and run schematic DRC.",
+      "description": "回读原理图、明确保存并运行当前配置的 DRC。",
+      "discovery": {
+        "keywords": [
+          "原理图保存",
+          "原理图检查",
+          "DRC",
+          "finalize"
+        ],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md"
+      },
       "domain": "schematic",
       "provider": "easyeda-pro",
       "phases": {
@@ -63,9 +154,102 @@
     }
   },
   "actions": {
+    "pcb-placement": {
+      "file": "easyeda-pro/pcb-placement.js",
+      "description": "比较 PCB 功能块平移或器件布局方案，检查空白、锁定、重叠与预留区，并执行明确的未布线器件移动。",
+      "discovery": {
+        "keywords": ["PCB布局", "布局优化", "功能块收束", "空白区域", "布局美化", "pcb layout", "placement", "空白检查"],
+        "reference": "references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md",
+        "entrypoint": "scripts/pcb-edit.mjs",
+        "limitations": ["矩形边界和保守包围盒检查；不是自动电气布局优化器。", "不移动锁定器件；有走线、过孔或铺铜时不执行移动，不自动清线。", "已通过隔离模拟测试；真实 EDA 新入口仍需代表对象验收。"]
+      },
+      "contractVersion": 1, "domain": "pcb", "runtime": "eda", "providers": ["easyeda-pro"], "defaultMode": "inspect",
+      "modes": { "inspect": { "mutates": false }, "plan": { "mutates": false }, "apply": { "mutates": true }, "verify": { "mutates": false }, "save": { "mutates": true } },
+      "requires": {
+        "all": ["document.current", "project.current", "file.documentSource", "component.list", "primitive.bbox", "region.list", "line.list", "arc.list", "polyline.list", "via.list", "pour.list"],
+        "apply": ["component.get", "component.modify"], "save": ["pcb.document.save"]
+      }
+    },
+    "pcb-trace-width": {
+      "file": "easyeda-pro/pcb-trace-width.js",
+      "description": "按明确网络和线段 ID 计划、修改与回读 PCB 线宽，检查当前配置 DRC，并单独保存。",
+      "discovery": {
+        "keywords": ["线宽", "加粗", "主干宽度", "trace width"],
+        "reference": "references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md",
+        "entrypoint": "scripts/pcb-edit.mjs",
+        "limitations": ["必须指定线段 ID；不根据电流自动算宽、不修改网络类或自动路由器规则。", "不把全部同网线段统一加粗；焊盘逃逸、长度、过孔和实际载流能力另行核验。", "已通过隔离模拟测试；真实 EDA 新入口仍需代表对象验收。"]
+      },
+      "contractVersion": 1, "domain": "pcb", "runtime": "eda", "providers": ["easyeda-pro"], "defaultMode": "inspect",
+      "modes": { "inspect": { "mutates": false }, "plan": { "mutates": false }, "apply": { "mutates": true }, "verify": { "mutates": false }, "save": { "mutates": true } },
+      "requires": {
+        "all": ["document.current", "project.current", "file.documentSource", "line.list"],
+        "plan": ["drc.check"], "apply": ["line.get", "line.modify", "drc.check"], "save": ["pcb.document.save", "drc.check"]
+      }
+    },
+    "pcb-net-color": {
+      "file": "easyeda-pro/pcb-net-color.js",
+      "description": "按项目色值重建指定已有 PCB 网络类，保留原成员和规则，使用不透明颜色，回读后单独保存。",
+      "discovery": {
+        "keywords": ["配色", "线路颜色", "网络颜色", "net color", "pcb color"],
+        "reference": "references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md",
+        "entrypoint": "scripts/pcb-edit.mjs",
+        "limitations": ["仅重建选定已有网络类，不逐网络上色或清除历史覆盖；不自动建类或改变成员。", "颜色必须为 #RRGGBB，写入 alpha=255、回读 alpha=1；API 回读不能代替画布目视验证。"]
+      },
+      "contractVersion": 2, "domain": "pcb", "runtime": "eda", "providers": ["easyeda-pro"], "defaultMode": "inspect",
+      "modes": { "inspect": { "mutates": false }, "plan": { "mutates": false }, "apply": { "mutates": true }, "verify": { "mutates": false }, "save": { "mutates": true } },
+      "requires": { "all": ["document.current", "project.current", "file.documentSource", "drc.netClass.list", "drc.config.get", "drc.netRules.get", "drc.netByNetRules.get", "drc.regionRules.get", "line.list", "via.list", "component.list"], "apply": ["drc.netClass.delete", "drc.netClass.create", "drc.config.overwrite", "drc.netRules.overwrite"], "save": ["pcb.document.save"] }
+    },
+    "pcb-routing-plan": {
+      "file": "pcb-routing-plan.js",
+      "description": "离线整理 PCB 网络规则和走线优先级，按主干、局部与逃逸角色生成明确线段的线宽计划请求。",
+      "discovery": {
+        "keywords": ["走线优先级", "布线顺序", "网络规则", "线宽分类", "routing priority", "net classes"],
+        "reference": "references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md",
+        "limitations": ["只生成有序计划及已有线段的改宽/配色请求，不实际布线或写入 EDA 网络类。", "排序不等于自动路由器已按优先级执行；后续执行者需逐组完成并核对证据。"]
+      },
+      "contractVersion": 1, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "generate",
+      "modes": { "generate": { "mutates": false } }
+    },
+    "schematic-reflow": {
+      "file": "easyeda-pro/schematic-reflow.js",
+      "description": "两次原理图布局：器件初排，或已有短线与文字组合的完整重排。",
+      "discovery": {
+        "keywords": [
+          "原理图重排",
+          "布局美化",
+          "功能块重排",
+          "reflow"
+        ],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md",
+        "entrypoint": "scripts/schematic-reflow.mjs",
+        "limitations": [
+          "仅覆盖 initial/complete 模式支持的对象；自由备注与图形不参与避障。",
+          "源码备份与验证由入口脚本组织；不要绕开入口单独套用旧坐标。"
+        ]
+      },
+      "contractVersion": 1,
+      "domain": "schematic",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
+      "defaultMode": "plan",
+      "modes": {
+        "plan": { "mutates": false },
+        "apply": { "mutates": true },
+        "verify": { "mutates": false }
+      }
+    },
     "eda-capabilities": {
       "file": "easyeda-pro/eda-capabilities.js",
-      "description": "Read-only feature detection for the active EasyEDA document and API surface.",
+      "description": "只读探测当前 EasyEDA 文档及所需 API 能力。",
+      "discovery": {
+        "keywords": [
+          "环境",
+          "能力探测",
+          "连接",
+          "capabilities"
+        ],
+        "reference": "references/providers/easyeda-pro/0.4-environment.md"
+      },
       "contractVersion": 1,
       "domain": "system",
       "runtime": "eda",
@@ -80,7 +264,19 @@
     },
     "pcb-component-geometry": {
       "file": "easyeda-pro/pcb-component-geometry.js",
-      "description": "Read exact component, pad, footprint-source, and bounding-box evidence.",
+      "description": "读取 PCB 器件、焊盘、封装来源和边界几何证据。",
+      "discovery": {
+        "keywords": [
+          "器件几何",
+          "焊盘",
+          "边界",
+          "geometry"
+        ],
+        "reference": "references/providers/easyeda-pro/3.2-pcb-foundation.md",
+        "limitations": [
+          "只读几何，不负责移动器件或自动优化 PCB 分区。"
+        ]
+      },
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
@@ -95,7 +291,15 @@
     },
     "pcb-functional-keepouts": {
       "file": "easyeda-pro/pcb-functional-keepouts.js",
-      "description": "Inspect and transact bounded functional keepout Regions.",
+      "description": "规划、写入、验证和回滚有明确用途的 PCB 禁布区域。",
+      "discovery": {
+        "keywords": [
+          "禁布区",
+          "净空",
+          "keepout"
+        ],
+        "reference": "references/providers/easyeda-pro/3.2-pcb-foundation.md"
+      },
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
@@ -116,7 +320,16 @@
     },
     "pcb-ground-pours": {
       "file": "easyeda-pro/pcb-ground-pours.js",
-      "description": "Inspect and transact realized copper pours against a resolved outline.",
+      "description": "规划、写入和验证实际参考铜及铺铜边界。",
+      "discovery": {
+        "keywords": [
+          "铺铜",
+          "参考铜",
+          "地铜",
+          "pours"
+        ],
+        "reference": "references/providers/easyeda-pro/3.2-pcb-foundation.md"
+      },
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
@@ -137,7 +350,18 @@
     },
     "pcb-ground-stitching": {
       "file": "easyeda-pro/pcb-ground-stitching.js",
-      "description": "Read-only planner for bounded return-path and global GND stitching candidates.",
+      "description": "只读生成有边界的换层回流及全局接地过孔候选。",
+      "discovery": {
+        "keywords": [
+          "接地候选",
+          "回流候选",
+          "stitching"
+        ],
+        "reference": "references/providers/easyeda-pro/3.3-pcb-grounding.md",
+        "limitations": [
+          "生成候选不等于已写入过孔或已闭合回流。"
+        ]
+      },
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
@@ -153,7 +377,15 @@
     },
     "pcb-ground-vias": {
       "file": "easyeda-pro/pcb-ground-vias.js",
-      "description": "Inspect, generate, plan, apply, verify, and roll back bounded GND-via transactions.",
+      "description": "检查、规划、写入、验证和回滚指定范围的接地过孔。",
+      "discovery": {
+        "keywords": [
+          "接地过孔",
+          "地孔",
+          "ground vias"
+        ],
+        "reference": "references/providers/easyeda-pro/3.3-pcb-grounding.md"
+      },
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
@@ -175,7 +407,15 @@
     },
     "pcb-grounding-inspect": {
       "file": "easyeda-pro/pcb-grounding-inspect.js",
-      "description": "Read-only grounding, copper, component, and keepout inventory.",
+      "description": "只读检查铺铜、区域、过孔和相关器件的接地状态。",
+      "discovery": {
+        "keywords": [
+          "接地检查",
+          "回流检查",
+          "grounding"
+        ],
+        "reference": "references/providers/easyeda-pro/3.3-pcb-grounding.md"
+      },
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
@@ -190,7 +430,15 @@
     },
     "pcb-layer-stack": {
       "file": "easyeda-pro/pcb-layer-stack.js",
-      "description": "Inspect and transact the logical copper-layer structure.",
+      "description": "检查和修改 PCB 逻辑铜层数量及层结构。",
+      "discovery": {
+        "keywords": [
+          "层叠",
+          "铜层",
+          "stackup"
+        ],
+        "reference": "references/providers/easyeda-pro/3.2-pcb-foundation.md"
+      },
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
@@ -211,7 +459,18 @@
     },
     "schematic-contract-audit": {
       "file": "schematic-contract-audit.js",
-      "description": "Audit SchematicContract v1 structure, references, evidence states, and provider boundaries locally.",
+      "description": "本地检查原理图 Contract 的结构、引用、证据状态和 Provider 边界。",
+      "discovery": {
+        "keywords": [
+          "契约检查",
+          "结构检查",
+          "contract audit"
+        ],
+        "reference": "references/2.1-schematic-contract.md",
+        "limitations": [
+          "结构通过不证明电路功能、EDA 实现或器件额定值满足。"
+        ]
+      },
       "contractVersion": 1,
       "domain": "schematic",
       "runtime": "host",
@@ -223,7 +482,18 @@
     },
     "schematic-layout": {
       "file": "schematic-layout.js",
-      "description": "Calculate component positions from contract blocks and output a provider-bound SchematicPlacementPlan.",
+      "description": "从 Contract 功能块生成原理图器件放置计划。",
+      "discovery": {
+        "keywords": [
+          "器件初排",
+          "放置计划",
+          "schematic layout"
+        ],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md",
+        "limitations": [
+          "规划不等于实际放置；已有几何重排使用 schematic-reflow。"
+        ]
+      },
       "contractVersion": 3,
       "internal": true,
       "domain": "schematic",
@@ -237,7 +507,14 @@
     },
     "schematic-wire-plan": {
       "file": "schematic-wire-plan.js",
-      "description": "Derive bounded orthogonal wire stubs from a contract and live SchematicSnapshot pin coordinates.",
+      "description": "根据 Contract 与实际引脚坐标生成正交端点短线计划。",
+      "discovery": {
+        "keywords": [
+          "短线规划",
+          "wire plan"
+        ],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md"
+      },
       "contractVersion": 2,
       "internal": true,
       "domain": "schematic",
@@ -251,8 +528,16 @@
     },
     "schematic-inspect": {
       "file": "easyeda-pro/schematic-inspect.js",
-      "description": "Capture a live SchematicSnapshot including component, pin-coordinate, wire, net, and document evidence.",
-      "contractVersion": 2,
+      "description": "回读原理图器件、引脚坐标、导线、网络及文档证据。",
+      "discovery": {
+        "keywords": [
+          "原理图回读",
+          "原理图快照",
+          "snapshot"
+        ],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md"
+      },
+      "contractVersion": 3,
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
@@ -267,8 +552,15 @@
     },
     "schematic-component-place": {
       "file": "easyeda-pro/schematic-component-place.js",
-      "description": "Inspect, plan, apply, verify, and roll back schematic component placement.",
-      "contractVersion": 3,
+      "description": "检查、规划、写入、验证和回滚原理图器件放置；供应商器件优先写入标准库 Value，其他器件写入 Contract Value。",
+      "discovery": {
+        "keywords": [
+          "器件放置",
+          "component place"
+        ],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md"
+      },
+      "contractVersion": 6,
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
@@ -287,9 +579,43 @@
         "rollback": ["sch.component.delete"]
       }
     },
+    "schematic-no-connect": {
+      "file": "easyeda-pro/schematic-no-connect.js",
+      "description": "为显式声明未使用的原理图引脚设置非连接标识，并支持回读、验证和局部回滚。",
+      "discovery": {
+        "keywords": ["非连接标识", "悬空引脚", "no connect", "NC"],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md"
+      },
+      "contractVersion": 2,
+      "internal": true,
+      "domain": "schematic",
+      "runtime": "eda",
+      "providers": ["easyeda-pro"],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": { "mutates": false },
+        "plan": { "mutates": false },
+        "apply": { "mutates": true },
+        "verify": { "mutates": false },
+        "rollback": { "mutates": true }
+      },
+      "requires": {
+        "all": ["document.current", "sch.component.list", "sch.component.getAllPins", "sch.wire.list"],
+        "apply": ["sch.pin.modify"],
+        "rollback": ["sch.pin.modify"]
+      }
+    },
     "schematic-resolve-bindings": {
       "file": "easyeda-pro/schematic-resolve-bindings.js",
-      "description": "Resolve Contract components into an internal EasyEDA binding map using explicit or uniquely proven matches.",
+      "description": "依据显式身份或唯一匹配结果生成 EasyEDA 器件绑定。",
+      "discovery": {
+        "keywords": [
+          "器件绑定",
+          "符号封装",
+          "bindings"
+        ],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md"
+      },
       "contractVersion": 3,
       "internal": true,
       "domain": "schematic",
@@ -307,8 +633,21 @@
     },
     "schematic-wire-create": {
       "file": "easyeda-pro/schematic-wire-create.js",
-      "description": "Inspect, plan, apply, verify, and roll back schematic wire creation.",
-      "contractVersion": 2,
+      "description": "创建并验证原理图导线，支持在创建时指定颜色、线宽和线型。",
+      "discovery": {
+        "keywords": [
+          "配色",
+          "线路配色",
+          "导线颜色",
+          "wire color",
+          "wire create"
+        ],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md",
+        "limitations": [
+          "颜色参数用于本次创建的原理图导线；不是已有导线批量改色或 PCB 网络配色工具。"
+        ]
+      },
+      "contractVersion": 3,
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
@@ -329,8 +668,16 @@
     },
     "schematic-net-flag": {
       "file": "easyeda-pro/schematic-net-flag.js",
-      "description": "Inspect, plan, apply, verify, and roll back schematic net flags and net ports.",
-      "contractVersion": 2,
+      "description": "规划、写入、验证和回滚原理图网络标识；可在首次保存前关闭标识自身的 Name 显示。",
+      "discovery": {
+        "keywords": [
+          "网络标识",
+          "网络标签",
+          "net flag"
+        ],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md"
+      },
+      "contractVersion": 3,
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
@@ -344,15 +691,23 @@
         "rollback": { "mutates": true }
       },
       "requires": {
-        "all": ["document.current", "sch.component.list"],
-        "apply": ["sch.component.createNetFlag", "sch.component.createNetPort"],
+        "all": ["document.current", "sch.component.list", "file.documentSource"],
+        "apply": ["sch.component.createNetFlag", "sch.component.createNetPort", "file.documentSource"],
         "rollback": ["sch.component.delete"]
       }
     },
     "schematic-save-verify": {
       "file": "easyeda-pro/schematic-save-verify.js",
-      "description": "Plan and apply an explicit schematic save, or run read-only DRC verification.",
-      "contractVersion": 2,
+      "description": "读取保存状态、明确保存原理图，或执行只读 DRC 检查。",
+      "discovery": {
+        "keywords": [
+          "保存",
+          "DRC",
+          "save verify"
+        ],
+        "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md"
+      },
+      "contractVersion": 4,
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
@@ -366,8 +721,8 @@
       },
       "requires": {
         "all": ["document.current", "sch.component.list", "sch.wire.list"],
-        "apply": ["sch.document.save", "sch.drc.check"],
-        "verify": ["sch.drc.check"]
+        "apply": ["sch.document.save"],
+        "drc": ["sch.drc.check"]
       }
     }
   }

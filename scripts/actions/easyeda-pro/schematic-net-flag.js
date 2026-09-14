@@ -2,12 +2,18 @@ return await (async () => {
   const request = typeof flitrealizeInput === 'undefined' ? { mode: 'inspect' } : flitrealizeInput;
   const VALID_IDENTIFICATIONS = new Set(['Power', 'Ground', 'AnalogGround', 'ProtectGround']);
   const VALID_DIRECTIONS = new Set(['IN', 'OUT', 'BI']);
-  const MAX_ITEMS_PER_APPLY = 100;
+  const MAX_ITEMS_PER_APPLY = 30;
 
   function fail(code, message) {
     const error = new Error(message);
     error.code = code;
     throw error;
+  }
+
+  async function assertTarget(documentUuid, projectUuid = null) {
+    const current = await eda.dmt_SelectControl.getCurrentDocumentInfo();
+    if (Number(current?.documentType) !== 1 || current?.uuid !== documentUuid
+      || (projectUuid && current.parentProjectUuid !== projectUuid)) fail('DOCUMENT_MISMATCH', 'The active schematic changed during the operation.');
   }
 
   function callGetter(object, name, fallback = null) {
@@ -32,6 +38,38 @@ return await (async () => {
     return JSON.stringify(value);
   }
 
+  function parseSourceRecords(source) {
+    if (typeof source !== 'string') return [];
+    return source.split(/\r?\n/).map((line, index) => {
+      const split = line.indexOf('||');
+      if (split < 0) return null;
+      try {
+        return {
+          index,
+          head: JSON.parse(line.slice(0, split)),
+          payload: JSON.parse(line.slice(split + 2).replace(/\|$/, '')),
+          trailingPipe: line.endsWith('|'),
+        };
+      } catch {
+        return null;
+      }
+    }).filter(Boolean);
+  }
+
+  function nameVisibilityByParent(source) {
+    const result = new Map();
+    for (const record of parseSourceRecords(source)) {
+      if (record.head.type === 'ATTR' && record.payload.key === 'Name') {
+        result.set(record.payload.parentId, record.payload.valueVisible !== false);
+      }
+    }
+    return result;
+  }
+
+  function serializeRecord(record) {
+    return `${JSON.stringify(record.head)}||${JSON.stringify(record.payload)}${record.trailingPipe ? '|' : ''}`;
+  }
+
   function hashText(text) {
     let hash = 0x811c9dc5;
     for (let index = 0; index < text.length; index += 1) {
@@ -50,9 +88,10 @@ return await (async () => {
     }
   }
 
-  function summarizeComponent(component) {
+  function summarizeComponent(component, nameVisibility = new Map()) {
+    const primitiveId = callGetter(component, 'getState_PrimitiveId');
     return {
-      primitiveId: callGetter(component, 'getState_PrimitiveId'),
+      primitiveId,
       designator: callGetter(component, 'getState_Designator'),
       net: callGetter(component, 'getState_Net', ''),
       componentType: callGetter(component, 'getState_ComponentType'),
@@ -60,6 +99,7 @@ return await (async () => {
       y: finiteOrNull(callGetter(component, 'getState_Y')),
       rotation: finiteOrNull(callGetter(component, 'getState_Rotation')),
       mirror: callGetter(component, 'getState_Mirror', false) === true,
+      nameVisible: nameVisibility.has(primitiveId) ? nameVisibility.get(primitiveId) : null,
     };
   }
 
@@ -71,7 +111,8 @@ return await (async () => {
       && actual.x === expected.x
       && actual.y === expected.y
       && actual.rotation === expected.rotation
-      && actual.mirror === expected.mirror;
+      && actual.mirror === expected.mirror
+      && (expected.showName !== false || actual.nameVisible === false);
   }
 
   async function captureState() {
@@ -80,7 +121,10 @@ return await (async () => {
       ? { uuid: documentProbe.value.uuid ?? null, parentProjectUuid: documentProbe.value.parentProjectUuid ?? null }
       : null;
     const allComponents = await optionalCall('sch_PrimitiveComponent', 'getAll');
-    const components = Array.isArray(allComponents.value) ? allComponents.value.map(summarizeComponent) : [];
+    if (!Array.isArray(allComponents.value)) fail('SNAPSHOT_FAILED', 'Component enumeration did not return an array.');
+    const sourceProbe = await optionalCall('sys_FileManager', 'getDocumentSource');
+    const visibility = nameVisibilityByParent(sourceProbe.value);
+    const components = allComponents.value.map((component) => summarizeComponent(component, visibility));
     const inspectionFingerprint = hashText(stableStringify({
       documentUuid: document?.uuid,
       components: components.map((component) => ({
@@ -94,10 +138,11 @@ return await (async () => {
         mirror: component.mirror,
       })).sort((left, right) => String(left.primitiveId).localeCompare(String(right.primitiveId))),
     }));
+    await assertTarget(document?.uuid, document?.parentProjectUuid);
     return { document, components, inspectionFingerprint };
   }
 
-  function normalizePlan(value, expectedDocumentUuid = null) {
+  function normalizePlan(value, expectedDocumentUuid = null, expectedProjectUuid = null) {
     const sourceItems = Array.isArray(value) ? value : value?.items;
     if (!Array.isArray(sourceItems)) fail('INVALID_REQUEST', 'items must be an array');
     const items = sourceItems.map((item, index) => {
@@ -110,6 +155,7 @@ return await (async () => {
         y: item.y,
         rotation: item.rotation ?? 0,
         mirror: item.mirror ?? false,
+        showName: item.showName !== false,
       };
       if (item.kind === 'netFlag') {
         if (!VALID_IDENTIFICATIONS.has(item.identification)) {
@@ -126,11 +172,13 @@ return await (async () => {
       fail('INVALID_ITEM', `Item ${index}: kind must be 'netFlag' or 'netPort'`);
     });
     const planObject = Array.isArray(value) ? {} : value;
-    return { items, expectedDocumentUuid: expectedDocumentUuid ?? planObject?.expectedDocumentUuid ?? null };
+    return { items, expectedDocumentUuid: expectedDocumentUuid ?? planObject?.expectedDocumentUuid ?? null,
+      expectedProjectUuid: expectedProjectUuid ?? planObject?.expectedProjectUuid ?? null };
   }
 
   function analyzePlan(state, plan) {
     const globalIssues = [];
+    if (plan.expectedProjectUuid && state.document?.parentProjectUuid !== plan.expectedProjectUuid) globalIssues.push({ code: 'PROJECT_MISMATCH' });
     if (!plan.expectedDocumentUuid) globalIssues.push({ code: 'DOCUMENT_IDENTITY_REQUIRED' });
     else if (state.document?.uuid !== plan.expectedDocumentUuid) {
       globalIssues.push({ code: 'DOCUMENT_MISMATCH', expected: plan.expectedDocumentUuid, actual: state.document?.uuid });
@@ -164,7 +212,8 @@ return await (async () => {
     };
   }
 
-  async function rollbackCreated(created) {
+  async function rollbackCreated(created, document) {
+    await assertTarget(document.uuid, document.parentProjectUuid);
     const ids = created.map((item) => item.primitiveId).filter(Boolean);
     if (!ids.length) return { deleted: true, remaining: 0 };
     let deleted = false;
@@ -175,9 +224,40 @@ return await (async () => {
     }
     const probe = await optionalCall('sch_PrimitiveComponent', 'getAll');
     const remaining = Array.isArray(probe.value)
-      ? probe.value.map(summarizeComponent).filter((component) => ids.includes(component.primitiveId))
+      ? probe.value.map((component) => summarizeComponent(component)).filter((component) => ids.includes(component.primitiveId))
       : ids;
+    await assertTarget(document.uuid, document.parentProjectUuid);
     return { deleted: Boolean(deleted), remaining: remaining.length };
+  }
+
+  async function applyNameVisibility(created, document) {
+    const hidden = created.filter((item) => item.showName === false);
+    if (!hidden.length) return;
+    await assertTarget(document.uuid, document.parentProjectUuid);
+    const source = await eda.sys_FileManager?.getDocumentSource?.();
+    if (typeof source !== 'string' || !source.trim()) fail('SOURCE_UNAVAILABLE', 'Cannot set network-marker name visibility without schematic source access.');
+    const targetIds = new Set(hidden.map((item) => item.primitiveId));
+    const records = parseSourceRecords(source);
+    const counts = new Map([...targetIds].map((id) => [id, 0]));
+    const replacements = new Map();
+    for (const record of records) {
+      if (record.head.type !== 'ATTR' || record.payload.key !== 'Name' || !targetIds.has(record.payload.parentId)) continue;
+      counts.set(record.payload.parentId, counts.get(record.payload.parentId) + 1);
+      record.payload = { ...record.payload, valueVisible: false, keyVisible: false };
+      replacements.set(record.index, serializeRecord(record));
+    }
+    const malformed = [...counts].filter(([, count]) => count !== 1);
+    if (malformed.length) fail('MARKER_NAME_ATTR_UNEXPECTED', `Expected one Name attribute for ${malformed.length} created marker(s).`);
+    const output = source.split(/\r?\n/).map((line, index) => replacements.get(index) ?? line).join('\n');
+    if (output !== source) {
+      if (!await eda.sys_FileManager.setDocumentSource(output)) fail('SOURCE_IMPORT_REJECTED', 'EasyEDA rejected marker display settings.');
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    const readback = await eda.sys_FileManager.getDocumentSource();
+    const readbackVisibility = nameVisibilityByParent(readback);
+    const stillVisible = [...targetIds].filter((id) => readbackVisibility.get(id) !== false);
+    if (stillVisible.length) fail('SOURCE_READBACK_MISMATCH', `Name visibility did not persist for ${stillVisible.length} marker(s).`);
+    await assertTarget(document.uuid, document.parentProjectUuid);
   }
 
   async function applyPlan(plan, expectedPlanFingerprint) {
@@ -194,17 +274,26 @@ return await (async () => {
     }
 
     const created = [];
+    const existingIds = new Set(before.components.map(item => item.primitiveId));
+    let uncertainWrite = false;
     try {
       for (const item of plan.items) {
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+        uncertainWrite = true;
         const primitive = item.kind === 'netFlag'
           ? await eda.sch_PrimitiveComponent.createNetFlag(item.identification, item.net, item.x, item.y, item.rotation, item.mirror)
           : await eda.sch_PrimitiveComponent.createNetPort(item.direction, item.net, item.x, item.y, item.rotation, item.mirror);
         if (!primitive) fail('CREATE_FLAG_FAILED', `EasyEDA rejected ${item.kind} at index ${item.index}.`);
         const primitiveId = callGetter(primitive, 'getState_PrimitiveId');
         if (!primitiveId) fail('CREATE_FLAG_WITHOUT_ID', `${item.kind} at index ${item.index} has no primitive ID.`);
+        if (existingIds.has(primitiveId) || created.some(item => item.primitiveId === primitiveId)) fail('CREATE_ID_NOT_NEW', 'Create returned an existing primitive ID; ownership is unconfirmed.');
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
         created.push({ ...item, primitiveId, componentType: callGetter(primitive, 'getState_ComponentType') });
+        uncertainWrite = false;
       }
+      await applyNameVisibility(created, before.document);
       const after = await captureState();
+      await assertTarget(before.document.uuid, before.document.parentProjectUuid);
       const afterById = new Map(after.components.map((component) => [component.primitiveId, component]));
       const missingOrChanged = created.filter((item) => !flagMatches(afterById.get(item.primitiveId), item));
       const beforeIds = new Set(before.components.map((component) => component.primitiveId));
@@ -225,6 +314,7 @@ return await (async () => {
           mode: 'rollback',
           request: {
             expectedDocumentUuid: plan.expectedDocumentUuid,
+            expectedProjectUuid: before.document.parentProjectUuid,
             expectedCurrentFingerprint: after.inspectionFingerprint,
             expectedRestoredFingerprint: before.inspectionFingerprint,
             created,
@@ -232,15 +322,26 @@ return await (async () => {
         },
       };
     } catch (error) {
-      const rollback = await rollbackCreated(created);
-      const restored = await captureState();
+      let rollback = { deleted: false, remaining: null };
+      if (!uncertainWrite) {
+        try { rollback = await rollbackCreated(created, before.document); }
+        catch (recoveryError) { rollback.error = recoveryError.message; }
+      }
+      let restored = null;
+      try {
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+        const captured = await captureState();
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+        restored = captured;
+      } catch { /* Preserve known IDs when the original schematic cannot be read. */ }
       return {
         schemaVersion: 2,
-        status: rollback.remaining === 0 && restored.inspectionFingerprint === before.inspectionFingerprint ? 'rolled-back' : 'rollback-incomplete',
+        status: !uncertainWrite && rollback.remaining === 0 && restored?.inspectionFingerprint === before.inspectionFingerprint ? 'rolled-back' : 'rollback-incomplete',
         error: { code: error.code ?? 'APPLY_FAILED', message: error.message },
         createdBeforeFailure: created,
+        uncertainWrite,
         rollback,
-        restoredInspectionFingerprint: restored.inspectionFingerprint,
+        restoredInspectionFingerprint: restored?.inspectionFingerprint ?? null,
         expectedRestoredFingerprint: before.inspectionFingerprint,
         saved: false,
       };
@@ -262,7 +363,7 @@ return await (async () => {
     };
   }
   if (mode === 'plan') {
-    const plan = normalizePlan(request.plan ?? request.items, request.expectedDocumentUuid);
+    const plan = normalizePlan(request.plan ?? request.items, request.expectedDocumentUuid, request.expectedProjectUuid);
     const state = await captureState();
     const analysis = analyzePlan(state, plan);
     return {
@@ -310,8 +411,9 @@ return await (async () => {
     if (input.created.some((expected) => !flagMatches(byId.get(expected.primitiveId), expected))) {
       fail('STALE_ROLLBACK', 'One or more created flags changed after apply.');
     }
-    const rollback = await rollbackCreated(input.created);
+    const rollback = await rollbackCreated(input.created, { uuid: input.expectedDocumentUuid, parentProjectUuid: input.expectedProjectUuid ?? current.document.parentProjectUuid });
     const restored = await captureState();
+    await assertTarget(current.document.uuid, current.document.parentProjectUuid);
     return {
       schemaVersion: 2,
       status: rollback.remaining === 0 && restored.inspectionFingerprint === input.expectedRestoredFingerprint ? 'rolled-back' : 'rollback-incomplete',

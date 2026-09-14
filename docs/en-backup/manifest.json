@@ -1,0 +1,110 @@
+{
+  "schemaVersion": 1,
+  "runtimeLanguage": "zh-CN",
+  "snapshotLanguage": "en",
+  "mode": "historical-reference-only",
+  "createdAt": "2026-09-11",
+  "baseVersion": "1.0.0-test.3",
+  "files": [
+    {
+      "source": "SKILL.md",
+      "backup": "SKILL.md.bak",
+      "sha256": "72CD46F5EC6ECD474409653B1BCBA26521BB01DF30F9A5F2097147E397BC8A2F"
+    },
+    {
+      "source": "references/0.0-overview.md",
+      "backup": "references/0.0-overview.md.bak",
+      "sha256": "5383D0C682F71C7A85CDCC3CBBB8B070A295A3CAB797B3CB68F411FE49BF1185"
+    },
+    {
+      "source": "references/0.1-continuation.md",
+      "backup": "references/0.1-continuation.md.bak",
+      "sha256": "766FB5648B510511DE255F6B7912947DDBA265581210F9BE8B3CD925DE47BC8A"
+    },
+    {
+      "source": "references/0.2-debug-loop.md",
+      "backup": "references/0.2-debug-loop.md.bak",
+      "sha256": "DE8B8A91A388A9418F7B53E5DD077705593DCF4D02A1EDB1AB99335271D2BE7D"
+    },
+    {
+      "source": "references/0.3-easyeda-pro.md",
+      "backup": "references/0.3-easyeda-pro.md.bak",
+      "sha256": "D56DABD042681598A08F6B67EA0E88ADB4F7798188C1E8F53DDF1A9CAD7F79BF"
+    },
+    {
+      "source": "references/1.1-requirements-and-architecture.md",
+      "backup": "references/1.1-requirements-and-architecture.md.bak",
+      "sha256": "24876D3426DF1C19F62DD617203544D8D62F01D8B2891A7709A65114C1151041"
+    },
+    {
+      "source": "references/1.2-parts.md",
+      "backup": "references/1.2-parts.md.bak",
+      "sha256": "0246FF3D52B3E8F353E84E2B7B8028B1DA7D64CD73525F38B08868C2D732B4F1"
+    },
+    {
+      "source": "references/1.3-audio-systems.md",
+      "backup": "references/1.3-audio-systems.md.bak",
+      "sha256": "E8C20A2C2B651973E78F06B4BD9E83F020AA47EB32098299CF08983F256E44BB"
+    },
+    {
+      "source": "references/2.1-schematic-contract.md",
+      "backup": "references/2.1-schematic-contract.md.bak",
+      "sha256": "0C6DB0EDC7F23BB1A6AC15A9339F5C218263D2308FC22F710067699237114B7A"
+    },
+    {
+      "source": "references/3.1-pcb-review.md",
+      "backup": "references/3.1-pcb-review.md.bak",
+      "sha256": "339D79CED1BE222AFA646B3CF7FA55FC11B014DC4F70FA497333B3AAF891970A"
+    },
+    {
+      "source": "references/4.1-production-handoff.md",
+      "backup": "references/4.1-production-handoff.md.bak",
+      "sha256": "8C1A7A5A94863F472046C3BEF8B08C90DB844F76033F79A531AC6E8FD3A7146A"
+    },
+    {
+      "source": "references/5.1-prototype-validation.md",
+      "backup": "references/5.1-prototype-validation.md.bak",
+      "sha256": "E2AFF8C7CB24A03EBCCD6D050E1DDFFB0093A35A7CFD557B3A1F35BF3F5062C4"
+    },
+    {
+      "source": "references/6.1-production-release.md",
+      "backup": "references/6.1-production-release.md.bak",
+      "sha256": "F6B0D656CFBF73B8B1A549A6C0E6D9C4AB03E4145E5FB41C74A1591918196295"
+    },
+    {
+      "source": "references/providers/easyeda-pro/0.4-environment.md",
+      "backup": "references/providers/easyeda-pro/0.4-environment.md.bak",
+      "sha256": "3584D91EE29DB66BF1F446C823DD9D63A05CED02F33E611B33F58AB49219B4FE"
+    },
+    {
+      "source": "references/providers/easyeda-pro/2.2-schematic-workflow.md",
+      "backup": "references/providers/easyeda-pro/2.2-schematic-workflow.md.bak",
+      "sha256": "941FE390FBD434C4C95EA530568B29DF8EEA2DE900440308D689027D54B7B768"
+    },
+    {
+      "source": "references/providers/easyeda-pro/3.2-pcb-foundation.md",
+      "backup": "references/providers/easyeda-pro/3.2-pcb-foundation.md.bak",
+      "sha256": "8BAF10E72501DC1EDC52FAF3D971A706D12C2DEE6720E02E6EF533C8662E192C"
+    },
+    {
+      "source": "references/providers/easyeda-pro/3.3-pcb-grounding.md",
+      "backup": "references/providers/easyeda-pro/3.3-pcb-grounding.md.bak",
+      "sha256": "93CF9D48DFAA727C1007F1AAB05CA1D0B5497528CCA59A976A98EC30AAD50394"
+    },
+    {
+      "source": "development/action-system.md",
+      "backup": "development/action-system.md.bak",
+      "sha256": "6F37B63AFED79B8B6EB04A02A6EA2F5E057FAB9EBF76B351088E7041E5C65DB6"
+    },
+    {
+      "source": "agents/openai.yaml",
+      "backup": "agents/openai.yaml.bak",
+      "sha256": "B8002DE959267F388869B02C0BD61BEFD420312B4CBF93F09A65D92472002AF8"
+    },
+    {
+      "source": "README.md",
+      "backup": "README.md.bak",
+      "sha256": "3938C2F9F49E3250223E76305DDC037D3AA1446493AD65F4959353D0DFC52FF2"
+    }
+  ]
+}

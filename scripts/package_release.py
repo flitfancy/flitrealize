@@ -25,12 +25,20 @@ def runtime_files() -> list[Path]:
         ROOT / "SKILL.md",
         ROOT / "agents/openai.yaml",
         ROOT / "scripts/action-runner.mjs",
+        ROOT / "scripts/schematic-reflow.mjs",
+        ROOT / "scripts/schematic-components.mjs",
+        ROOT / "scripts/schematic-connect.mjs",
+        ROOT / "scripts/pcb-edit.mjs",
+        ROOT / "scripts/handoff-check.mjs",
+        ROOT / "scripts/handoff-sync.mjs",
         ROOT / "scripts/eda-host.mjs",
         ROOT / "scripts/actions/manifest.json",
         *sorted((ROOT / "scripts/actions").rglob("*.js")),
         *sorted((ROOT / "scripts/parts").rglob("*.mjs")),
+        *sorted((ROOT / "scripts/lib").rglob("*.mjs")),
         *sorted((ROOT / "schemas").glob("*.json")),
         *sorted((ROOT / "references").rglob("*.md")),
+        ROOT / "development/action-system.md",
     ]
 
 

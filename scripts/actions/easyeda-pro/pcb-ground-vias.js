@@ -9,6 +9,12 @@ return await (async () => {
     throw error;
   }
 
+  async function assertTarget(documentUuid, projectUuid = null) {
+    const current = await eda.dmt_SelectControl.getCurrentDocumentInfo();
+    if (Number(current?.documentType) !== 3 || current?.uuid !== documentUuid
+      || (projectUuid && current.parentProjectUuid !== projectUuid)) fail('DOCUMENT_MISMATCH', 'The active PCB changed during the operation.');
+  }
+
   function callGetter(object, name, fallback = null) {
     try {
       return typeof object?.[name] === 'function' ? object[name]() : fallback;
@@ -246,6 +252,7 @@ return await (async () => {
         footprints: footprintKeepouts,
       },
     };
+    await assertTarget(document.uuid, document.parentProjectUuid);
     return {
       document: {
         uuid: document.uuid,
@@ -765,7 +772,8 @@ return await (async () => {
       && actual.diameter === expected.diameter;
   }
 
-  async function rollbackCreated(created) {
+  async function rollbackCreated(created, document) {
+    await assertTarget(document.uuid, document.parentProjectUuid);
     const ids = created.map((item) => item.primitiveId).filter(Boolean);
     if (ids.length === 0) return { deleted: true, remaining: [] };
     let deleted = false;
@@ -775,6 +783,8 @@ return await (async () => {
       deleted = false;
     }
     const all = await eda.pcb_PrimitiveVia.getAll();
+    if (!Array.isArray(all)) fail('SNAPSHOT_FAILED', 'Via enumeration did not return an array.');
+    await assertTarget(document.uuid, document.parentProjectUuid);
     const remaining = all.map(summarizeVia).filter((via) => ids.includes(via.primitiveId));
     return { deleted: Boolean(deleted), remaining };
   }
@@ -793,8 +803,12 @@ return await (async () => {
     }
 
     const created = [];
+    const existingIds = new Set(before.vias.map(item => item.primitiveId));
+    let uncertainWrite = false;
     try {
       for (const candidate of analysis.accepted) {
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+        uncertainWrite = true;
         const primitive = await eda.pcb_PrimitiveVia.create(
           plan.net,
           candidate.x,
@@ -809,7 +823,10 @@ return await (async () => {
         if (!primitive) fail('CREATE_VIA_FAILED', `EasyEDA rejected via ${candidate.key}.`);
         const primitiveId = callGetter(primitive, 'getState_PrimitiveId');
         if (!primitiveId) fail('CREATE_VIA_WITHOUT_ID', `Via ${candidate.key} has no primitive ID.`);
+        if (existingIds.has(primitiveId) || created.some(item => item.primitiveId === primitiveId)) fail('CREATE_ID_NOT_NEW', 'Create returned an existing primitive ID; ownership is unconfirmed.');
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
         created.push({ key: candidate.key, primitiveId, net: plan.net, ...candidate });
+        uncertainWrite = false;
         const readbackPrimitive = await eda.pcb_PrimitiveVia.get(primitiveId);
         const actual = summarizeVia(readbackPrimitive);
         const expected = { ...candidate, net: plan.net };
@@ -820,6 +837,8 @@ return await (async () => {
       }
 
       const after = await captureState();
+      await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+      if (!after.coverage.complete) fail('SNAPSHOT_FAILED', 'Post-apply inspection is incomplete.');
       const afterById = new Map(after.vias.map((via) => [via.primitiveId, via]));
       const missing = created.filter((via) => !viaMatches(afterById.get(via.primitiveId), via));
       const beforeIds = new Set(before.vias.map((via) => via.primitiveId));
@@ -838,22 +857,34 @@ return await (async () => {
         rollbackRequest: {
           mode: 'rollback',
           expectedDocumentUuid: plan.expectedDocumentUuid,
+          expectedProjectUuid: before.document.parentProjectUuid,
           expectedCurrentFingerprint: after.inspectionFingerprint,
           expectedRestoredFingerprint: before.inspectionFingerprint,
           created,
         },
       };
     } catch (error) {
-      const rollback = await rollbackCreated(created);
-      const restored = await captureState();
+      let rollback = { deleted: false, remaining: null };
+      if (!uncertainWrite) {
+        try { rollback = await rollbackCreated(created, before.document); }
+        catch (recoveryError) { rollback.error = recoveryError.message; }
+      }
+      let restored = null;
+      try {
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+        const captured = await captureState();
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+        restored = captured;
+      } catch { /* Preserve known IDs even when the original PCB cannot be read. */ }
       return {
-        status: rollback.remaining.length === 0 && restored.inspectionFingerprint === before.inspectionFingerprint
+        status: !uncertainWrite && rollback.remaining?.length === 0 && restored?.coverage.complete && restored.inspectionFingerprint === before.inspectionFingerprint
           ? 'rolled-back'
           : 'rollback-incomplete',
         error: { code: error.code ?? 'APPLY_FAILED', message: error.message },
         createdBeforeFailure: created,
+        uncertainWrite,
         rollback,
-        restoredInspectionFingerprint: restored.inspectionFingerprint,
+        restoredInspectionFingerprint: restored?.inspectionFingerprint ?? null,
         expectedRestoredFingerprint: before.inspectionFingerprint,
         saved: false,
       };
@@ -965,11 +996,12 @@ return await (async () => {
     const byId = new Map(current.vias.map((via) => [via.primitiveId, via]));
     const changed = request.created.filter((expected) => !viaMatches(byId.get(expected.primitiveId), expected));
     if (changed.length > 0) fail('STALE_ROLLBACK', 'One or more created vias changed after apply.');
-    const rollback = await rollbackCreated(request.created);
+    const rollback = await rollbackCreated(request.created, { uuid: request.expectedDocumentUuid, parentProjectUuid: request.expectedProjectUuid ?? current.document.parentProjectUuid });
     const restored = await captureState();
+    await assertTarget(current.document.uuid, current.document.parentProjectUuid);
     return {
       schemaVersion: 1,
-      status: rollback.remaining.length === 0 && restored.inspectionFingerprint === request.expectedRestoredFingerprint
+      status: rollback.remaining.length === 0 && restored.coverage.complete && restored.inspectionFingerprint === request.expectedRestoredFingerprint
         ? 'rolled-back'
         : 'rollback-incomplete',
       rollback,

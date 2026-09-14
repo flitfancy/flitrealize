@@ -2,11 +2,13 @@
 
 [简体中文](README.zh-CN.md)
 
+> Chinese is the sole maintained execution source: edit `SKILL.md`, `references/`, and `development/`. This English overview is secondary. Pre-migration English instructions are frozen in `docs/en-backup/` as `.bak` files, excluded from runtime; `docs/zh-CN/` now contains compatibility links only.
+
 FlitRealize is a Skill for complete hardware projects, carrying an idea forward into a testable physical prototype.
 
 Each project uses one `CURRENT_HANDOFF.md` as its human-readable project manuscript, keeping requirements, parts, schematic, PCB, manufacturing, and prototype results on one continuous project line. The Contract, EDA source, and manufacturing artifacts continue to own their corresponding machine facts.
 
-> Current public test release: **FlitRealize T1 `v1.0.0-test.3`**. It remains a prerelease intended for real use and continued iteration.
+> Current stable release: **FlitRealize `v1.0.0`**. See the [release notes](CHANGELOG.md#100---2026-09-14) for changes since the last test release.
 
 ## What it does
 
@@ -144,7 +146,7 @@ flitrealize/
 |   |-- actions/
 |   `-- parts/
 |-- tests/
-`-- docs/zh-CN/         # Chinese review mirror
+`-- docs/               # Frozen English backups and legacy Chinese redirects
 ```
 
 When developing or changing the repository, run:
@@ -155,7 +157,7 @@ npm test
 ./scripts/release.ps1 -DryRun
 ```
 
-The release flow produces reproducible ZIP and SHA-256 artifacts. After English runtime instructions change, synchronize the Chinese mirror and refresh its source hashes.
+The release flow produces reproducible ZIP and SHA-256 artifacts using the Chinese runtime documents. Do not synchronize or refresh the frozen English backup hashes when Chinese instructions change. The old translation-hash updater is retired.
 
 ## License
 

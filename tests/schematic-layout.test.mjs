@@ -141,6 +141,8 @@ assert.equal(genResult.placementPlan.kind, 'flitrealize.schematic-placement-plan
 assert.equal(genResult.placementPlan.schemaVersion, 1);
 assert.equal(genResult.placementPlan.components.length, 5);
 assert.equal(genResult.placementPlan.targetProvider, 'easyeda-pro');
+assert.equal(genResult.placementPlan.components.find(c => c.designator === 'R1').value, '10k');
+assert.equal(genResult.placementPlan.components.find(c => c.designator === 'U1').value, 'BQ25616');
 
 // Verify block ordering: block-a (signal) and block-b (power-output) should be ordered
 const u1 = genResult.placementPlan.components.find(c => c.designator === 'U1');
@@ -188,7 +190,7 @@ const flowContract = {
     ...contract.components,
     {
       designator: 'J1', role: 'connector',
-      identity: { selection: 'exact' }, footprint: { selection: 'exact' },
+      identity: { selection: 'exact', mpn: 'TEST-CONNECTOR' }, footprint: { selection: 'exact' },
       pinMapCoverage: 'complete', pins: [{ number: '1', function: 'VBUS', classification: 'power-in' }],
       includeInBom: true, includeInPcb: true,
       bindings: { easyedaPro: { libraryUuid: 'lib-J1', deviceUuid: 'dev-J1' } },

@@ -1,0 +1,107 @@
+# 1.1 Requirements and architecture
+
+Read this reference when starting a new hardware design or changing the main function, power structure, external interface, or core part strategy of an existing project.
+
+This stage decides what to design and how its parts cooperate. Stable results enter section 1.x of `CURRENT_HANDOFF.md`.
+
+## Define the objective and boundaries
+
+Organize what the product actually needs:
+
+- use case and primary functions;
+- inputs, outputs, and external interfaces;
+- power sources, operating ranges, and main loads;
+- dimensions, enclosure, environment, and mounting;
+- cost, quantity, inventory, and purchasing constraints;
+- functions the user explicitly excludes;
+- what completion means for the current stage.
+
+Ask only questions that change architecture, major parts, or acceptance. Ordinary gaps that can be checked safely on the prototype may become explicit tests.
+
+Write the result under "Product objective and boundaries" in the manuscript.
+
+## Build the functional architecture
+
+Split the product into functional blocks that can be explained and tested independently.
+
+For each block, describe:
+
+- its purpose;
+- inputs and outputs;
+- power source;
+- interfaces to other blocks;
+- startup, shutdown, and default state;
+- how its main faults affect other blocks;
+- the simplest way to test it.
+
+Make blocks only detailed enough to support part and schematic design. Do not expand every component and pin yet.
+
+Write the blocks and their relationships under "Functional architecture".
+
+## Build the power tree
+
+Describe each source, conversion stage, and major consumer. Record:
+
+- normal, minimum, and maximum voltage;
+- continuous and peak current;
+- startup sequence;
+- enable and shutdown conditions;
+- reverse-polarity, surge, short-circuit, overcurrent, or undervoltage behavior;
+- high-current and switching nodes that may affect PCB design.
+
+Average power does not replace peak, startup, and fault conditions. Calculate enough to choose the architecture and main parts without creating false precision for details that are not yet known.
+
+Write the power tree and major power conditions under "Power tree and interfaces".
+
+## Define interfaces
+
+For external interfaces and important boundaries between blocks, record:
+
+- signal or power direction;
+- protocol and voltage domain;
+- connector or cable conditions;
+- hot-plug, disconnect, and misconnection behavior;
+- default state and recovery;
+- firmware, mechanical, or enclosure conditions that must also hold.
+
+Stabilize external behavior before optimizing the internal implementation. Update the architecture first when external behavior changes.
+
+## Default and fault states
+
+For paths that affect product function or safety, describe:
+
+- power-up and reset state;
+- state before the controller initializes;
+- state when a control signal is open or unpowered;
+- behavior with insufficient input, excessive load, or high temperature;
+- recovery after protection trips;
+- user-visible or measurable state.
+
+When current sources cannot establish the behavior of a protection, isolation, or fault-shutdown block, enter CURIOUS_MODE only for that question.
+
+## Cross-domain conditions
+
+Identify design judgments that depend on:
+
+- firmware and startup timing;
+- cooling and sustained load;
+- acoustics, optics, or sensor mounting;
+- enclosure, harness, and connector geometry;
+- transient or fault behavior across multiple parts.
+
+Continue directly when existing sources and ordinary calculations support the decision. When only hardware can answer it, convert it into a prototype test with a condition and observable result.
+
+## Finish this stage
+
+At the end of this stage, the manuscript should explain:
+
+- what the product currently does;
+- what it explicitly does not do;
+- which functional blocks implement it;
+- how power flows;
+- how major interfaces connect;
+- default and fault behavior;
+- which open questions affect parts or connections;
+- which questions are deferred to prototype testing.
+
+Update the current handoff at the top, then use [1.2-parts.md](1.2-parts.md) to select the main parts and [2.1-schematic-contract.md](2.1-schematic-contract.md) to turn the design into exact pins and nets.

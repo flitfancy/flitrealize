@@ -1,0 +1,271 @@
+# 2.1 Schematic design and Contract
+
+Read this reference when requirements, architecture, and main parts are mostly established and the project needs schematic connections, design review, or preparation for EDA.
+
+This stage turns the design into an exact, checkable circuit. Machine intent lives in the Contract; the human-readable design enters section 2.x of `CURRENT_HANDOFF.md`.
+
+## Inputs
+
+Before schematic work, read the parts of the current project that matter to the task:
+
+- product objective and explicit non-goals;
+- functional architecture;
+- power tree;
+- external interfaces;
+- main operating conditions;
+- confirmed parts and current candidates;
+- key calculations;
+- questions reserved for prototype testing.
+
+When an issue changes functional blocks, power structure, a major interface, or the core part strategy, update the 1.x design first.
+
+## Build the machine Contract
+
+Use:
+
+```text
+design/SCHEMATIC_CONTRACT.v1.json
+```
+
+to store portable schematic intent. Its format is defined by:
+
+```text
+<skill>/schemas/schematic-contract.v1.schema.json
+```
+
+The Contract is independent of a specific EDA and does not store canvas coordinates or display styling.
+
+Record what the project needs:
+
+- functional blocks;
+- power domains and main rails;
+- component roles;
+- manufacturer, MPN, suffix, and package for `exact` parts;
+- value, ratings, tolerance, package, and allowed range for `generic` parts;
+- interface direction and voltage domains;
+- semantic pins;
+- pin-to-net connections;
+- pull-ups, pull-downs, enable behavior, and default states;
+- NC, DNC, thermal pads, and exposed pads that must connect;
+- protection and fault-shutdown paths;
+- test points;
+- current prototype checks.
+
+The Contract stores the current design, not discussion history or rejected alternatives.
+
+## Pin facts
+
+```text
+Manufacturer datasheet
+    -> original pinout and electrical facts
+
+Schematic Contract
+    -> how this project uses those pins
+
+EDA Provider Binding
+    -> how the selected EDA symbol maps to those pins
+
+EDA schematic readback
+    -> connections actually implemented
+```
+
+Use stable, readable semantic pin names in the Contract, for example:
+
+```text
+VIN
+GND
+SCL
+SDA
+EN
+SW
+FB
+```
+
+A Provider may map semantic pins to native symbol pins:
+
+```json
+{
+  "bindings": {
+    "easyedaPro": {
+      "libraryUuid": "...",
+      "deviceUuid": "...",
+      "pinMap": {
+        "VIN": ["1", "2"],
+        "GND": ["3"]
+      }
+    }
+  }
+}
+```
+
+A Binding maps EDA identity only. It does not change the electrical design in the Contract.
+
+When part identity, symbol identity, or pin mapping is ambiguous, resolve the affected part first. Do not infer from similar names, graphical position, or the first search result.
+
+## Pin adjustment
+
+Keep assigned pins fixed by default.
+
+Only MCUs, FPGAs, or other parts with confirmed pin multiplexing may reassign unused configurable pins after rough PCB placement:
+
+- `fixed`: keep the current pin;
+- `unused_configurable_only`: use only another unassigned pin on the same part whose support for the target function is confirmed.
+
+The goal is to remove obvious crossings, detours, congestion, or vias, not to search every permutation. Keep the current mapping when there is no clearly better candidate.
+
+After a real change, update the Contract, schematic, manuscript, and affected firmware interface together.
+
+## Initial PCB intent
+
+During schematic design, record the electrical conditions that important nets carry into PCB work:
+
+- net class;
+- continuous and peak current;
+- voltage and allowed drop;
+- switching or sensitive analog status;
+- differential, impedance, or length relationship;
+- whether vias should be minimized, the path shortened, or the reference kept continuous.
+
+These conditions guide PCB design but do not fix final trace width at the schematic stage. Stackup, copper weight, length, thermal needs, and manufacturing capability determine actual widths, spacing, vias, and copper.
+
+## Update the project manuscript
+
+Organize the current schematic design under section 2.x.
+
+### Circuit blocks
+
+For each block, describe:
+
+- purpose;
+- input and output;
+- main parts;
+- relationships to other blocks;
+- startup, shutdown, and fault behavior.
+
+### Components, pins, and nets
+
+Derive a readable view from the Contract, for example:
+
+```text
+Ref | Component role | Pin | Pin function | Net | Default state | Must-connect/NC/DNC
+```
+
+Also record unused configurable pins that may be reassigned.
+
+When a connection changes, update the Contract first, then refresh the human-readable view in the manuscript.
+
+### Key calculations
+
+Keep calculations that affect parts, connections, ratings, or prototype testing, such as:
+
+- voltage and current;
+- power and temperature rise;
+- feedback and timing;
+- protection thresholds;
+- part derating;
+- current design margin.
+
+### Test points and prototype checks
+
+Record:
+
+- test point;
+- condition;
+- expected value;
+- the question the prototype must answer.
+
+### EDA implementation state
+
+After entering EDA, record:
+
+- current Provider;
+- schematic source;
+- implemented scope;
+- content not yet written or reconciled;
+- current ERC/DRC state.
+
+## Review by function
+
+### Power entry
+
+Check input range, polarity, connector rating, reverse protection, surge, ESD, input current limiting, and return path.
+
+### Regulators and rails
+
+Check input/output range, load, dropout, efficiency, loss, temperature rise, inductor, capacitors, feedback, startup, shutdown, enable defaults, and stability conditions.
+
+### Control and default state
+
+Check reset, the state before controller initialization, open or unpowered control signals, MOSFET and driver off-state, and protection and shutdown paths.
+
+### Interfaces and voltage domains
+
+Check direction, source/sink relationship, logic thresholds, level shifting, pull-up domain, address, hot-plug, disconnect, ESD, misconnection, and connector pinout.
+
+### Sensors and loads
+
+Check recommended external circuits, input/output range, bias, gain, filtering, startup, fault behavior, exposed pads, NC, DNC, and calibration nodes.
+
+### Parts and packages
+
+Check exact identity, specification, package, pins, ratings, tolerance, purchasing identity, and allowed substitutes.
+
+See [1.2-parts.md](1.2-parts.md) for source handling.
+
+## Contract audit
+
+After completing the Contract, run:
+
+```text
+node <skill>/scripts/action-runner.mjs run \
+  --action schematic-contract-audit \
+  --input-file <schematic-contract.json>
+```
+
+It checks:
+
+- JSON structure;
+- component, net, and functional-block identity;
+- cross-references;
+- pin-to-net ownership;
+- NC and DNC handling;
+- power domains;
+- interfaces and differential relationships;
+- the Provider Binding boundary.
+
+Contract Audit proves only structural and reference consistency. It does not prove circuit topology, part capability, EDA implementation, or physical function.
+
+## Enter EDA
+
+Before writing a functional block into EDA, confirm within that scope:
+
+- circuit structure, parts, pins, and main nets are present in the Contract;
+- critical part identity, package, and pins are confirmed;
+- `generic` parts have the specifications and package requirements needed for implementation;
+- control, protection, and unconnected-pin states are clear;
+- Contract Audit has no errors that affect the write scope.
+
+Keep other unresolved blocks in the manuscript. They do not prevent confirmed work from entering EDA. Resolve questions that would change the current connections in schematic design; convert questions that only hardware can answer into prototype tests.
+
+For EasyEDA Pro, read:
+
+[2.2-schematic-workflow.md](providers/easyeda-pro/2.2-schematic-workflow.md)
+
+## Reconcile with EDA
+
+After EDA writes, read back the implemented parts, pins, nets, power symbols, unconnected pins, critical properties, and saved state.
+
+The Contract expresses design intent; EDA readback expresses the implementation. When they differ, correct the side that owns the wrong fact.
+
+ERC finds connectivity issues recognized by the current rules. It does not judge topology, ratings, protection behavior, or system function.
+
+## Enter PCB
+
+Before PCB work, confirm:
+
+- the current schematic is saved;
+- implemented parts, pins, and nets are reconciled with the Contract;
+- unconnected pins and intentional exceptions are explained;
+- current ERC/DRC issues are resolved;
+- remaining issues do not change the current connections;
+- section 2.x and the current handoff at the top are updated.

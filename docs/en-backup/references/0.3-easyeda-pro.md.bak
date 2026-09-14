@@ -1,0 +1,108 @@
+# 0.3 EasyEDA Pro Provider
+
+Read this reference when a task must create, modify, inspect, or export EasyEDA Pro files.
+
+This file owns the common EasyEDA Pro entrypoint, actual-document boundary, and failure recovery. The active stage owns the design and operation details.
+
+## Load only the active flow
+
+- Host environment, Bridge, connection, and reconnection:
+  [0.4-environment.md](providers/easyeda-pro/0.4-environment.md)
+- Schematic parts, connections, checks, and save:
+  [2.2-schematic-workflow.md](providers/easyeda-pro/2.2-schematic-workflow.md)
+- PCB stackup, outline, keepouts, and copper:
+  [3.2-pcb-foundation.md](providers/easyeda-pro/3.2-pcb-foundation.md)
+- PCB return paths, layer transitions, and grounding:
+  [3.3-pcb-grounding.md](providers/easyeda-pro/3.3-pcb-grounding.md)
+- Common PCB design, placement, routing, and review:
+  [3.1-pcb-review.md](3.1-pcb-review.md)
+
+Do not load every EasyEDA flow for one operation.
+
+## Use the actual current document
+
+Before execution, confirm:
+
+- the current project and target document;
+- the document type;
+- its actual save state;
+- the objects this task will change;
+- the requested result.
+
+Part, pin, net, pad, layer, and geometry facts come from the actual source or structured reads. Canvas appearance helps interpretation but does not replace object identity or properties.
+
+After manual edits, reopening, or a long interruption, read current state again instead of reusing an old plan.
+
+## Reuse existing tools
+
+Use an existing script, Action, or Provider flow when it fits the task.
+
+Discover the current stage's registered tools locally; no Bridge connection is needed:
+
+```text
+node <skill>/scripts/action-runner.mjs list --domain schematic
+node <skill>/scripts/action-runner.mjs list --domain schematic --full
+```
+
+Use `pcb` for PCB work. The default list stays compact; `--full` shows internal Actions, script paths, modes, required capabilities, and Workflow steps from the same manifest. Script paths are relative to `scripts/actions/`.
+
+Prepare inputs from the stage reference and reuse its script entry or the project's existing runner. To call one Action:
+
+```text
+node <skill>/scripts/action-runner.mjs run --action <name> --input-file <input.json>
+```
+
+EDA calls can specify `--project-root` and `--window-id`; writes require `--allow-write`. Workflow names describe the order of Actions, not a separate command. The calling script passes returned requests and readback records between steps.
+
+The runner keeps a full report and returns a nonzero exit code when the operation is blocked, failed, or unconfirmed. Read any inspection gaps or audit conditions before continuing.
+
+When existing tools do not support the operation, use a currently available EasyEDA Pro interface if it can complete the bounded work. Do not register an unverified method as a stable capability or assume that a method name proves object support.
+
+For changes to Actions, the manifest, or Providers, read [Action development](../development/action-system.md); ordinary project work does not need it.
+
+## Execute and confirm
+
+```text
+Read current state
+    ↓
+Apply the requested change
+    ↓
+Read affected objects
+    ↓
+Confirm the result
+    ↓
+Save
+```
+
+Change only the objects in scope and preserve existing content outside it. Before a bulk operation, verify one representative object, including identity and readback, then scale.
+
+Saving is explicit. A successful call without a confirming read does not prove completion.
+
+## Recover from failure
+
+After a write failure, timeout, or unclear result, read the document and affected objects again to determine whether a partial result exists. Then complete, undo, or rerun the operation.
+
+Do not immediately repeat a write that may already have executed. Undo only objects that this operation can identify precisely; preserve existing content of unknown ownership.
+
+Correct one clear failure and continue. When the same problem needs repeated observation or experiments, enter CURIOUS_MODE for that issue and read [0.2-debug-loop.md](0.2-debug-loop.md).
+
+A connection or environment failure blocks only live EasyEDA work. Requirements, part selection, Contract work, and other offline design can continue.
+
+## Exports and manufacturing files
+
+EasyEDA may perform the export, but source-version pairing, file review, board-house preview, and prototype ordering belong to [4.1 Manufacturing files and prototype ordering](4.1-production-handoff.md).
+
+An export is not a manufacturing candidate merely because it came from the current document. Confirm that it matches the saved version and contains the intended output.
+
+## Finish the operation
+
+Before ending the EasyEDA task, confirm:
+
+- the project and document are correct;
+- the requested change is present;
+- affected objects were read back;
+- out-of-scope content was not changed unintentionally;
+- the document is saved;
+- the next stage has the files or state it needs.
+
+Stop after the stage the user requested.

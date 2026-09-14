@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import { loadAction } from './helpers/action-harness.mjs';
+import { checkCreateRecovery } from './helpers/create-action-recovery.mjs';
 
 const inspectAction = await loadAction('pcb-grounding-inspect', 'easyeda-pro');
 const viaAction = await loadAction('pcb-ground-vias', 'easyeda-pro');
@@ -365,5 +366,11 @@ const tightGenerated = await viaAction(tightAlternativeEda, {
 assert.equal(tightGenerated.proposalAnalysis.rejected[0].candidate.key, 'U1-pad1-right');
 assert.equal(tightGenerated.plan.vias[0].key, 'U1-pad1-down');
 assert.equal(tightGenerated.status, 'generated');
+
+await checkCreateRecovery({
+  action: viaAction, createEda: createMockEda, namespace: 'pcb_PrimitiveVia',
+  seed: mock => mock.pcb_PrimitiveVia.create('OTHER', 900, 900, 12, 24),
+  applyRequest: async mock => (await viaAction(mock, { mode: 'plan', plan: { ...plan, expectedInspectionFingerprint: (await inspectAction(mock, {})).inspectionFingerprint } })).applyRequest,
+});
 
 process.stdout.write('pcb-ground-vias tests passed\n');

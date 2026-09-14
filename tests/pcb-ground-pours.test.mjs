@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import { loadAction } from './helpers/action-harness.mjs';
+import { checkCreateRecovery } from './helpers/create-action-recovery.mjs';
 
 const execute = await loadAction('pcb-ground-pours', 'easyeda-pro');
 
@@ -137,5 +138,20 @@ assert.deepEqual(verified.issues, []);
 const rolledBack = await execute(eda, applied.rollbackRequest);
 assert.equal(rolledBack.status, 'rolled-back');
 assert.equal(rolledBack.after.pours.length, 0);
+
+await checkCreateRecovery({
+  action: execute, createEda: createMock, namespace: 'pcb_PrimitivePour',
+  seed: mock => mock.pcb_PrimitivePour.create('OTHER', 2, mock.pcb_MathPolygon.createPolygon(['R', 0, 0, 100, 100]), 'solid', false, 'existing', 1, 10, false),
+  applyRequest: async mock => ({ mode: 'apply', plan: { ...plan, layerIds: [15, 16], expectedInspectionFingerprint: (await execute(mock, { mode: 'inspect' })).state.inspectionFingerprint } }),
+});
+
+// Removing the border alone does not prove that its realized copper was removed.
+const lingeringEda = createMock();
+const lingeringPlan = { ...plan, expectedInspectionFingerprint: (await execute(lingeringEda, { mode: 'inspect' })).state.inspectionFingerprint };
+const lingeringApplied = await execute(lingeringEda, { mode: 'apply', plan: lingeringPlan });
+const lingeringCopper = await lingeringEda.pcb_PrimitivePoured.getAll();
+lingeringEda.pcb_PrimitivePoured.getAll = async () => lingeringCopper;
+const lingeringRollback = await execute(lingeringEda, lingeringApplied.rollbackRequest);
+assert.equal(lingeringRollback.status, 'rollback-incomplete');
 
 process.stdout.write('pcb-ground-pours tests passed\n');

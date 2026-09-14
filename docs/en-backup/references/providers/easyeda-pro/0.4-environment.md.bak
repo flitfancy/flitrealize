@@ -1,0 +1,91 @@
+# 0.4 EasyEDA Pro environment and connection
+
+Read this reference the first time EasyEDA Pro is used on the current host, after the connection is lost, or when the current execution channel must be confirmed.
+
+This flow only establishes a usable connection and identifies the target document. The schematic and PCB stage references own actual edits.
+
+## Establish the connection
+
+Register the local Adapter once:
+
+```text
+node <skill>/scripts/eda-host.mjs register \
+  --eda easyeda-pro \
+  --adapter-root <adapter-root>
+```
+
+If already registered, reuse it:
+
+```text
+node <skill>/scripts/eda-host.mjs ensure \
+  --eda easyeda-pro \
+  --require-eda
+```
+
+The Adapter installation path belongs in host configuration, not the project Contract or portable Skill documentation.
+
+Ask the user for the exact path only when no Adapter is registered and host configuration cannot identify one.
+
+## Confirm the target
+
+Before an EDA operation, confirm:
+
+- EasyEDA Pro is connected;
+- the current window and project are correct;
+- the document type matches the task;
+- the schematic or PCB document is the intended write target;
+- the next Action or required API capability is available.
+
+Check only capabilities needed by the current operation. Do not enumerate the full EasyEDA API.
+
+If the project declares an expected EDA or document identity, compare it with the connection. Switch to the correct target before writing when they differ.
+
+## Reuse the connection
+
+Reuse the connection within the current task while:
+
+- EasyEDA has not restarted or disconnected;
+- Bridge and Adapter remain reachable;
+- the project and target document have not changed;
+- the next required capability remains available.
+
+Do not register or reconnect before every small operation or chat turn.
+
+After switching a window, project, or document, confirm the target again. Manual document edits do not always require reconnection, but the next flow must read actual document state again.
+
+## Handle connection failure
+
+Check the observed layers:
+
+1. Is EasyEDA Pro running?
+2. Is the Adapter registered at a valid path?
+3. Can the Bridge start or be reused?
+4. Is the EasyEDA gateway connected?
+5. Can the current window and document be identified?
+6. Is the capability required by this operation present?
+
+Apply one recovery action at the actual failure point, such as starting the Bridge, reconnecting the gateway, selecting the correct window, or reading the document again.
+
+Check the result after recovery. Do not repeat the same reconnection without new evidence.
+
+If connection still fails, report:
+
+- the deepest layer reached successfully;
+- the actual failure point;
+- the observed error;
+- the smallest user action needed.
+
+Connection failure blocks only live EDA operations. Requirements, part selection, Contract work, and other offline design can continue.
+
+## Use the environment
+
+After connection and target confirmation, load the flow needed by the task:
+
+- EasyEDA schematic implementation:
+  [2.2-schematic-workflow.md](2.2-schematic-workflow.md)
+- PCB layers, outline, keepouts, and reference copper:
+  [3.2-pcb-foundation.md](3.2-pcb-foundation.md)
+- PCB return paths and ground vias:
+  [3.3-pcb-grounding.md](3.3-pcb-grounding.md)
+
+A connected environment proves only that the execution channel is available. The active flow must still write, read back, and save the result.

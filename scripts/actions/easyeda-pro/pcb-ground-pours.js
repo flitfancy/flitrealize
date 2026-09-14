@@ -10,6 +10,12 @@ return await (async () => {
     throw error;
   }
 
+  async function assertTarget(documentUuid, projectUuid = null) {
+    const current = await eda.dmt_SelectControl.getCurrentDocumentInfo();
+    if (Number(current?.documentType) !== 3 || current?.uuid !== documentUuid
+      || (projectUuid && current.parentProjectUuid !== projectUuid)) fail('DOCUMENT_MISMATCH', 'The active PCB changed during the operation.');
+  }
+
   function getter(object, name, fallback = null) {
     try {
       return typeof object?.[name] === 'function' ? object[name]() : fallback;
@@ -53,9 +59,10 @@ return await (async () => {
   }
 
   async function getAll(api) {
-    if (typeof api?.getAll !== 'function') return [];
+    if (typeof api?.getAll !== 'function') fail('SNAPSHOT_FAILED', 'Required primitive enumeration is unavailable.');
     const result = await api.getAll();
-    return Array.isArray(result) ? result : [];
+    if (!Array.isArray(result)) fail('SNAPSHOT_FAILED', 'Primitive enumeration did not return an array.');
+    return result;
   }
 
   function primitiveId(primitive) {
@@ -483,6 +490,7 @@ return await (async () => {
       pours: state.pours,
       invariantsFingerprint: state.invariants.fingerprint,
     }));
+    await assertTarget(document.uuid, document.parentProjectUuid);
     return state;
   }
 
@@ -529,15 +537,17 @@ return await (async () => {
     };
   }
 
-  async function copperForPour(pour) {
+  async function copperForPour(pour, document) {
     let rebuildError = null;
     let region = null;
     if (typeof pour?.rebuildCopperRegion === 'function') {
+      await assertTarget(document.uuid, document.parentProjectUuid);
       try {
         region = await pour.rebuildCopperRegion();
       } catch (error) {
         rebuildError = error.message;
       }
+      await assertTarget(document.uuid, document.parentProjectUuid);
     }
     for (let attempt = 0; !region && attempt < 12; attempt += 1) {
       if (typeof pour?.getCopperRegion === 'function') {
@@ -552,26 +562,31 @@ return await (async () => {
     return { region, rebuildError };
   }
 
-  async function deleteCreated(createdIds) {
+  async function deleteCreated(createdIds, document) {
+    await assertTarget(document.uuid, document.parentProjectUuid);
     const uniqueIds = [...new Set(createdIds.filter(Boolean))];
     if (uniqueIds.length === 0) return { deleted: true, remainingIds: [] };
     const deleted = await eda.pcb_PrimitivePour.delete(uniqueIds);
     const remaining = await getAll(eda.pcb_PrimitivePour);
+    await assertTarget(document.uuid, document.parentProjectUuid);
     const remainingIds = remaining.map(primitiveId).filter((id) => uniqueIds.includes(id));
     return { deleted: Boolean(deleted) && remainingIds.length === 0, remainingIds };
   }
 
-  async function applyPlan(plan) {
-    const before = await captureState();
+  async function applyPlan(plan, before) {
     if (before.document.uuid !== plan.expectedDocumentUuid) fail('DOCUMENT_MISMATCH', `Expected ${plan.expectedDocumentUuid}, got ${before.document.uuid}.`);
     if (before.inspectionFingerprint !== plan.expectedInspectionFingerprint) fail('STALE_POUR_PLAN', 'PCB geometry, layers, outline, or existing pours changed after planning.');
     if (before.outline.fingerprint !== plan.expectedOutlineFingerprint) fail('OUTLINE_MISMATCH', 'The board outline changed after planning.');
     const created = [];
+    const existingIds = new Set(before.pours.map(item => item.primitiveId));
+    let uncertainWrite = false;
     try {
       for (const layerId of plan.layerIds) {
         const polygon = eda.pcb_MathPolygon.createPolygon(plan.polygonSource);
         if (!polygon) fail('POLYGON_CREATE_FAILED', 'EasyEDA rejected the planned board polygon.');
         const name = `${plan.pourNamePrefix}_L${layerId}`;
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+        uncertainWrite = true;
         const pour = await eda.pcb_PrimitivePour.create(
           plan.net,
           layerId,
@@ -585,8 +600,12 @@ return await (async () => {
         );
         if (!pour) fail('POUR_CREATE_FAILED', `EasyEDA rejected the pour on layer ${layerId}.`);
         const id = primitiveId(pour);
+        if (!id) fail('CREATE_POUR_WITHOUT_ID', 'The created pour has no primitive ID.');
+        if (existingIds.has(id) || created.includes(id)) fail('CREATE_ID_NOT_NEW', 'Create returned an existing primitive ID; ownership is unconfirmed.');
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
         created.push(id);
-        const { region, rebuildError } = await copperForPour(pour);
+        uncertainWrite = false;
+        const { region, rebuildError } = await copperForPour(pour, before.document);
         if (!region) fail('POUR_REBUILD_FAILED', `Layer ${layerId} has no realized copper region${rebuildError ? `: ${rebuildError}` : '.'}`);
         const readback = await eda.pcb_PrimitivePour.get(id);
         const summary = summarizePour(readback);
@@ -595,6 +614,7 @@ return await (async () => {
         }
       }
       const after = await captureState();
+      await assertTarget(before.document.uuid, before.document.parentProjectUuid);
       if (after.invariants.fingerprint !== before.invariants.fingerprint) fail('PROTECTED_GEOMETRY_CHANGED', 'Tracks, arcs, polylines, vias, components, or regions changed during pour creation.');
       const createdPours = after.pours.filter((item) => created.includes(item.primitiveId));
       const createdPoured = after.poured.filter((item) => created.includes(item.pourPrimitiveId));
@@ -625,24 +645,40 @@ return await (async () => {
         rollbackRequest: {
           mode: 'rollback',
           expectedDocumentUuid: after.document.uuid,
+          expectedProjectUuid: before.document.parentProjectUuid,
           expectedCurrentInspectionFingerprint: after.inspectionFingerprint,
+          expectedRestoredFingerprint: before.inspectionFingerprint,
           createdPourIds: created,
         },
       };
     } catch (error) {
-      const rollback = await deleteCreated(created);
+      let rollback = { deleted: false, remainingIds: null };
+      if (!uncertainWrite) {
+        try { rollback = await deleteCreated(created, before.document); }
+        catch (recoveryError) { rollback.error = recoveryError.message; }
+      }
+      let restored = null;
+      try {
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+        const captured = await captureState();
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+        restored = captured;
+      } catch { /* Preserve creation evidence when the original PCB cannot be read. */ }
       return {
-        status: rollback.deleted ? 'rolled-back' : 'rollback-incomplete',
+        status: !uncertainWrite && rollback.remainingIds?.length === 0 && restored?.inspectionFingerprint === before.inspectionFingerprint
+          && !restored.poured.some(item => created.includes(item.pourPrimitiveId)) ? 'rolled-back' : 'rollback-incomplete',
         saved: false,
         error: { code: error.code ?? 'APPLY_FAILED', message: error.message },
         createdPourIds: created,
+        uncertainWrite,
         rollback,
+        restoredInspectionFingerprint: restored?.inspectionFingerprint ?? null,
+        expectedRestoredFingerprint: before.inspectionFingerprint,
       };
     }
   }
 
-  async function verifyPlan(plan, expectedPourIds = []) {
-    const state = await captureState();
+  async function verifyPlan(plan, expectedPourIds = [], state) {
     const issues = [];
     if (state.document.uuid !== plan.expectedDocumentUuid) issues.push({ code: 'DOCUMENT_MISMATCH' });
     if (state.outline.fingerprint !== plan.expectedOutlineFingerprint) issues.push({ code: 'OUTLINE_MISMATCH' });
@@ -675,19 +711,21 @@ return await (async () => {
   }
   if (mode === 'apply') {
     const state = await captureState();
-    return applyPlan(normalizePlan(request.plan, state));
+    return applyPlan(normalizePlan(request.plan, state), state);
   }
   if (mode === 'verify') {
     const state = await captureState();
-    return verifyPlan(normalizePlan(request.plan, { ...state, pours: state.pours.filter((item) => !request.expectedPourIds?.includes(item.primitiveId)) }), request.expectedPourIds ?? []);
+    return verifyPlan(normalizePlan(request.plan, { ...state, pours: state.pours.filter((item) => !request.expectedPourIds?.includes(item.primitiveId)) }), request.expectedPourIds ?? [], state);
   }
   if (mode === 'rollback') {
     const state = await captureState();
     if (state.document.uuid !== request.expectedDocumentUuid) fail('DOCUMENT_MISMATCH', 'Rollback targets another PCB document.');
     if (typeof request.expectedCurrentInspectionFingerprint === 'string' && state.inspectionFingerprint !== request.expectedCurrentInspectionFingerprint) fail('STALE_ROLLBACK', 'The PCB changed after the pour transaction.');
-    const rollback = await deleteCreated(Array.isArray(request.createdPourIds) ? request.createdPourIds : []);
+    const rollback = await deleteCreated(Array.isArray(request.createdPourIds) ? request.createdPourIds : [], { uuid: request.expectedDocumentUuid, parentProjectUuid: request.expectedProjectUuid ?? state.document.parentProjectUuid });
     const after = await captureState();
-    return { status: rollback.deleted ? 'rolled-back' : 'rollback-incomplete', saved: false, rollback, after };
+    await assertTarget(state.document.uuid, state.document.parentProjectUuid);
+    const copperRemaining = after.poured.some(item => request.createdPourIds?.includes(item.pourPrimitiveId));
+    return { status: rollback.remainingIds.length === 0 && !copperRemaining && after.inspectionFingerprint === request.expectedRestoredFingerprint ? 'rolled-back' : 'rollback-incomplete', saved: false, rollback, after };
   }
   fail('INVALID_MODE', `Unsupported mode: ${mode}`);
 })();

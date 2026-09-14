@@ -576,8 +576,19 @@ return await (async () => {
           designator: reference,
         });
       }
+      const value = [component.identity?.value, component.identity?.mpn]
+        .find((candidate) => typeof candidate === 'string' && candidate.trim())?.trim() ?? '';
+      if (!value) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'COMPONENT_VALUE_MISSING',
+          message: `${reference} needs identity.value or identity.mpn before placement.`,
+          designator: reference,
+        });
+      }
       components.push({
         designator: reference,
+        value,
         position: { x: position.x, y: position.y },
         rotation: position.rotation || 0,
         mirror: false,

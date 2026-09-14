@@ -63,7 +63,7 @@ jobs:
 
           archive="dist/flitrealize-${version}.zip"
           checksum="${archive}.sha256"
-          title="FlitRealize T1 ${tag}"
+          title="FlitRealize ${tag}"
           release_json="${RUNNER_TEMP}/release.json"
           existing_dir="${RUNNER_TEMP}/existing-release"
 
@@ -86,10 +86,10 @@ jobs:
           fi
 
           gh release upload "$tag" "$archive" "$checksum" --clobber
-          edit_args=("$tag" --draft=false --latest=false --title "$title" --notes-file "$NOTES_FILE")
+          edit_args=("$tag" --draft=false --title "$title" --notes-file "$NOTES_FILE")
           if [[ "$version" == *-* ]]; then
-            edit_args+=(--prerelease)
+            edit_args+=(--prerelease --latest=false)
           else
-            edit_args+=(--prerelease=false)
+            edit_args+=(--prerelease=false --latest)
           fi
           gh release edit "${edit_args[@]}"

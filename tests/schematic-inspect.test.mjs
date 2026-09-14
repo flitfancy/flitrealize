@@ -4,13 +4,15 @@ import { loadAction } from './helpers/action-harness.mjs';
 
 const inspectAction = await loadAction('schematic-inspect', 'easyeda-pro');
 
-function createMockEda(componentX = 2000) {
+function createMockEda(componentX) {
+  if (arguments.length === 0) componentX = 2000;
   const components = [
     {
       getState_PrimitiveId: () => 'comp-1', getState_Designator: () => 'U1',
       getState_X: () => componentX, getState_Y: () => 3000, getState_Rotation: () => 0, getState_Mirror: () => false,
       getState_AddIntoBom: () => true, getState_AddIntoPcb: () => true, getState_ComponentType: () => 0,
       getState_LibraryUuid: () => 'lib-uuid-1', getState_Uuid: () => 'dev-uuid-1',
+      getState_OtherProperty: () => ({ Value: 'BQ25616' }),
     },
     {
       getState_PrimitiveId: () => 'comp-2', getState_Designator: () => 'R1',
@@ -62,6 +64,7 @@ assert.equal(inspectResult.snapshot.document.nativeId, 'sch-test-uuid');
 assert.equal(inspectResult.snapshot.components.length, 2);
 assert.equal(inspectResult.snapshot.nets.length, 3);
 assert.equal(inspectResult.snapshot.components[0].designator, 'U1');
+assert.equal(inspectResult.snapshot.components[0].value, 'BQ25616');
 assert.deepEqual(inspectResult.snapshot.components[0].position, { x: 2000, y: 3000 });
 assert.deepEqual(inspectResult.snapshot.components[0].pins[0].position, { x: 2100, y: 3000 });
 assert.equal(inspectResult.snapshot.components[0].pins[0].number, '1');
@@ -85,4 +88,15 @@ assert.equal(emptyResult.status, 'inspected-with-gaps');
 assert.equal(emptyResult.state.componentCount, 0);
 assert.equal(emptyResult.state.coverage.components, 'unsupported');
 
+for (const value of [null, undefined, '', '   ']) {
+  const result = await inspectAction(createMockEda(value), { mode: 'inspect' });
+  assert.equal(result.snapshot.components[0].position, undefined, 'Unknown coordinates must not become zero');
+  const eda = createMockEda();
+  eda.sch_PrimitiveComponent.getAllPinsByPrimitiveId = async () => [{
+    getState_PinNumber: () => '1', getState_X: () => value, getState_Y: () => 0,
+  }];
+  const pins = await inspectAction(eda, { mode: 'inspect' });
+  assert.equal(pins.snapshot.components[0].pins[0].position, undefined);
+}
+assert.deepEqual((await inspectAction(createMockEda(0), {})).snapshot.components[0].position, { x: 0, y: 3000 });
 process.stdout.write('schematic-inspect tests passed\n');

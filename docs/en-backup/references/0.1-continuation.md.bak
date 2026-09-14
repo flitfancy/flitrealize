@@ -1,0 +1,213 @@
+# 0.1 Project manuscript and continuation
+
+Read this reference when creating a project, continuing an existing one, or handing current progress to a later task.
+
+`CURRENT_HANDOFF.md` is the project's human-readable manuscript. It preserves the current design view and connects requirements, parts, schematic, PCB, manufacturing, and prototype validation into one continuous line.
+
+## New projects
+
+After confirming the project root specified by the user, create `CURRENT_HANDOFF.md`.
+
+The first version needs only the content already in scope, usually:
+
+- the project objective and boundaries;
+- current requirements;
+- the initial functional architecture and power relationships;
+- known part conditions;
+- current open questions;
+- the next step.
+
+Do not read or inherit design state from sibling projects. Use another project as a reference only when the user asks for it.
+
+## Existing projects
+
+When `CURRENT_HANDOFF.md` exists:
+
+1. Read the current handoff at the top.
+2. Confirm the current project, objective, stage, and primary next step.
+3. Locate the section that owns the current task.
+4. Read the Contract, EDA, manufacturing, or test artifact that owns the relevant facts.
+5. Continue directly when the current request agrees with the existing design.
+
+When `CURRENT_HANDOFF.md` does not exist, reconstruct its first version from the current project root:
+
+1. Confirm the project root.
+2. Find the current requirements, design, part, Contract, EDA, manufacturing, and test artifacts.
+3. Determine which facts each file owns and which version is current.
+4. Organize facts that can be confirmed into the manuscript.
+5. Leave facts that cannot be confirmed open.
+6. Do not fill gaps from filenames, old chats, sibling projects, or memory.
+
+Ordinary continuation does not rescan the whole project. Expand the read scope only when the manuscript is missing, a global architecture change has occurred, or an actual conflict is found.
+
+## Fact ownership
+
+Different artifacts own different facts:
+
+- the user's current request owns the objective, scope, and authorization for this task;
+- `CURRENT_HANDOFF.md` organizes the current project's human-readable design;
+- `SCHEMATIC_CONTRACT.v1.json` owns machine-readable schematic intent;
+- EDA source and live readback show what has been implemented;
+- manufacturing outputs describe the current manufacturing candidate;
+- raw measurements, waveforms, photographs, and logs show physical prototype behavior;
+- `DEBUG_NOTES.md` contains only one local issue still under repeated experiment.
+
+When artifacts disagree, read the current artifact that owns the fact and reconcile them. The manuscript records the conclusion; it does not overwrite current machine artifacts from old prose.
+
+## Manuscript structure
+
+Build these sections as the project reaches them:
+
+```markdown
+# <Project name>
+
+Updated: <time>
+Project root: <path>
+
+## 0. Current handoff
+
+- Current stage:
+- Current objective:
+- Current version or prototype state:
+- Sections relevant to this task:
+- Primary blocker:
+- Smallest useful next step:
+- Current authoritative artifacts:
+
+## 1. Requirements, architecture, and parts
+
+### 1.1 Product objective and boundaries
+
+### 1.2 Functional architecture
+
+### 1.3 Power tree and interfaces
+
+### 1.4 Part decisions
+
+## 2. Schematic design
+
+### 2.1 Circuit blocks
+
+### 2.2 Components, pins, and nets
+
+### 2.3 Key calculations
+
+### 2.4 Test points and prototype checks
+
+### 2.5 EDA implementation state
+
+## 3. PCB design
+
+### 3.1 Board outline and mechanical constraints
+
+### 3.2 Functional partitioning and placement
+
+### 3.3 Net classes, trace widths, and vias
+
+### 3.4 Critical topologies and return paths
+
+### 3.5 Keepouts, thermal, and assembly requirements
+
+### 3.6 Current PCB implementation and review state
+
+## 4. Manufacturing handoff
+
+## 5. Prototype validation and revision
+
+## 6. Productization and formal release
+
+## Current OPEN
+```
+
+Do not fill stages the project has not reached.
+
+## Current handoff
+
+Keep the current handoff at the top short.
+
+It answers only:
+
+- where the project is now;
+- what is being completed next;
+- which artifacts are the entry points for this task;
+- which issue truly prevents progress;
+- what happens next.
+
+Detailed design belongs in the stage sections below and is not repeated at the top.
+
+## Requirements, architecture, and parts
+
+This section contains:
+
+- the product objective and explicit non-goals;
+- operating conditions and acceptance methods;
+- the functional block diagram;
+- the power tree;
+- external interfaces and voltage domains;
+- default and fault states;
+- confirmed parts;
+- part rationale, source status, and allowed substitutes;
+- important parts still awaiting confirmation.
+
+Source paths may be recorded here, but do not copy full datasheet content.
+
+## Schematic design
+
+This section contains:
+
+- the purpose and relationships of each circuit block;
+- the role of every component;
+- pins, nets, default states, and must-connect requirements;
+- unused configurable pins that may be reassigned;
+- key calculations;
+- test points;
+- prototype checks;
+- current EDA implementation state.
+
+After a Contract exists, derive pin and net content from it. When connections change, update the Contract first, then refresh the human-readable view in the manuscript.
+
+## PCB design
+
+This section contains:
+
+- board outline and mechanical conditions;
+- functional partitioning;
+- placement relationships;
+- net classes;
+- trace width, spacing, and via strategy;
+- critical topology and return paths;
+- keepouts, thermal, and assembly requirements;
+- current placement, routing, copper, and DRC state.
+
+The PCB source continues to own complete geometry and implemented connectivity.
+
+## Manufacturing, validation, and revision
+
+The manufacturing section records the current manufacturing candidate, outputs, fabricator configuration, and order status.
+
+The prototype section records test conditions, measured results, faults, and revision conclusions. Keep raw waveforms, photographs, and logs in the project evidence directory and record only their conclusions and entry points in the manuscript.
+
+When prototype results change requirements, parts, schematic, or PCB, update the corresponding earlier section as well. Do not leave new design conclusions only in the test record.
+
+## Updating the manuscript
+
+Update the manuscript when a stable result changes downstream work, for example:
+
+- the current objective or stage changes;
+- architecture, interfaces, or main parts are confirmed;
+- the schematic or PCB changes materially;
+- a new EDA or manufacturing candidate becomes current;
+- a physical measurement confirms or overturns a design judgment;
+- the current OPEN set or next step changes.
+
+One-off commands, temporary output, and process details that do not change a project judgment do not need to be recorded.
+
+Update only the affected sections and the current handoff at the top. Remove conclusions that are no longer current. Do not append a chat-style timeline or rewrite unrelated sections to make the format look complete.
+
+## Relationship to debug notes
+
+Use `DEBUG_NOTES.md` outside the manuscript only when one local issue needs multiple experiments.
+
+When the issue stabilizes, update the manuscript section that owns the fact and the current handoff at the top. Then delete or archive the debug notes.
+
+See [0.2-debug-loop.md](0.2-debug-loop.md) for the focused method.

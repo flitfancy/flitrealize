@@ -1,0 +1,95 @@
+# 0.2 Repeated failures
+
+Read this reference when the same local problem needs multiple rounds of observation, measurement, or modification before it can be understood.
+
+Ordinary implementation, a failure resolved by one inspection, and straightforward source verification do not need this loop.
+
+## Enter focused debugging
+
+Enter CURIOUS_MODE only for the affected issue when:
+
+- actual behavior disagrees with the design expectation;
+- sources, logs, measurements, or EDA readback conflict;
+- one ordinary inspection cannot determine the cause;
+- similar changes have been tried repeatedly but results remain unstable;
+- an experiment is required to distinguish several reasonable explanations.
+
+Debugging stays within the current issue. Unrelated design and confirmed conclusions remain unchanged.
+
+## Establish current facts
+
+Before changing the design again, state:
+
+- what was actually observed;
+- which results are confirmed;
+- what changed most recently;
+- which explanations remain reasonable;
+- which smallest test can distinguish them.
+
+Prefer existing errors, measurements, logs, EDA readback, and actual files. When existing evidence already establishes the cause, fix it directly and return to ordinary work.
+
+## Test one question at a time
+
+Choose the smallest test that can eliminate at least one reasonable explanation.
+
+Before the test, state:
+
+- what will be changed or observed;
+- what each possible result would mean;
+- when to stop or restore the previous state.
+
+After the test, update the judgment from the observed result before choosing the next step.
+
+Do not make another similar change when it produced no new information, and do not change several possible causes at once.
+
+When the issue is local, do not rerun the complete BOM, schematic, PCB, or manufacturing review. Expand the review only when the evidence shows that the affected boundary has grown.
+
+## Preserve an active issue
+
+When the issue must continue across tasks, use one `DEBUG_NOTES.md`:
+
+```markdown
+# Issue and affected boundary
+
+# Observed facts
+
+# Current judgment
+
+# Next test
+
+# Changes to preserve or restore
+```
+
+It contains only information needed for the current experiment and does not own whole-project continuation.
+
+## Stop unproductive attempts
+
+Stop changing the design when:
+
+- the next attempt is not materially different from the previous one;
+- current tools cannot observe the state needed for the decision;
+- another attempt would only add variables;
+- user action, physical measurement, or an external source is required;
+- the problem can now be expressed as a precise later test.
+
+Preserve confirmed facts and state what is missing and the smallest next observation.
+
+## EDA debugging
+
+For an EDA issue, confirm the current document, saved state, and latest write result before using the current Provider workflow.
+
+Keep only one proposal that is still under test. Restore or replace it after it is shown to be ineffective instead of keeping several experimental versions active.
+
+## Return to ordinary work
+
+End focused debugging when:
+
+- the cause is confirmed;
+- the correction has been applied and verified;
+- the question has become an explicit prototype test;
+- user action, physical measurement, or an external source is required;
+- another attempt would not produce a new basis for judgment.
+
+Update the affected design, PCB, or validation section in `CURRENT_HANDOFF.md` and the current handoff at the top.
+
+Delete or archive `DEBUG_NOTES.md` when the issue is closed.

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -29,14 +30,15 @@ def run(
         cwd=cwd,
         env=environment,
         text=True,
+        encoding="utf-8",
         capture_output=True,
         check=False,
     )
 
 
-def main() -> int:
+def main(archive: Path | None = None) -> int:
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
-    archive = ROOT / "dist" / f"flitrealize-{version}.zip"
+    archive = archive or ROOT / "dist" / f"flitrealize-{version}.zip"
     if not archive.is_file():
         fail(f"Release archive is missing: {archive}")
     node = shutil.which("node")
@@ -106,17 +108,9 @@ def main() -> int:
             or sorted(name for names in listed_groups.values() for name in names)
             != sorted(action.get("name") for action in listed_actions)
             or sorted(workflow.get("name") for workflow in listed_workflows)
-            != [
-                "easyeda-schematic-components",
-                "easyeda-schematic-connect",
-                "easyeda-schematic-finalize",
-            ]
+            != sorted(manifest.get("workflows", {}))
             or listed_workflow_groups.get("schematic")
-            != [
-                "easyeda-schematic-components",
-                "easyeda-schematic-connect",
-                "easyeda-schematic-finalize",
-            ]
+            != [name for name, workflow in manifest.get("workflows", {}).items() if workflow.get("domain") == "schematic"]
             or any(
                 not isinstance(action.get("contractVersion"), int)
                 or action.get("contractVersion") < 1
@@ -135,6 +129,83 @@ def main() -> int:
         isolated_state = temporary_root / "isolated-host-state"
         environment = os.environ.copy()
         environment["FLITREALIZE_HOME"] = str(isolated_state)
+        for domain, purpose, expected_action in [
+            ("schematic", "原理图重排", "schematic-reflow"),
+            ("pcb", "配色", "pcb-net-color"),
+            ("pcb", "布局优化", "pcb-placement"),
+            ("pcb", "走线优先级", "pcb-routing-plan"),
+            ("pcb", "自动阻抗求解", None),
+        ]:
+            discovery = run(
+                [node, str(extracted_root / "scripts/action-runner.mjs"), "list",
+                 "--domain", domain, "--query", purpose],
+                cwd=extracted_root, environment=environment,
+            )
+            if discovery.returncode != 0:
+                fail(f"Packaged discovery failed: {discovery.stderr.strip()}")
+            found = json.loads(discovery.stdout)
+            expected_status = "matched" if expected_action else "no-match"
+            if found.get("queryStatus") != expected_status or found.get("readOnly") is not True:
+                fail(f"Packaged discovery returned an incorrect result: {found}")
+            if expected_status == "matched":
+                action = next((a for a in found["actions"] if a["name"] == expected_action), None)
+                expected_entry = ("scripts/schematic-reflow.mjs" if expected_action == "schematic-reflow"
+                                  else "scripts/pcb-edit.mjs" if expected_action in {"pcb-placement", "pcb-trace-width", "pcb-net-color"}
+                                  else "scripts/action-runner.mjs")
+                if not action or action.get("entrypoint", {}).get("file") != expected_entry:
+                    fail(f"Packaged discovery did not expose its real entrypoint: {expected_action}")
+        if isolated_state.exists():
+            fail("Read-only discovery unexpectedly initialized host state")
+
+        handoff_project = temporary_root / "handoff-project"
+        handoff_project.mkdir()
+        handoff_source = handoff_project / "source.json"
+        handoff_source.write_text('{"revision":1}', encoding="utf-8")
+        checkpoint = {
+            "schemaVersion": 1, "updatedAt": "2026-09-11T12:00:00Z",
+            "projectRoot": str(handoff_project), "stage": "schematic", "objective": "核对当前输入",
+            "target": None, "entrypoint": None, "nextAction": "确认实际原理图目标",
+            "openItems": ["尚未连接 EDA"],
+            "artifacts": [{"id": "source", "path": "source.json", "sha256": hashlib.sha256(handoff_source.read_bytes()).hexdigest()}],
+            "checks": [{"id": "save", "status": "unknown", "scope": "保存状态", "checkedAt": None,
+                        "inputs": ["source"], "evidence": [], "limitations": []}],
+        }
+        handoff_file = handoff_project / "CURRENT_HANDOFF.md"
+        handoff_file.write_text("# 续接检查\n\n```flitrealize-handoff\n" + json.dumps(checkpoint, ensure_ascii=False) + "\n```\n", encoding="utf-8")
+        handoff_bytes = handoff_file.read_bytes()
+        checker_args = [node, str(extracted_root / "scripts/handoff-check.mjs"), "inspect", "--project-root", str(handoff_project)]
+        for changed in (False, True):
+            if changed:
+                handoff_source.write_text('{"revision":2}', encoding="utf-8")
+            checked = run(checker_args, cwd=extracted_root, environment=environment)
+            if checked.returncode != (1 if changed else 0):
+                fail(f"Packaged handoff checker returned unexpected exit: {checked.stderr}")
+            payload = json.loads(checked.stdout)
+            if (payload.get("recordStatus") != ("needs-reconciliation" if changed else "consistent")
+                    or payload.get("liveEdaChecked") is not False or payload.get("readOnly") is not True
+                    or payload.get("checks", [{}])[0].get("recordedStatus") != "unknown"):
+                fail(f"Packaged handoff checker returned incorrect state: {payload}")
+        if isolated_state.exists() or handoff_file.read_bytes() != handoff_bytes:
+            fail("Handoff checking changed host or project state")
+
+        batch_help = run([node, str(extracted_root / "scripts/schematic-components.mjs"), "--help"], cwd=extracted_root, environment=environment)
+        if batch_help.returncode != 0 or "--resume" not in batch_help.stdout or isolated_state.exists():
+            fail("Packaged batch help failed or initialized an EDA host")
+        batch_smoke = run([node, str(ROOT / "tests/helpers/component-batch-package-smoke.mjs"), str(extracted_root)], cwd=extracted_root, environment=environment)
+        if batch_smoke.returncode != 0 or isolated_state.exists():
+            fail(f"Packaged isolated batch workflow failed: {batch_smoke.stdout}\n{batch_smoke.stderr}")
+
+        pcb_smoke = run([node, str(ROOT / "tests/helpers/pcb-tools-package-smoke.mjs"), str(extracted_root)], cwd=extracted_root, environment=environment)
+        if pcb_smoke.returncode != 0 or isolated_state.exists():
+            fail(f"Packaged isolated PCB tools failed: {pcb_smoke.stdout}\n{pcb_smoke.stderr}")
+
+        pcb_help = run([node, str(extracted_root / "scripts/pcb-edit.mjs"), "--help"], cwd=extracted_root, environment=environment)
+        if pcb_help.returncode != 0 or "--resume-save" not in pcb_help.stdout or isolated_state.exists():
+            fail("Packaged PCB wrapper help failed or initialized an EDA host")
+        pcb_edit_smoke = run([node, str(ROOT / "tests/helpers/pcb-edit-package-smoke.mjs"), str(extracted_root)], cwd=extracted_root, environment=environment)
+        if pcb_edit_smoke.returncode != 0 or isolated_state.exists():
+            fail(f"Packaged isolated PCB wrapper failed: {pcb_edit_smoke.stdout}\n{pcb_edit_smoke.stderr}")
+
         audit_report = temporary_root / "schematic-contract-audit-report.json"
         audit_fixture = ROOT / "tests/fixtures/schematic-contract/valid-minimal.json"
         host_audit = run(
@@ -187,6 +258,11 @@ def main() -> int:
 
     print(f"[PASS] clean ZIP smoke: {archive.name}")
     print(f"[PASS] runtime entries: {len(expected_entries)} exact files")
+    print("[PASS] packaged purpose discovery and domain isolation without host initialization")
+    print("[PASS] packaged handoff integrity, stale input and unknown save state without mutations")
+    print("[PASS] packaged batch placement and partial-failure resume with isolated EDA mock")
+    print("[PASS] packaged PCB layout, width, color and priority tools with isolated EDA mock")
+    print("[PASS] packaged PCB wrapper and save-only recovery with isolated EDA mock")
     print("[PASS] packaged host schematic contract audit is deterministic and provider-free")
     print("[PASS] isolated missing-adapter failure is clear and evidence-backed")
     return 0

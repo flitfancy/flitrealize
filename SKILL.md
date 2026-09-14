@@ -1,165 +1,63 @@
 ---
 name: flitrealize
-description: Advance stateful electronics hardware projects from ideas, requirements, and part selection through schematic, PCB, manufacturing files, prototype bring-up, and revision. Use for project-level EDA work or cross-task continuation; do not use for software-only work, isolated component facts, textbook questions, or one-step EDA guidance that needs no project state.
+description: 推进有持续状态的电子硬件项目，从想法、需求和器件选择到原理图、PCB、制造文件、样机上电和改版。适用于项目级 EDA 工作或跨对话续接；不用于纯软件工作、孤立器件事实、教材问题或不需要项目状态的一步式 EDA 指导。
 ---
 
 # FlitRealize
 
-## Goal
+中文 `SKILL.md`、`references/` 和 `development/` 是执行源；`docs/en-backup/` 是不随修改同步的英文历史备份。命令、API 和机器字段名保持原样。
 
-Complete the hardware work the user currently requests and keep moving the idea toward a testable physical prototype.
+## 目标与范围
 
-The workflow covers a complete project, but each task advances only the stage the user requested. Every project uses one `CURRENT_HANDOFF.md` as its human-readable project manuscript, updated continuously across requirements, parts, schematic, PCB, manufacturing, and prototype validation.
+完成用户当前要求的硬件工作，把想法持续推进到可测试的实物。理解完整流程，但不提前开展用户尚未要求的阶段。
 
-## Project entry
+- 新项目：确认用户指定的根目录，从当前需求建立 `CURRENT_HANDOFF.md`，不继承其他项目的设计状态。
+- 现有项目：读取同一份主文稿顶部交接和本次相关章节；缺失时从当前项目制品恢复，无法确认的事实保留未决。纯查看任务不顺带建立或改写文件。
+- 已授权的设计和 EDA 修改直接执行；目标不明、实际冲突或缺少会改变方案的重要选择时询问。下单、付款、预留库存等新外部承诺须有该次授权。
 
-- **NEW_PROJECT:** Start an independent project in the root specified by the user and create `CURRENT_HANDOFF.md` from the current requirements. Do not inherit design, part, calculation, or EDA state from another project.
-- **EXISTING_PROJECT:** Continue an identified project. Read `CURRENT_HANDOFF.md` first. If it does not exist, reconstruct the first project manuscript from the current project's design, part, EDA, manufacturing, and test artifacts.
+## 一份全流程主文稿
 
-The user's current request defines the objective, scope, and authorization.
+`CURRENT_HANDOFF.md` 同时是人类项目说明和跨任务入口，不按阶段另建交接文档。正文连贯保存设计意图、需求与限制、器件选择及引脚网络、原理图分块和计算、PCB 布局块与规则、制造、测试和改版。
 
-Make changes within the current task, including authorized EDA writes, directly. Ask only when the write target cannot be identified uniquely or an actual conflict cannot be merged safely.
+文档可以长，顶部交接要短；使用稳定目录、功能块名称和位号定位。普通任务只读取相关章节，整体审阅时再通读。阶段变化时更新同一份正文，不把它缩成只有文件链接的索引。
 
-Placing an order, paying, reserving inventory, or making another new external commitment requires authorization for that action.
+Contract 保存机器设计意图，EDA 源文件和回读保存实际实现，制造输出和原始测量分别保存对应事实。主文稿保留可读表格、判断理由和来源链接；更新拥有事实的制品后刷新对应人类视图，不独立手填第二套引脚或坐标事实。
 
-## Project manuscript
+主文稿结构、稳定结果更新与续接方法见 [0.1 项目主文稿](references/0.1-continuation.md)。
 
-`CURRENT_HANDOFF.md` provides the human-readable view of the current project, including:
+## 工作方式
 
-- the current objective, stage, and next step;
-- requirements, architecture, interfaces, and power relationships;
-- part decisions and source status;
-- schematic blocks, pin/net intent, key calculations, and test points;
-- PCB constraints, layout, routing, and manufacturing state;
-- prototype measurements, revision conclusions, and current open questions.
+1. 确认当前目标和阶段。首次进入、跨阶段或原入口已不适用时，按 [阶段地图](references/0.0-overview.md) 读本阶段说明，并检查 Skill 和当前项目已有工具。
+2. AI 负责电路、器件和工程判断；已有脚本负责重复检索、转换、放置、连接和回读。EDA 能力用 `action-runner.mjs list --domain <schematic|pcb|system> --query <用途短词>` 查找，具体调用见 [Provider 入口](references/0.3-easyeda-pro.md)。
+3. 简短说明选用入口和验证方法；批量处理陌生对象前先验证代表对象。查到能力不等于已经执行；无匹配时再查阶段说明和本项目入口，不跨原理图/PCB 猜替代工具。
+4. 同阶段复用已确认的资料和方法，不为每个对象重新加载整套 Skill。反复失败或进度明显偏慢时重新选择方法；只有需多轮实验的局部问题才使用 [调试流程](references/0.2-debug-loop.md)。
+5. 有意义的稳定变更、阶段切换或交接时，同步主文稿受影响的正文、事实表和顶部状态；无变化不重写，小批次复用执行证据。计划、写入、保存、DRC、功能验证与文档同步分别说明。
 
-For an ordinary task, read the current handoff at the top and the sections relevant to the request, then read the machine artifacts that own the corresponding facts. When the current stage produces stable results, update its section and the current handoff.
+普通工作使用 `DEFAULT_MODE`，直接完成当前任务。只有准确型号、引脚、封装或关键参数缺乏依据、资料冲突，或判断依赖瞬态、温升、降额、机械时序等行为时，对相关局部进入 `CURIOUS_MODE`。明确承担保护、隔离和故障关断的路径，以及用户要求深入核验的部分，也作局部核验。
 
-The manuscript describes the current design. It does not accumulate chat transcripts, complete logs, or obsolete alternatives.
+深入核验读取准确型号的制造商资料，检查当前问题相关的最坏情况、默认和故障状态。可靠制造商/授权分销商资料没有冲突时不重复找来源；问题解决或转成明确样机测试后返回普通工作，不扩展到整项目评审。
 
-The Contract, EDA source, manufacturing outputs, and raw test records continue to own their respective machine facts. The manuscript organizes those facts into one continuous, reviewable project description.
+## 按阶段推进
 
-## Full workflow
+设计链路为：需求与架构 → 器件选择 → 原理图 → PCB → 制造 → 样机验证与改版。只加载当前阶段需要的说明：
 
-```text
-Idea and requirements
-    -> architecture, interfaces, and part intent
-    -> part resolution and confirmation
-    -> schematic design
-    -> EDA schematic
-    -> PCB constraints, layout, and routing
-    -> manufacturing files and ordering
-    -> prototype bring-up and testing
-    -> revision
-```
+| 当前工作 | 说明 |
+| --- | --- |
+| 需求、功能块、电源树和接口 | [1.1 需求与架构](references/1.1-requirements-and-architecture.md) |
+| 库存匹配、器件身份和资料 | [1.2 器件选择](references/1.2-parts.md) |
+| 原理图、关键计算、引脚网络与 Contract | [2.1 原理图设计](references/2.1-schematic-contract.md) |
+| 板框、功能块布局、线宽、布线、回流和检查 | [3.1 PCB 设计](references/3.1-pcb-review.md) |
+| 制造文件、BOM/CPL、板厂预览和原型下单 | [4.1 制造准备](references/4.1-production-handoff.md) |
+| 限流上电、功能/故障测试与改版 | [5.1 样机验证](references/5.1-prototype-validation.md) |
+| 用户要求的重复生产或正式发布 | [6.1 产品化](references/6.1-production-release.md) |
+| 音频项目的专用条件 | [1.3 音频设计](references/1.3-audio-systems.md) |
 
-When the user requests only part of this workflow, complete that part and stop.
+普通缺口不影响当前器件或连接时，可以保留为明确样机测试；影响身份、引脚、额定值或保护行为的关键事实须在对应实现前确认。法规或正式发布结论依赖适用标准和专业证据，本 Skill 本身不是发布证明。
 
-Part selection and schematic intent can be completed independently of a specific EDA platform. EasyEDA, KiCad, or another EDA becomes a Provider when the design enters the actual tool. Missing bindings for one platform do not prevent requirements, part work, and portable schematic design from continuing.
+## 进入 EDA
 
-## Working modes
+需求、器件选择和 Contract 与 EDA 平台分开。需要查看、创建、修改或导出实际 EDA 文件时，使用用户指定的 Provider；现有项目继续使用拥有其权威源文件的平台，迁移另按用户要求处理。
 
-Ordinary work uses `DEFAULT_MODE` and completes the current stage directly with a concise, reliable process.
+当前已实现 [EasyEDA Pro](references/0.3-easyeda-pro.md)。只读取共同入口和当前操作说明；目标身份、写入、回读、保存与恢复边界统一在该入口定义。
 
-Enter **CURIOUS_MODE** only for the affected local decision when:
-
-- the exact model, suffix, pinout, package, or critical parameter lacks reliable support or sources conflict;
-- the decision depends on curves, transients, temperature rise, derating, mechanical timing, or behavior not answered directly by an ordinary parameter table;
-- available sources and ordinary calculations still cannot determine whether a specific core requirement is met;
-- a part explicitly owns protection, isolation, or fault shutdown in the requirements or architecture;
-- the user asks for deeper verification.
-
-In CURIOUS_MODE, read current manufacturer material for the exact part and inspect only the worst cases, pin correspondence, default state, and fault behavior relevant to the question. Reliable manufacturer and authorized-distributor sources may be used directly. Add source comparison only when information is missing or conflicting.
-
-Return to DEFAULT_MODE when the question is resolved or converted into an explicit test. CURIOUS_MODE remains local to the affected issue and does not create extra reports or process for the rest of the project.
-
-## Three main stages
-
-### 1. Design and schematic
-
-Organize product requirements, establish the functional architecture, power tree, and interface relationships, confirm the main parts, then complete the schematic design, key calculations, pin/net intent, and prototype test intent.
-
-Ordinary gaps that do not affect architecture, part selection, or connections may remain as explicit prototype tests. Before writing into EDA, confirm the key sources that affect part identity, pins, ratings, and protection behavior.
-
-### 2. PCB and manufacturing preparation
-
-Use the schematic and product structure to determine the board outline, interface positions, stackup, functional partitioning, net rules, and critical topologies, then complete placement, routing, copper, and DRC.
-
-When preparing manufacturing outputs, keep the saved source aligned with Gerber, drill, BOM, CPL, and the fabricator preview.
-
-### 3. Prototype validation and revision
-
-When hardware arrives, inspect the assembly and unpowered rails, then power it through a conservative current limit. Verify the rails first, enable blocks in stages, and test the loads, power transitions, and fault behavior that matter to the product.
-
-Use measurements to confirm the current design or define the next revision. Update the manuscript section that owns each conclusion.
-
-## Tools
-
-AI owns requirements, architecture, circuit design, key calculations, part judgment, and cross-stage organization.
-
-Scripts own repeatable work such as:
-
-- source retrieval and download;
-- local caching and inventory matching;
-- format conversion and deduplication;
-- Contract checks;
-- EDA placement, connection, readback, and other repetitive operations.
-
-Use an existing script, Action, or Provider when it fits the current stage. Before scaling a batch operation over unfamiliar objects, validate one representative object.
-
-## Entering EDA
-
-Requirements, architecture, part selection, and the schematic Contract remain independent of a specific EDA. Select a Provider only when the task needs to create or modify EDA files:
-
-- use the Provider named by the user;
-- continue with the Provider that owns an existing project's authoritative EDA source unless the user requests migration;
-- finish the portable design first when no EDA has been selected;
-- when the selected EDA has no usable Provider, preserve the completed design artifacts and state which work remains manual.
-
-After selecting a Provider, read only its entry reference and the workflow needed for the current operation.
-
-Currently implemented:
-
-- EasyEDA Pro: [0.3-easyeda-pro.md](references/0.3-easyeda-pro.md)
-
-If a failure has an understood cause, correct it and continue. Read [0.2-debug-loop.md](references/0.2-debug-loop.md) only when the same problem needs multiple rounds of observation or experiment.
-
-## Shared principles
-
-- Current project materials, exact datasheets, and current platform documentation own technical facts.
-- Other projects may provide ideas, but parts, calculations, and connections for this project are confirmed from its current requirements and sources.
-- A part's electrical identity, purchasing identity, source evidence, and EDA binding are recorded separately and do not substitute for one another.
-- When the manuscript and a machine artifact disagree, read the current artifact that owns the fact and reconcile them.
-- Do not expand stages the user has not requested.
-- When the user asks for regulatory, compliance, or formal-release conclusions, check current applicable standards and required professional evidence. This Skill is not itself release evidence.
-
-## Continuation and debugging
-
-For ordinary continuation, use [0.1-continuation.md](references/0.1-continuation.md) to read and update `CURRENT_HANDOFF.md`.
-
-Use `DEBUG_NOTES.md` and read [0.2-debug-loop.md](references/0.2-debug-loop.md) only when one active fault needs multiple experiments. When it stabilizes, update the affected manuscript section and end the debug record.
-
-## Load stage details on demand
-
-Read only the documents needed for the current task. The stage map is in [0.0-overview.md](references/0.0-overview.md).
-
-- Requirements, functional blocks, interfaces, and power architecture:
-  [1.1-requirements-and-architecture.md](references/1.1-requirements-and-architecture.md)
-- Part intent, inventory matching, and source resolution:
-  [1.2-parts.md](references/1.2-parts.md)
-- Schematic design and the machine-readable Contract:
-  [2.1-schematic-contract.md](references/2.1-schematic-contract.md)
-- EasyEDA Pro Provider:
-  [0.3-easyeda-pro.md](references/0.3-easyeda-pro.md)
-- PCB design, placement, routing, and review:
-  [3.1-pcb-review.md](references/3.1-pcb-review.md)
-- Audio design:
-  [1.3-audio-systems.md](references/1.3-audio-systems.md)
-- Manufacturing files and prototype ordering:
-  [4.1-production-handoff.md](references/4.1-production-handoff.md)
-- Prototype bring-up and validation:
-  [5.1-prototype-validation.md](references/5.1-prototype-validation.md)
-- Productization and formal release:
-  [6.1-production-release.md](references/6.1-production-release.md)
-
-Stop loading references once the current task has enough support to continue or finish.
+没有可用 Provider 时仍可完成离线设计，并说明实际 EDA 实现缺口。工具暂不支持某种对象，不等于工程上禁止该设计；采用合适方法并验证真实结果，不把未验证方法登记为稳定能力。

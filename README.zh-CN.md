@@ -4,9 +4,11 @@
 
 FlitRealize 是一个面向完整硬件项目的 Skill，用来把想法持续推进到可测试的实物。
 
+中文是唯一维护和执行语言：修改根目录 [SKILL.md](SKILL.md)、`references/` 和 `development/` 中的中文说明。`docs/en-backup/` 是切换前的固定英文备份，不参与执行、不要求随中文同步；旧 `docs/zh-CN/` 只保留跳转。脚本、命令、API 和机器字段名不翻译。
+
 每个项目使用一个 `CURRENT_HANDOFF.md` 作为人类主文稿，把需求、器件、原理图、PCB、制造和样机结果保存在同一条项目主线上。Contract、EDA 和制造文件继续保存对应的机器事实。
 
-> 当前公开测试版本：**FlitRealize T1 `v1.0.0-test.3`**。它仍是预发布版本，适合实际试用和持续迭代。
+> 当前正式版本：**FlitRealize `v1.0.0`**。相对上一测试版的变化见[发布说明](CHANGELOG.md#100---2026-09-14)。
 
 ## 它能做什么
 
@@ -45,6 +47,8 @@ FlitRealize 理解完整流程，但每次只推进用户当前要求的阶段�
 - 样机结果、改版决定和当前未决事项。
 
 普通续接先读取顶部当前交接和本次相关章节。只有接管缺少主文稿的旧项目、发生全局变化或发现实际冲突时，才重新检查整个项目。
+
+文稿可以较长：顶部摘要短，正文按稳定章节保留设计理由、限制、物理引脚/网络表，以及 PCB 功能块的成员、位置和布局理由。机器文件仍是各自事实的来源，主文稿提供可读视图，不退化成文件链接清单，也不为每个阶段另建一份交接。具体结构见 [0.1](references/0.1-continuation.md)。
 
 ## 它怎样工作
 
@@ -136,15 +140,17 @@ $flitrealize 检查当前原理图，只处理会改变连接、额定值、保�
 
 ```text
 flitrealize/
-├── SKILL.md            # 运行入口和全流程路由
-├── references/         # 按需加载的阶段和 Provider 细节
-├── development/        # Action 与 Provider 开发说明
+├── SKILL.md            # 中文执行入口和全流程路由
+├── references/         # 中文阶段和 Provider 执行说明
+├── development/        # 中文 Action 与 Provider 开发说明
 ├── schemas/            # 可移植机器 Contract
 ├── scripts/            # Action、器件工具、校验和打包
 │   ├── actions/
 │   └── parts/
 ├── tests/
-└── docs/zh-CN/         # 中文审阅镜像
+└── docs/
+    ├── en-backup/      # 固定英文快照（.bak），不参与执行
+    └── zh-CN/          # 旧链接兼容跳转，不维护第二份正文
 ```
 
 开发和修改仓库时运行：
@@ -155,7 +161,7 @@ npm test
 ./scripts/release.ps1 -DryRun
 ```
 
-发布流程生成可复现 ZIP 和 SHA-256 文件。英文运行指令变化后，同步中文镜像并刷新来源哈希。
+发布流程生成可复现 ZIP 和 SHA-256 文件，运行包使用原路径的中文执行说明，不包含英文备份。英文快照按原始 SHA-256 校验；修改中文不需要同步英文，也不要刷新备份哈希。旧 `scripts/update_translation_hashes.py` 已停用。
 
 ## 许可证
 

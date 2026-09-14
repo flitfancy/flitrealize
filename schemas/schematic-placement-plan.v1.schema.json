@@ -87,6 +87,7 @@
       ],
       "properties": {
         "designator": { "$ref": "#/$defs/nonEmptyString" },
+        "value": { "$ref": "#/$defs/nonEmptyString" },
         "position": { "$ref": "#/$defs/position" },
         "rotation": { "type": "number" },
         "mirror": { "type": "boolean" },

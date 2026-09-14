@@ -1,0 +1,161 @@
+# 4.1 Manufacturing files and prototype ordering
+
+Read this reference when the PCB is complete and the project needs export, review, or preparation for a prototype order.
+
+This stage turns the current PCB source into a matching set of files that can be submitted to a board or assembly house.
+
+## Confirm the current candidate
+
+Before export, confirm:
+
+- the saved PCB source;
+- matching schematic, BOM, and board version;
+- board outline, layer count, thickness, copper weight, and major manufacturing requirements;
+- current DRC state;
+- bare-board or PCBA scope;
+- quantity and assembly variant.
+
+Accepted prototype limitations may remain, but schematic, PCB, BOM, and placement files from different versions must not be mixed.
+
+When the source is still changing, save it first and export the complete set from that same version.
+
+## Bare-board files
+
+A bare-board order usually needs:
+
+- Gerber;
+- PTH and NPTH drill files;
+- slots and routed edges;
+- board outline;
+- required fabrication notes.
+
+Check:
+
+- copper, solder mask, silkscreen, and mechanical layers;
+- closed outline and dimensions;
+- holes, slots, and internal routing;
+- top and bottom orientation;
+- current copper pours;
+- mask, paste, and via-covering requirements;
+- width, spacing, drill, and edge clearances;
+- extra outlines, abandoned layers, and stale-version content.
+
+File count does not prove a correct export.
+
+## PCBA files
+
+PCBA also needs:
+
+- a controlled BOM;
+- CPL or placement coordinates;
+- DNP and assembly variants;
+- top/bottom side information;
+- polarity and pin 1;
+- required assembly notes.
+
+For the BOM, check:
+
+- reference designator;
+- value and role;
+- manufacturer and exact MPN, or complete generic specification;
+- package;
+- purchasing code for this build;
+- quantity;
+- DNP state;
+- currently allowed substitute range.
+
+For the CPL, check:
+
+- references agree with the BOM;
+- X/Y coordinates;
+- top and bottom side;
+- rotation;
+- origin;
+- polarity and orientation for asymmetric parts.
+
+Choose the order MPN from already accepted parts or substitute ranges. Do not rebuild electrical equivalence during ordering.
+
+## Manufacturing preview
+
+Use the current board-house or assembler preview to inspect:
+
+- outline, dimensions, and layer count;
+- copper and drilling;
+- slots and shaped geometry;
+- solder mask and silkscreen;
+- top and bottom orientation;
+- missing parts;
+- polarity and pin 1;
+- placement rotation;
+- DFM notices and automatic modifications.
+
+When a difference appears, determine whether it belongs to source design, export configuration, or fabricator interpretation, then correct the owning source.
+
+## Preserve a manufacturing candidate
+
+Source, outputs, and review results for one candidate should remain identifiable as a set.
+
+A project may use:
+
+```text
+manufacturing/
+`-- <candidate-id>/
+    |-- manifest.md
+    |-- pcb/
+    `-- pcba/
+```
+
+`manifest.md` records:
+
+- board name and version;
+- candidate identifier or generation time;
+- EDA source;
+- Gerber, drill, BOM, and CPL;
+- bare-board or PCBA scope;
+- main manufacturing parameters;
+- known limitations;
+- fabricator preview or review result.
+
+Generate a new candidate after a design change. Do not silently overwrite manufacturing files that were already accepted.
+
+## Update the project manuscript
+
+Under section 4.x, record:
+
+- current manufacturing candidate;
+- matching source;
+- Gerber, drill, BOM, and CPL;
+- bare-board or PCBA scope;
+- current fabricator configuration;
+- preview and review result;
+- known limitations;
+- current order state.
+
+The manuscript keeps conclusions and entry points, not copies of the manufacturing package.
+
+## Prototype ordering
+
+Before ordering, confirm:
+
+- the reviewed candidate is selected;
+- fabricator options agree with the candidate;
+- quantity, thickness, copper weight, finish, color, and special processes are correct;
+- PCBA parts, substitutions, DNPs, assembly sides, and quantities are correct;
+- quotations or out-of-stock substitutions have not introduced unreviewed parts;
+- the bring-up and test plan is clear.
+
+Generating and reviewing manufacturing files belongs to this stage. Submitting an order, paying, reserving stock, or deducting inventory requires user authorization for that action.
+
+## Finish this stage
+
+A ready prototype candidate has:
+
+- a manufacturing package matched to the current saved source;
+- reviewed Gerber and drill files;
+- the BOM, CPL, and assembly information needed for PCBA;
+- the current fabricator preview or equivalent review;
+- the actual part identities used for this order;
+- known limitations and prototype checks;
+- an updated manuscript and current handoff.
+
+When hardware arrives, read [5.1-prototype-validation.md](5.1-prototype-validation.md).

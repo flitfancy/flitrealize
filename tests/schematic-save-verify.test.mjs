@@ -41,9 +41,21 @@ const verified = await saveVerifyAction(eda, {
 });
 assert.equal(verified.status, 'verified');
 assert.equal(verified.readOnly, true);
-assert.equal(verified.saved, false);
+assert.equal(verified.saved, null);
+assert.equal(verified.saveChecked, false);
 assert.equal(eda.saveCount, 0, 'verify must not save the document');
 assert.equal(eda.drcCount, 1);
+
+const withoutDrc = await saveVerifyAction(eda, {
+  mode: 'verify', expectedDocumentUuid: 'doc-save', runDrc: false,
+});
+assert.equal(withoutDrc.status, 'verified');
+assert.deepEqual(withoutDrc.issues, []);
+assert.equal(withoutDrc.drc.skipped, true);
+assert.equal(withoutDrc.saved, null);
+assert.equal(withoutDrc.saveChecked, false);
+assert.equal(eda.drcCount, 1, 'skipped DRC is neither run nor reported as failed');
+assert.equal(eda.saveCount, 0);
 
 const applied = await saveVerifyAction(eda, planned.applyRequest);
 assert.equal(applied.status, 'applied');
@@ -57,5 +69,14 @@ const failingPlan = await saveVerifyAction(failingEda, { mode: 'plan' });
 const failingApply = await saveVerifyAction(failingEda, failingPlan.applyRequest);
 assert.equal(failingApply.status, 'apply-failed');
 assert.ok(failingApply.issues.some((issue) => issue.code === 'DRC_FAILED'));
+
+for (const [raw, passed, count] of [[[], true, 0], [[{ type: 'warn', count: 4 }], false, 4], [[{ type: 'warn', rule: 'dangling', primitives: [] }], false, 1], [undefined, null, undefined]]) {
+  const detailed = createMockEda();
+  detailed.sch_Drc.check = async () => raw;
+  const result = await saveVerifyAction(detailed, { mode: 'verify', expectedDocumentUuid: 'doc-save' });
+  assert.equal(result.drc.passed, passed);
+  assert.equal(result.status, passed === true ? 'verified' : 'verify-failed');
+  if (count !== undefined) assert.equal(result.drc.counts.warn, count);
+}
 
 process.stdout.write('schematic-save-verify tests passed\n');

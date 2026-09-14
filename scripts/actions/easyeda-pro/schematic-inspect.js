@@ -16,6 +16,7 @@ return await (async () => {
   }
 
   function finiteOrNull(value) {
+    if (value === null || value === undefined || (typeof value === 'string' && !value.trim())) return null;
     const number = Number(value);
     return Number.isFinite(number) ? number : null;
   }
@@ -92,7 +93,7 @@ return await (async () => {
       name: textOrNull(callGetter(pin, 'getState_PinName')) ?? textOrNull(callGetter(pin, 'getState_Name')) ?? '',
       nativeId,
       net: null,
-      noConnect: Boolean(callGetter(pin, 'getState_NoConnect', false)),
+      noConnect: Boolean(callGetter(pin, 'getState_NoConnected', callGetter(pin, 'getState_NoConnect', false))),
       extensions: {
         easyedaPro: {
           rotation: finiteOrNull(callGetter(pin, 'getState_Rotation')),
@@ -116,12 +117,13 @@ return await (async () => {
     const binding = componentBinding(component);
     const x = finiteOrNull(callGetter(component, 'getState_X'));
     const y = finiteOrNull(callGetter(component, 'getState_Y'));
+    const otherProperty = callGetter(component, 'getState_OtherProperty', {}) || {};
     const summarized = {
       designator,
       nativeId,
       sheetId,
       name: textOrNull(callGetter(component, 'getState_Name')) ?? '',
-      value: textOrNull(callGetter(component, 'getState_Value')) ?? '',
+      value: textOrNull(callGetter(component, 'getState_Value')) ?? textOrNull(otherProperty.Value) ?? '',
       manufacturer: textOrNull(callGetter(component, 'getState_Manufacturer')) ?? '',
       mpn: textOrNull(callGetter(component, 'getState_ManufacturerPart')) ?? '',
       footprint: textOrNull(callGetter(component, 'getState_Footprint')),
@@ -160,11 +162,53 @@ return await (async () => {
     };
   }
 
+  function connectionEvidence(source, componentValues, wires) {
+    const attributes = new Map();
+    let parsed = 0;
+    for (const line of source.split(/\r?\n/).filter(Boolean)) {
+      const split = line.indexOf('||');
+      if (split < 0) fail('SOURCE_FORMAT_UNSUPPORTED', 'Connection audit needs native schematic source records.');
+      let head, payload;
+      try {
+        head = JSON.parse(line.slice(0, split));
+        payload = JSON.parse(line.slice(split + 2).replace(/\|$/, ''));
+      } catch { fail('SOURCE_FORMAT_UNSUPPORTED', 'Cannot parse schematic source for label audit.'); }
+      parsed += 1;
+      if (head.type !== 'ATTR') continue;
+      const entries = attributes.get(payload.parentId) || [];
+      entries.push(payload);
+      attributes.set(payload.parentId, entries);
+    }
+    if (!parsed) fail('SOURCE_UNAVAILABLE', 'Empty source cannot prove label visibility.');
+    const visibility = (id, key) => {
+      const attrs = (attributes.get(id) || []).filter(attr => attr.key === key);
+      return { count: attrs.length, visible: attrs.length ? attrs.some(attr => attr.valueVisible !== false) : null };
+    };
+    const markers = componentValues.filter(component => ['netflag', 'netport'].includes(callGetter(component, 'getState_ComponentType')))
+      .map(component => {
+        const primitiveId = callGetter(component, 'getState_PrimitiveId');
+        const name = visibility(primitiveId, 'Name');
+        return { primitiveId, componentType: callGetter(component, 'getState_ComponentType'),
+          net: callGetter(component, 'getState_Net', ''), x: finiteOrNull(callGetter(component, 'getState_X')),
+          y: finiteOrNull(callGetter(component, 'getState_Y')), rotation: finiteOrNull(callGetter(component, 'getState_Rotation')),
+          mirror: Boolean(callGetter(component, 'getState_Mirror', false)), nameVisible: name.visible, nameAttrCount: name.count };
+      });
+    for (const wire of wires) {
+      const net = visibility(wire.primitiveId, 'NET');
+      wire.netVisible = net.visible;
+      wire.netAttrCount = net.count;
+    }
+    return { markers, sourceEvidence: 'ok', sourceFingerprint: hashText(source.split(/\r?\n/)
+      .filter(line => line && !line.includes('"type":"DOCHEAD"')).join('\n')) };
+  }
+
   async function captureState() {
     const documentProbe = await optionalCall('dmt_SelectControl', 'getCurrentDocumentInfo');
     const nativeDocument = documentProbe.value;
     if (!nativeDocument?.uuid) fail('DOCUMENT_UNAVAILABLE', 'No active EasyEDA Pro document is available.');
     if (nativeDocument.documentType !== 1) fail('WRONG_DOCUMENT_TYPE', 'The active EasyEDA Pro document is not a schematic.');
+    if ((request.expectedDocumentUuid && request.expectedDocumentUuid !== nativeDocument.uuid)
+      || (request.expectedProjectUuid && request.expectedProjectUuid !== nativeDocument.parentProjectUuid)) fail('DOCUMENT_MISMATCH', 'Unexpected schematic/project.');
 
     const documentUuid = String(nativeDocument.uuid);
     const projectUuid = String(nativeDocument.parentProjectUuid ?? 'unknown-project');
@@ -176,6 +220,19 @@ return await (async () => {
 
     const wiresProbe = await optionalCall('sch_PrimitiveWire', 'getAll');
     const wires = Array.isArray(wiresProbe.value) ? wiresProbe.value.map(summarizeWire) : [];
+    let extraEvidence = {}, backupSource;
+    if (request.includeConnectionEvidence || request.includeSource) {
+      if (!Array.isArray(componentsProbe.value) || !Array.isArray(wiresProbe.value)) fail('STATE_READ_FAILED', 'Connection audit needs complete component and wire reads.');
+      if (request.includeConnectionEvidence && componentValues.some(component =>
+        !['netflag', 'netport'].includes(callGetter(component, 'getState_ComponentType'))
+        && (!textOrNull(callGetter(component, 'getState_PrimitiveId')) || !textOrNull(callGetter(component, 'getState_Designator'))))) {
+        fail('COMPONENT_IDENTITY_INCOMPLETE', 'A physical component has no primitive ID or designator; it cannot be omitted from connection audit.');
+      }
+      const probe = await optionalCall('sys_FileManager', 'getDocumentSource');
+      if (typeof probe.value !== 'string' || !probe.value.trim()) fail('SOURCE_UNAVAILABLE', 'Connection audit needs the schematic source.');
+      if (request.includeConnectionEvidence) extraEvidence = connectionEvidence(probe.value, componentValues, wires);
+      if (request.includeSource) backupSource = probe.value;
+    }
     const netsProbe = await optionalCall('sch_Net', 'getAllNetsName');
     const netNames = Array.isArray(netsProbe.value)
       ? [...new Set(netsProbe.value.map(textOrNull).filter(Boolean))].sort()
@@ -234,7 +291,11 @@ return await (async () => {
       projectUuid,
       componentsFingerprint,
       connectivityFingerprint,
+      ...(request.includeConnectionEvidence ? { sourceFingerprint: extraEvidence.sourceFingerprint } : {}),
     }));
+    const finalDocument = await optionalCall('dmt_SelectControl', 'getCurrentDocumentInfo');
+    if (finalDocument.value?.uuid !== nativeDocument.uuid || finalDocument.value?.parentProjectUuid !== nativeDocument.parentProjectUuid
+      || finalDocument.value?.documentType !== 1) fail('DOCUMENT_MISMATCH', 'Schematic changed during inspection.');
 
     const snapshot = {
       kind: 'flitrealize.schematic-snapshot',
@@ -259,10 +320,11 @@ return await (async () => {
         components: componentsFingerprint,
         capabilities: capabilitiesFingerprint,
       },
-      extensions: { easyedaPro: { wires } },
+      extensions: { easyedaPro: { wires, ...extraEvidence } },
     };
 
     return {
+      ...(backupSource === undefined ? {} : { backupSource }),
       snapshot,
       state: {
         document: {
@@ -295,6 +357,7 @@ return await (async () => {
     schemaVersion: 2,
     status: captured.snapshot.coverage.unknown.length || captured.snapshot.coverage.unsupported.length ? 'inspected-with-gaps' : 'inspected',
     readOnly: true,
+    ...(captured.backupSource === undefined ? {} : { backupSource: captured.backupSource }),
     snapshot: captured.snapshot,
     state: captured.state,
   };

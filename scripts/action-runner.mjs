@@ -2,7 +2,7 @@
 /** Run registered host or EDA actions with compact output and local evidence. */
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -53,6 +53,11 @@ function parseArguments(argv) {
     const argument = argv[index];
     if (argument === '--action') values.action = argv[++index];
     else if (argument === '--domain') values.domain = argv[++index];
+    else if (argument === '--query') {
+      const query = argv[++index];
+      if (!query?.trim() || query.startsWith('--')) fail('INVALID_DISCOVERY_QUERY', '--query requires a nonempty purpose keyword');
+      values.query = query.trim();
+    }
     else if (argument === '--input-file') values.inputFile = argv[++index];
     else if (argument === '--eda') values.eda = argv[++index];
     else if (argument === '--project-root') values.projectRoot = argv[++index];
@@ -63,7 +68,35 @@ function parseArguments(argv) {
     else if (argument === '--no-require-eda') values.requireEda = false;
     else fail('UNKNOWN_ARGUMENT', 'Unknown argument: ' + argument);
   }
+  if (values.query && values.command !== 'list') fail('QUERY_LIST_ONLY', '--query is only supported by the read-only list command');
   return values;
+}
+
+export function validateDiscoveryMetadata(discovery, skillRoot = dirname(SCRIPT_ROOT), label = 'discovery') {
+  if (discovery === undefined) return;
+  if (!discovery || typeof discovery !== 'object' || Array.isArray(discovery)
+      || Object.keys(discovery).some(key => !['keywords', 'reference', 'entrypoint', 'limitations'].includes(key))) {
+    fail('INVALID_DISCOVERY_METADATA', label + ' has invalid discovery fields');
+  }
+  for (const field of ['keywords', 'limitations']) {
+    if (discovery[field] !== undefined && (!Array.isArray(discovery[field])
+        || discovery[field].some(value => typeof value !== 'string' || !value.trim()))) {
+      fail('INVALID_DISCOVERY_METADATA', label + '.' + field + ' must contain nonempty strings');
+    }
+  }
+  const root = realpathSync.native(skillRoot);
+  for (const field of ['reference', 'entrypoint']) {
+    const value = discovery[field];
+    if (value === undefined) continue;
+    const allowed = field === 'reference' ? /^references\/.*\.md$/ : /^scripts\/.*\.(?:mjs|py|ps1)$/;
+    if (typeof value !== 'string' || !allowed.test(value) || /[\\:]/.test(value) || value.split('/').includes('..')) {
+      fail('INVALID_DISCOVERY_METADATA', label + '.' + field + ' must be a portable runtime path');
+    }
+    const target = resolve(root, value);
+    if (!existsSync(target) || !statSync(target).isFile()) fail('INVALID_DISCOVERY_METADATA', label + '.' + field + ' is unavailable: ' + value);
+    const realized = relative(root, realpathSync.native(target));
+    if (realized.startsWith('..') || isAbsolute(realized)) fail('INVALID_DISCOVERY_METADATA', label + '.' + field + ' escapes the skill');
+  }
 }
 
 export async function loadManifest(path = MANIFEST_FILE) {
@@ -72,8 +105,11 @@ export async function loadManifest(path = MANIFEST_FILE) {
     manifest.schemaVersion !== 2
     || !manifest.providers
     || typeof manifest.providers !== 'object'
+    || Array.isArray(manifest.providers)
     || !manifest.actions
     || typeof manifest.actions !== 'object'
+    || Array.isArray(manifest.actions)
+    || Object.keys(manifest.actions).length === 0
   ) {
     fail('INVALID_ACTION_MANIFEST', 'Unsupported or incomplete action manifest: ' + path);
   }
@@ -94,6 +130,8 @@ export async function loadManifest(path = MANIFEST_FILE) {
       || typeof action !== 'object'
       || typeof action.description !== 'string'
       || !action.description.trim()
+      || typeof action.file !== 'string'
+      || !action.file.trim()
       || !Number.isInteger(action.contractVersion)
       || action.contractVersion < 1
       || typeof action.domain !== 'string'
@@ -102,6 +140,7 @@ export async function loadManifest(path = MANIFEST_FILE) {
       || !Array.isArray(action.providers)
       || !action.modes
       || typeof action.modes !== 'object'
+      || Array.isArray(action.modes)
       || !action.modes[action.defaultMode]
     ) {
       fail('INVALID_ACTION_MANIFEST', 'Invalid Action contract in ' + path + ': ' + actionName);
@@ -109,6 +148,7 @@ export async function loadManifest(path = MANIFEST_FILE) {
     if (action.internal !== undefined && typeof action.internal !== 'boolean') {
       fail('INVALID_ACTION_MANIFEST', actionName + ' internal must be boolean when present');
     }
+    validateDiscoveryMetadata(action.discovery, undefined, actionName);
     if (new Set(action.providers).size !== action.providers.length) {
       fail('INVALID_ACTION_MANIFEST', actionName + ' declares duplicate Providers');
     }
@@ -127,7 +167,7 @@ export async function loadManifest(path = MANIFEST_FILE) {
       }
     }
   }
-  if (manifest.workflows !== undefined && (!manifest.workflows || typeof manifest.workflows !== 'object')) {
+  if (manifest.workflows !== undefined && (!manifest.workflows || typeof manifest.workflows !== 'object' || Array.isArray(manifest.workflows))) {
     fail('INVALID_ACTION_MANIFEST', 'workflows must be an object when present in ' + path);
   }
   for (const [workflowName, workflow] of Object.entries(manifest.workflows ?? {})) {
@@ -143,10 +183,12 @@ export async function loadManifest(path = MANIFEST_FILE) {
       || !manifest.providers[workflow.provider]
       || !workflow.phases
       || typeof workflow.phases !== 'object'
+      || Array.isArray(workflow.phases)
       || Object.keys(workflow.phases).length === 0
     ) {
       fail('INVALID_ACTION_MANIFEST', 'Invalid Workflow contract in ' + path + ': ' + workflowName);
     }
+    validateDiscoveryMetadata(workflow.discovery, undefined, workflowName);
     for (const [phaseName, steps] of Object.entries(workflow.phases)) {
       if (!phaseName || !Array.isArray(steps) || steps.length === 0) {
         fail('INVALID_ACTION_MANIFEST', workflowName + '/' + phaseName + ' has an invalid step list');
@@ -279,6 +321,14 @@ function addCounts(target, source) {
 
 export function summarizeExecution(response, descriptor, reportFile = null, skillVersion = null) {
   const payload = resultPayload(response) || {};
+  // Transport success is not Action completion. Partial inspections are useful
+  // results, but blocked writes and recovery after a failed apply are not success.
+  const completedStatuses = new Set([
+    'inspected', 'inspected-with-gaps', 'searched', 'searched-with-gaps',
+    'resolved', 'generated', 'planned', 'planned-noop', 'applied', 'verified',
+    'passed', 'conditional',
+  ]);
+  if (descriptor.mode === 'rollback') completedStatuses.add('rolled-back');
   const state = payload.state || {};
   const fingerprints = {};
   const fingerprintKeys = [
@@ -307,7 +357,7 @@ export function summarizeExecution(response, descriptor, reportFile = null, skil
   return {
     schemaVersion: 2,
     skillVersion,
-    ok: response?.success !== false && payload.status !== 'error',
+    ok: response?.success !== false && payload.success !== false && completedStatuses.has(payload.status),
     action: descriptor.actionName,
     actionContractVersion: descriptor.contractVersion,
     domain: descriptor.domain,
@@ -315,7 +365,7 @@ export function summarizeExecution(response, descriptor, reportFile = null, skil
     provider: descriptor.provider,
     mode: descriptor.mode,
     mutates: descriptor.mutates,
-    status: payload.status ?? response?.status ?? 'completed',
+    status: payload.status ?? response?.status ?? 'unknown',
     readOnly: payload.readOnly ?? !descriptor.mutates,
     saved: payload.saved ?? null,
     documentUuid: document?.uuid ?? payload.plan?.expectedDocumentUuid ?? null,
@@ -331,15 +381,18 @@ export function summarizeExecution(response, descriptor, reportFile = null, skil
     rollbackAvailable: Boolean(payload.rollbackRequest),
     bridge: {
       hostId: response?.hostId ?? null,
-      sessionId: response?.sessionId ?? null,
-      windowId: response?.windowId ?? null,
+      sessionId: response?.sessionId ?? response?.request?.sessionId ?? null,
+      windowId: response?.windowId ?? response?.request?.windowId ?? null,
     },
+    ...(response?.request ? { request: response.request } : {}),
+    ...(response?.submissionReceipt ? { submissionReceipt: response.submissionReceipt } : {}),
     reportFile,
   };
 }
 
 function parseControlResult(completed) {
-  const stream = completed.status === 0 ? completed.stdout.trim() : completed.stderr.trim();
+  const stream = (completed.status === 0 ? completed.stdout : completed.stderr)?.trim()
+    || (completed.status === 0 ? completed.stderr : completed.stdout)?.trim() || '';
   const lastLine = stream.split(/\r?\n/).filter(Boolean).at(-1);
   if (!lastLine) fail('EMPTY_ADAPTER_RESULT', 'EDA host returned no structured result.');
   try {
@@ -359,8 +412,27 @@ async function saveReport(path, record) {
   await writeFile(path, JSON.stringify(record, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
 }
 
-function publicManifest(manifest, skillVersion, requestedDomain = null) {
-  const publicActionEntries = Object.entries(manifest.actions).filter(([, action]) => action.internal !== true);
+function purposeMatches(name, record, query) {
+  const normalize = value => value.normalize('NFKC').toLowerCase();
+  // Match purpose terms only. Limitations must not make an unsupported purpose discoverable.
+  const text = normalize([name, record.description, record.domain, ...(record.discovery?.keywords ?? [])].join(' '));
+  return normalize(query).split(/\s+/).every(term => text.includes(term));
+}
+
+function discoveryDetails(name, record, workflow = false) {
+  const details = record.discovery ?? {};
+  return {
+    ...(details.reference ? { reference: details.reference } : {}),
+    entrypoint: details.entrypoint
+      ? { kind: 'script', file: details.entrypoint }
+      : workflow ? { kind: 'workflow-steps' }
+        : { kind: 'action-runner', file: 'scripts/action-runner.mjs', args: ['run', '--action', name] },
+    limitations: details.limitations ?? [],
+  };
+}
+
+function publicManifest(manifest, skillVersion, requestedDomain = null, full = false, query = null) {
+  const publicActionEntries = Object.entries(manifest.actions).filter(([, action]) => full || query || action.internal !== true);
   const workflowEntries = Object.entries(manifest.workflows ?? {});
   const domains = [...new Set([
     ...publicActionEntries.map(([, action]) => action.domain),
@@ -369,8 +441,13 @@ function publicManifest(manifest, skillVersion, requestedDomain = null) {
   if (requestedDomain && !domains.includes(requestedDomain)) {
     fail('UNKNOWN_ACTION_DOMAIN', `Unknown action domain: ${requestedDomain}. Available domains: ${domains.join(', ')}`);
   }
+  const selectedWorkflows = workflowEntries.filter(([name, workflow]) =>
+    (!requestedDomain || workflow.domain === requestedDomain) && (!query || purposeMatches(name, workflow, query)));
+  const workflowSteps = new Set(query ? selectedWorkflows.flatMap(([, workflow]) =>
+    Object.values(workflow.phases).flat().map(step => step.action)) : []);
   const actions = publicActionEntries
-    .filter(([, action]) => !requestedDomain || action.domain === requestedDomain)
+    .filter(([name, action]) => (!requestedDomain || action.domain === requestedDomain)
+      && (!query || purposeMatches(name, action, query) || workflowSteps.has(name)))
     .map(([name, action]) => ({
       name,
       description: action.description,
@@ -379,19 +456,21 @@ function publicManifest(manifest, skillVersion, requestedDomain = null) {
       runtime: action.runtime,
       providers: action.providers,
       defaultMode: action.defaultMode,
+      ...(full || query ? { internal: action.internal === true, file: action.file, requires: action.requires ?? {}, ...discoveryDetails(name, action) } : {}),
+      ...(query ? { match: purposeMatches(name, action, query) ? 'direct' : 'workflow-step' } : {}),
       modes: Object.entries(action.modes).map(([mode, contract]) => ({
         mode,
         mutates: Boolean(contract.mutates),
       })),
     }));
-  const workflows = workflowEntries
-    .filter(([, workflow]) => !requestedDomain || workflow.domain === requestedDomain)
+  const workflows = selectedWorkflows
     .map(([name, workflow]) => ({
       name,
       description: workflow.description,
       domain: workflow.domain,
       provider: workflow.provider,
-      phases: Object.keys(workflow.phases),
+      phases: full || query ? workflow.phases : Object.keys(workflow.phases),
+      ...(full || query ? discoveryDetails(name, workflow, true) : {}),
     }));
   const actionGroups = Object.fromEntries(domains
     .filter((domain) => !requestedDomain || domain === requestedDomain)
@@ -403,6 +482,14 @@ function publicManifest(manifest, skillVersion, requestedDomain = null) {
     schemaVersion: manifest.schemaVersion,
     skillVersion,
     domainFilter: requestedDomain,
+    ...(query ? {
+      readOnly: true,
+      queryFilter: query,
+      queryStatus: actions.length || workflows.length ? 'matched' : 'no-match',
+      ...(!actions.length && !workflows.length ? {
+        guidance: '当前注册表无匹配能力；先核对用途关键词，再沿阶段说明和项目交接检查已有脚本。没有登记不等于没有项目脚本，不自动跨原理图/PCB 选用能力。',
+      } : {}),
+    } : {}),
     domains,
     providers: Object.entries(manifest.providers).map(([id, provider]) => ({ id, ...provider })),
     actionGroups,
@@ -430,6 +517,7 @@ export async function executeHostAction(descriptor, input, context = {}) {
 
 async function executeEdaAction(arguments_, descriptor, inputFile) {
   if (!arguments_.action) fail('ACTION_REQUIRED', '--action is required');
+  const requestId = randomUUID();
   const childArguments = [
     HOST_FILE,
     'execute',
@@ -437,6 +525,8 @@ async function executeEdaAction(arguments_, descriptor, inputFile) {
     descriptor.provider,
     '--code-file',
     descriptor.actionFile,
+    '--request-id',
+    requestId,
   ];
   if (inputFile) childArguments.push('--input-file', inputFile);
   if (arguments_.requireEda) childArguments.push('--require-eda');
@@ -451,8 +541,23 @@ async function executeEdaAction(arguments_, descriptor, inputFile) {
     timeout: actionTimeout + 20_000,
     maxBuffer: 32 * 1024 * 1024,
   });
-  if (completed.error) throw completed.error;
-  return { response: parseControlResult(completed), status: completed.status };
+  let response;
+  try {
+    response = parseControlResult(completed);
+    if (completed.error) throw completed.error;
+    return { response, status: completed.status };
+  } catch (error) {
+    const failure = completed.error || error;
+    failure.request = response?.request || { requestId, status: 'unknown' };
+    failure.submissionReceipt = response?.submissionReceipt;
+    failure.transport = {
+      exitCode: completed.status,
+      signal: completed.signal ?? null,
+      stdout: completed.stdout ?? '',
+      stderr: completed.stderr ?? '',
+    };
+    throw failure;
+  }
 }
 
 async function runAction(arguments_, manifest, skillVersion) {
@@ -467,10 +572,10 @@ async function runAction(arguments_, manifest, skillVersion) {
     arguments_.eda,
   );
   let execution;
-  if (descriptor.runtime === 'eda') {
-    execution = await executeEdaAction(arguments_, descriptor, inputFile);
-  } else {
-    try {
+  try {
+    if (descriptor.runtime === 'eda') {
+      execution = await executeEdaAction(arguments_, descriptor, inputFile);
+    } else {
       execution = {
         response: await executeHostAction(descriptor, input, {
           projectRoot: arguments_.projectRoot ? resolve(arguments_.projectRoot) : null,
@@ -478,16 +583,20 @@ async function runAction(arguments_, manifest, skillVersion) {
         }),
         status: 0,
       };
-    } catch (error) {
-      execution = {
-        response: {
-          success: false,
-          status: 'error',
-          error: { code: error.code || 'HOST_ACTION_ERROR', message: error.message },
-        },
-        status: 1,
-      };
     }
+  } catch (error) {
+    execution = {
+      response: {
+        success: false,
+        status: descriptor.runtime === 'eda' ? 'unknown' : 'error',
+        error: { code: error.code || (descriptor.runtime === 'eda' ? 'EDA_TRANSPORT_ERROR' : 'HOST_ACTION_ERROR'), message: error.message },
+        ...(descriptor.runtime === 'eda' ? { executionOutcome: 'unknown' } : {}),
+        ...(error.transport ? { transport: error.transport } : {}),
+        ...(error.request ? { request: error.request } : {}),
+        ...(error.submissionReceipt ? { submissionReceipt: error.submissionReceipt } : {}),
+      },
+      status: 1,
+    };
   }
   const { response } = execution;
   const reportFile = resolve(arguments_.reportFile || defaultReportFile(descriptor.actionName, descriptor.mode));
@@ -502,6 +611,7 @@ async function runAction(arguments_, manifest, skillVersion) {
     provider: descriptor.provider,
     mode: descriptor.mode,
     mutates: descriptor.mutates,
+    projectRoot: arguments_.projectRoot ? resolve(arguments_.projectRoot) : null,
     response,
   });
   if (execution.status !== 0) {
@@ -509,10 +619,14 @@ async function runAction(arguments_, manifest, skillVersion) {
     const failure = new Error(error.message || 'Action execution failed');
     failure.code = error.code || 'ACTION_EXECUTION_FAILED';
     failure.reportFile = reportFile;
+    failure.request = response.request;
+    failure.executionOutcome = response.executionOutcome;
+    failure.submissionReceipt = response.submissionReceipt;
     throw failure;
   }
   const summary = summarizeExecution(response, descriptor, reportFile, skillVersion);
   process.stdout.write(JSON.stringify(arguments_.full ? response : summary) + '\n');
+  if (!summary.ok) process.exitCode = 1;
 }
 
 export async function main(argv = process.argv.slice(2)) {
@@ -520,7 +634,7 @@ export async function main(argv = process.argv.slice(2)) {
   const manifest = await loadManifest();
   const skillVersion = (await readFile(VERSION_FILE, 'utf8')).trim();
   if (arguments_.command === 'list') {
-    process.stdout.write(JSON.stringify(publicManifest(manifest, skillVersion, arguments_.domain)) + '\n');
+    process.stdout.write(JSON.stringify(publicManifest(manifest, skillVersion, arguments_.domain, arguments_.full, arguments_.query)) + '\n');
     return;
   }
   if (arguments_.command === 'run') {
@@ -549,6 +663,9 @@ if (isDirectExecution()) {
       status: 'error',
       error: { code: error.code || 'ACTION_RUNNER_ERROR', message: error.message },
       ...(error.reportFile ? { reportFile: error.reportFile } : {}),
+      ...(error.request ? { request: error.request } : {}),
+      ...(error.executionOutcome ? { executionOutcome: error.executionOutcome } : {}),
+      ...(error.submissionReceipt ? { submissionReceipt: error.submissionReceipt } : {}),
     }) + '\n');
     process.exitCode = 1;
   });

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import { loadAction } from './helpers/action-harness.mjs';
+import { checkCreateRecovery } from './helpers/create-action-recovery.mjs';
 
 const execute = await loadAction('pcb-functional-keepouts', 'easyeda-pro');
 
@@ -85,5 +86,11 @@ assert.deepEqual(verified.issues, []);
 const rolledBack = await execute(eda, applied.rollbackRequest);
 assert.equal(rolledBack.status, 'rolled-back');
 assert.equal(rolledBack.after.regions.length, 0);
+
+await checkCreateRecovery({
+  action: execute, createEda: createMock, namespace: 'pcb_PrimitiveRegion',
+  seed: mock => mock.pcb_PrimitiveRegion.create(12, mock.pcb_MathPolygon.createPolygon(['CIRCLE', 0, 0, 10]), [7], 'existing', 10, false),
+  applyRequest: async mock => ({ mode: 'apply', plan: { ...plan, expectedInspectionFingerprint: (await execute(mock, { mode: 'inspect' })).state.inspectionFingerprint } }),
+});
 
 process.stdout.write('pcb-functional-keepouts tests passed\n');

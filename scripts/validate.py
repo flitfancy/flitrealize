@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import unquote
@@ -100,12 +101,104 @@ def parse_frontmatter(path: Path) -> dict[str, str]:
     return values
 
 
-def translation_pairs() -> list[tuple[Path, Path]]:
-    pairs = [(ROOT / "SKILL.md", ROOT / "docs/zh-CN/SKILL.zh-CN.md")]
-    for source in sorted((ROOT / "references").rglob("*.md")):
-        relative = source.relative_to(ROOT / "references")
-        pairs.append((source, ROOT / "docs/zh-CN/references" / relative))
-    return pairs
+def runtime_document_files(root: Path = ROOT) -> list[Path]:
+    return [
+        root / "SKILL.md",
+        *sorted((root / "references").rglob("*.md")),
+        *sorted((root / "development").rglob("*.md")),
+    ]
+
+
+def runtime_document_failures(root: Path = ROOT) -> list[str]:
+    """Reject obsolete mirror authority and links back into non-runtime copies."""
+    failures: list[str] = []
+    inactive_roots = [(root / "docs/zh-CN").resolve(), (root / "docs/en-backup").resolve()]
+    for path in runtime_document_files(root):
+        if not path.is_file():
+            failures.append(f"missing {path.relative_to(root)}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "英文源文件 SHA-256" in text or "中文只读镜像" in text:
+            failures.append(f"obsolete mirror declaration: {path.relative_to(root)}")
+        for target in re.findall(r"\]\(([^)]+)\)", text):
+            target = target.strip().split(maxsplit=1)[0].strip("<>")
+            if target.startswith(("#", "http://", "https://", "mailto:")):
+                continue
+            resolved = (path.parent / unquote(target.split("#", 1)[0])).resolve()
+            if any(resolved.is_relative_to(inactive) for inactive in inactive_roots):
+                failures.append(f"runtime link enters inactive copy: {path.relative_to(root)} -> {target}")
+    return failures
+
+
+def english_backup_failures(root: Path = ROOT) -> list[str]:
+    """Validate a fixed historical snapshot, not translation parity with live Chinese."""
+    backup_root = (root / "docs/en-backup").resolve()
+    failures: list[str] = []
+    try:
+        manifest = json.loads((backup_root / "manifest.json").read_text(encoding="utf-8"))
+        if not isinstance(manifest, dict) or (
+            manifest.get("schemaVersion") != 1
+            or manifest.get("runtimeLanguage") != "zh-CN"
+            or manifest.get("snapshotLanguage") != "en"
+            or manifest.get("mode") != "historical-reference-only"
+            or not isinstance(manifest.get("files"), list)
+            or not manifest["files"]
+        ):
+            return ["invalid English snapshot manifest"]
+        listed: set[str] = set()
+        sources: set[str] = set()
+        for entry in manifest["files"]:
+            if not isinstance(entry, dict):
+                failures.append("invalid snapshot entry")
+                continue
+            source, name, expected = entry.get("source"), entry.get("backup"), entry.get("sha256")
+            if (
+                not isinstance(source, str) or not source
+                or not isinstance(name, str) or not name.endswith(".bak")
+                or not isinstance(expected, str) or not re.fullmatch(r"[0-9A-F]{64}", expected)
+            ):
+                failures.append("invalid snapshot path or digest")
+                continue
+            if any("\\" in value or ":" in value or Path(value).is_absolute() or ".." in Path(value).parts for value in (source, name)):
+                failures.append(f"unsafe snapshot path: {name}")
+                continue
+            path = (backup_root / name).resolve()
+            if not path.is_relative_to(backup_root) or name in listed or source in sources:
+                failures.append(f"unsafe or duplicate snapshot entry: {name}")
+                continue
+            listed.add(name)
+            sources.add(source)
+            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest().upper() != expected:
+                failures.append(f"missing or changed English backup: {name}")
+        actual = {path.relative_to(backup_root).as_posix() for path in backup_root.rglob("*.bak") if path.is_file()}
+        if actual != listed:
+            failures.append("English backup inventory differs from manifest")
+    except (OSError, ValueError) as error:
+        failures.append(f"English backup unreadable: {error}")
+    return failures
+
+
+def action_registry_failures(root: Path = ROOT) -> list[str]:
+    """Reuse runner contract validation; independently check the packaged Action inventory."""
+    failures: list[str] = []
+    try:
+        registry_check = subprocess.run(
+            ["node", str(root / "scripts/action-runner.mjs"), "list", "--full"],
+            cwd=root, capture_output=True, text=True, encoding="utf-8", check=False,
+        )
+        if registry_check.returncode:
+            raise ValueError(registry_check.stderr.strip() or "Action registry validation failed")
+        registry = json.loads(registry_check.stdout)
+        registered = {action["file"] for action in registry["actions"]}
+        action_root = root / "scripts/actions"
+        actual = {path.relative_to(action_root).as_posix() for path in action_root.rglob("*.js")}
+        if actual - registered:
+            failures.append("unregistered: " + ", ".join(sorted(actual - registered)))
+        if registered - actual:
+            failures.append("missing files: " + ", ".join(sorted(registered - actual)))
+    except (OSError, ValueError) as error:
+        failures.append(str(error))
+    return failures
 
 
 def main() -> int:
@@ -139,15 +232,15 @@ def main() -> int:
     description = frontmatter.get("description", "")
     checks.check(
         "skill description",
-        "electronics hardware" in description and "software-only" in description,
-        "hardware scope and software boundary are explicit",
+        0 < len(description) <= 1024,
+        "nonempty description within 1024 characters; scope is reviewed separately",
     )
 
     openai_path = ROOT / "agents/openai.yaml"
     openai_yaml = openai_path.read_text(encoding="utf-8") if openai_path.is_file() else ""
     checks.check(
         "OpenAI metadata",
-        'display_name: "FlitRealize T1"' in openai_yaml and "$flitrealize" in openai_yaml,
+        'display_name: "FlitRealize"' in openai_yaml and "$flitrealize" in openai_yaml,
         "display name and invocation match",
     )
 
@@ -188,21 +281,17 @@ def main() -> int:
         "none bundled" if not private_files else ", ".join(private_files),
     )
 
-    hash_failures: list[str] = []
-    hash_pattern = re.compile(r"英文源文件 SHA-256：`([0-9A-F]{64})`")
-    pairs = translation_pairs()
-    for source, translation in pairs:
-        if not translation.is_file():
-            hash_failures.append(f"missing {translation.relative_to(ROOT)}")
-            continue
-        marker = hash_pattern.search(translation.read_text(encoding="utf-8"))
-        actual = hashlib.sha256(source.read_bytes()).hexdigest().upper()
-        if not marker or marker.group(1) != actual:
-            hash_failures.append(str(translation.relative_to(ROOT)))
+    runtime_failures = runtime_document_failures()
     checks.check(
-        "Chinese source hashes",
-        not hash_failures,
-        f"{len(pairs)}/{len(pairs)} match" if not hash_failures else "stale: " + ", ".join(hash_failures),
+        "runtime document authority",
+        not runtime_failures,
+        "canonical documents do not route into mirrors or backups" if not runtime_failures else "; ".join(runtime_failures),
+    )
+    backup_failures = english_backup_failures()
+    checks.check(
+        "English historical backup",
+        not backup_failures,
+        "snapshot hashes match; Chinese edits do not require English synchronization" if not backup_failures else "; ".join(backup_failures),
     )
 
     reachable_references = reachable_reference_files(ROOT / "SKILL.md")
@@ -244,112 +333,11 @@ def main() -> int:
         "Node >=22 with one test entrypoint" if not package_failures else "; ".join(package_failures),
     )
 
-    action_registry_failures: list[str] = []
-    try:
-        manifest = json.loads((ROOT / "scripts/actions/manifest.json").read_text(encoding="utf-8"))
-        providers = manifest.get("providers", {})
-        actions = manifest.get("actions", {})
-        workflows = manifest.get("workflows", {})
-        if (
-            manifest.get("schemaVersion") != 2
-            or not isinstance(providers, dict)
-            or not isinstance(actions, dict)
-            or not actions
-            or not isinstance(workflows, dict)
-        ):
-            action_registry_failures.append("manifest schema/providers/actions/workflows")
-            providers = {}
-            actions = {}
-            workflows = {}
-        for provider_name, provider in providers.items():
-            if (
-                not isinstance(provider_name, str)
-                or not provider_name
-                or not isinstance(provider, dict)
-                or provider.get("kind") != "eda"
-                or not isinstance(provider.get("displayName"), str)
-            ):
-                action_registry_failures.append(f"{provider_name}: invalid provider")
-        registered_files: set[str] = set()
-        for action_name, action in actions.items():
-            if not isinstance(action, dict):
-                action_registry_failures.append(f"{action_name}: invalid record")
-                continue
-            file_name = action.get("file")
-            modes = action.get("modes")
-            default_mode = action.get("defaultMode")
-            runtime = action.get("runtime")
-            action_providers = action.get("providers")
-            if not isinstance(file_name, str):
-                action_registry_failures.append(f"{action_name}: missing file")
-            else:
-                registered_files.add(file_name)
-            if not isinstance(action.get("description"), str) or not action["description"].strip():
-                action_registry_failures.append(f"{action_name}: missing description")
-            if not isinstance(action.get("contractVersion"), int) or action["contractVersion"] < 1:
-                action_registry_failures.append(f"{action_name}: invalid contractVersion")
-            if not isinstance(action.get("domain"), str) or not action["domain"].strip():
-                action_registry_failures.append(f"{action_name}: invalid domain")
-            if "internal" in action and not isinstance(action["internal"], bool):
-                action_registry_failures.append(f"{action_name}: internal must be boolean")
-            if runtime not in {"host", "eda"} or not isinstance(action_providers, list):
-                action_registry_failures.append(f"{action_name}: invalid runtime/providers")
-            elif runtime == "host" and action_providers:
-                action_registry_failures.append(f"{action_name}: host action declares providers")
-            elif runtime == "eda" and (
-                not action_providers
-                or any(provider not in providers for provider in action_providers)
-            ):
-                action_registry_failures.append(f"{action_name}: unknown or missing provider")
-            if not isinstance(modes, dict) or default_mode not in modes:
-                action_registry_failures.append(f"{action_name}: invalid default mode")
-                continue
-            for mode_name, contract in modes.items():
-                if not isinstance(contract, dict) or not isinstance(contract.get("mutates"), bool):
-                    action_registry_failures.append(f"{action_name}/{mode_name}: mutates must be boolean")
-        for workflow_name, workflow in workflows.items():
-            if not isinstance(workflow, dict):
-                action_registry_failures.append(f"{workflow_name}: invalid workflow")
-                continue
-            provider = workflow.get("provider")
-            domain = workflow.get("domain")
-            phases = workflow.get("phases")
-            if provider not in providers or not isinstance(domain, str) or not isinstance(phases, dict) or not phases:
-                action_registry_failures.append(f"{workflow_name}: invalid provider/domain/phases")
-                continue
-            for phase_name, steps in phases.items():
-                if not isinstance(steps, list) or not steps:
-                    action_registry_failures.append(f"{workflow_name}/{phase_name}: invalid steps")
-                    continue
-                for index, step in enumerate(steps):
-                    action = actions.get(step.get("action")) if isinstance(step, dict) else None
-                    mode = step.get("mode") if isinstance(step, dict) else None
-                    if (
-                        not isinstance(step, dict)
-                        or not isinstance(action, dict)
-                        or mode not in action.get("modes", {})
-                        or action.get("domain") != domain
-                        or (action.get("runtime") == "eda" and provider not in action.get("providers", []))
-                        or ("optional" in step and not isinstance(step["optional"], bool))
-                    ):
-                        action_registry_failures.append(f"{workflow_name}/{phase_name}[{index}]: invalid action reference")
-        actual_files = set()
-        for path in (ROOT / "scripts/actions").rglob("*.js"):
-            rel = path.relative_to(ROOT / "scripts/actions").as_posix()
-            actual_files.add(rel)
-        if registered_files != actual_files:
-            missing_registry = sorted(actual_files - registered_files)
-            missing_files = sorted(registered_files - actual_files)
-            if missing_registry:
-                action_registry_failures.append("unregistered: " + ", ".join(missing_registry))
-            if missing_files:
-                action_registry_failures.append("missing files: " + ", ".join(missing_files))
-    except (OSError, json.JSONDecodeError) as error:
-        action_registry_failures.append(str(error))
+    registry_failures = action_registry_failures()
     checks.check(
         "action registry",
-        not action_registry_failures,
-        "all actions and modes registered" if not action_registry_failures else "; ".join(action_registry_failures),
+        not registry_failures,
+        "all actions and modes registered" if not registry_failures else "; ".join(registry_failures),
     )
 
     schema_failures: list[str] = []

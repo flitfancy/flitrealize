@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import { loadAction } from './helpers/action-harness.mjs';
+import { checkCreateRecovery } from './helpers/create-action-recovery.mjs';
 
 const wirePlanAction = await loadAction('schematic-wire-plan');
 const wireCreateAction = await loadAction('schematic-wire-create', 'easyeda-pro');
@@ -110,5 +111,18 @@ assert.equal(reverseVerified.status, 'verified');
 const stale = await wireCreateAction(createMockEda(105), { mode: 'plan', plan: generated.wirePlan });
 assert.equal(stale.analysis.applyReady, false);
 assert.ok(stale.analysis.globalIssues.some((issue) => issue.code === 'SOURCE_GEOMETRY_STALE'));
+
+await checkCreateRecovery({
+  action: wireCreateAction, createEda: createMockEda, namespace: 'sch_PrimitiveWire',
+  seed: mock => mock.sch_PrimitiveWire.create([0, 0, 10, 0], 'OTHER'),
+  applyRequest: async mock => {
+    const state = (await wireCreateAction(mock, { mode: 'inspect' })).state;
+    return (await wireCreateAction(mock, { mode: 'plan', plan: {
+      expectedDocumentUuid: 'doc-wire', sourceGeometryFingerprint: state.geometryFingerprint,
+      wires: [{ key: 'one', net: 'SIG', points: [{ x: 110, y: 100 }, { x: 118, y: 100 }] },
+        { key: 'two', net: 'SIG', points: [{ x: 118, y: 100 }, { x: 126, y: 100 }] }],
+    } })).applyRequest;
+  },
+});
 
 process.stdout.write('schematic-wire-create tests passed\n');

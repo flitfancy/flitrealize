@@ -1,4 +1,4 @@
 interface:
-  display_name: "FlitRealize T1"
-  short_description: "Advance electronics hardware from design to prototype"
-  default_prompt: "Use $flitrealize to advance the user's current hardware stage directly, loading only the relevant reference and using CURIOUS_MODE only for a local unresolved question."
+  display_name: "FlitRealize"
+  short_description: "推进电子硬件从需求、选料、原理图和 PCB 到样机验证与改版"
+  default_prompt: "使用 $flitrealize 的中文执行说明，直接推进用户当前要求的硬件阶段；只加载相关参考，仅对局部未决问题使用 CURIOUS_MODE。"

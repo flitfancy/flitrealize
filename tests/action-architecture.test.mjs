@@ -200,12 +200,13 @@ assert.ok(schematicCatalog.actions.length > 0);
 assert.ok(schematicCatalog.actions.every((action) => action.domain === 'schematic'));
 assert.deepEqual(
   schematicCatalog.workflowGroups.schematic,
-  ['easyeda-schematic-components', 'easyeda-schematic-connect', 'easyeda-schematic-finalize'],
+  ['easyeda-schematic-reflow', 'easyeda-schematic-components', 'easyeda-schematic-connect', 'easyeda-schematic-finalize'],
 );
 assert.ok(schematicCatalog.actions.some((action) => action.name === 'schematic-contract-audit'));
 assert.equal(schematicCatalog.actions.some((action) => action.name === 'schematic-wire-plan'), false);
 assert.equal(schematicCatalog.actions.some((action) => action.name === 'schematic-component-place'), false);
-assert.equal(schematicCatalog.workflows.length, 3);
+assert.ok(schematicCatalog.actions.some((action) => action.name === 'schematic-reflow'));
+assert.equal(schematicCatalog.workflows.length, 4);
 
 const relativeSchematicList = spawnSync(process.execPath, [
   'scripts/action-runner.mjs',

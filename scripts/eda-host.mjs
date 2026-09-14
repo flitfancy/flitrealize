@@ -43,20 +43,29 @@ function utcNow() {
 
 function parseArguments(argv) {
   const values = { command: argv[0] };
-  if (!values.command) throw new Error('A command is required: register, status, ensure, windows, select, or execute');
+  if (!values.command) throw new Error('A command is required: register, status, ensure, windows, select, execute, or request');
+  if (['--help', 'help'].includes(values.command)) return values;
   for (let index = 1; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === '--require-eda') values.requireEda = true;
-    else if (argument === '--eda') values.eda = argv[++index];
-    else if (argument === '--adapter-root') values.adapterRoot = argv[++index];
-    else if (argument === '--project-root') values.projectRoot = argv[++index];
-    else if (argument === '--window-id') values.windowId = argv[++index];
-    else if (argument === '--code-file') values.codeFile = argv[++index];
-    else if (argument === '--input-file') values.inputFile = argv[++index];
+    else if (argument === '--eda') values.eda = argumentValue(argv[++index], argument);
+    else if (argument === '--adapter-root') values.adapterRoot = argumentValue(argv[++index], argument);
+    else if (argument === '--project-root') values.projectRoot = argumentValue(argv[++index], argument);
+    else if (argument === '--window-id') values.windowId = argumentValue(argv[++index], argument);
+    else if (argument === '--code-file') values.codeFile = argumentValue(argv[++index], argument);
+    else if (argument === '--input-file') values.inputFile = argumentValue(argv[++index], argument);
+    else if (argument === '--request-id') values.requestId = argumentValue(argv[++index], argument);
+    else if (argument === '--session-id') values.sessionId = argumentValue(argv[++index], argument);
     else throw new Error(`Unknown argument: ${argument}`);
   }
   if (!values.eda) throw new Error('--eda is required');
+  if (values.sessionId && values.command !== 'request') throw new Error('--session-id is only supported by request; execute freezes the current Bridge session');
   return values;
+}
+
+function argumentValue(value, flag) {
+  if (!value?.trim() || value.startsWith('--')) throw new Error(`${flag} requires a value`);
+  return value;
 }
 
 function validateEda(eda) {
@@ -144,7 +153,8 @@ async function checkProjectBinding(projectRoot, expectedEda) {
 }
 
 function parseControlOutput(completed) {
-  const stream = completed.status === 0 ? completed.stdout.trim() : completed.stderr.trim();
+  const stream = (completed.status === 0 ? completed.stdout : completed.stderr)?.trim()
+    || (completed.status === 0 ? completed.stderr : completed.stdout)?.trim() || '';
   const lastLine = stream.split(/\r?\n/).filter(Boolean).at(-1);
   if (!lastLine) throw new Error(`Adapter control exited with ${completed.status}`);
   try {
@@ -179,10 +189,14 @@ async function runControl(arguments_) {
   }
 
   try {
+    // A caller-known ID also survives a child process failing before JSON output.
+    if (arguments_.command === 'execute') arguments_.requestId ||= randomUUID();
     const childArguments = [control, arguments_.command, '--json'];
     if (arguments_.requireEda) childArguments.push('--require-eda');
     if (arguments_.windowId) childArguments.push('--window-id', arguments_.windowId);
     if (effectiveCodeFile) childArguments.push('--code-file', effectiveCodeFile);
+    if (arguments_.requestId) childArguments.push('--request-id', arguments_.requestId);
+    if (arguments_.sessionId) childArguments.push('--session-id', arguments_.sessionId);
     const actionTimeout = edaActionTimeoutMs();
     const childEnvironment = {
       ...process.env,
@@ -193,16 +207,36 @@ async function runControl(arguments_) {
       windowsHide: true,
       encoding: 'utf8',
       timeout: actionTimeout + 10_000,
+      // Source backups can exceed Node's default 1 MiB; match action-runner's limit.
+      maxBuffer: 32 * 1024 * 1024,
       env: childEnvironment,
     });
-    if (completed.error) throw completed.error;
-    const result = parseControlOutput(completed);
+    let result;
+    try {
+      result = parseControlOutput(completed);
+      if (completed.error) throw completed.error;
+    } catch (error) {
+      const failure = completed.error || error;
+      failure.request = result?.request || (arguments_.requestId ? {
+        requestId: arguments_.requestId,
+        ...(arguments_.sessionId ? { sessionId: arguments_.sessionId } : {}),
+        ...(arguments_.windowId ? { windowId: arguments_.windowId } : {}),
+        status: 'unknown',
+      } : undefined);
+      failure.submissionReceipt = result?.submissionReceipt;
+      if (arguments_.command === 'execute') failure.executionOutcome = 'unknown';
+      throw failure;
+    }
     if (completed.status !== 0) {
       const detail = result.error || {};
-      const error = new Error(detail.message || completed.stderr.trim());
-      error.code = detail.code || 'ADAPTER_ERROR';
+      const error = new Error(detail.message || result.message || (typeof detail === 'string' ? detail : completed.stderr.trim()));
+      error.code = detail.code || (typeof detail === 'string' ? detail : 'ADAPTER_ERROR');
       error.hint = result.hint;
       error.bridgeStatus = result.bridgeStatus;
+      error.request = result.request;
+      error.executionOutcome = result.executionOutcome;
+      error.submissionReceipt = result.submissionReceipt;
+      error.requestPersisted = result.requestPersisted;
       throw error;
     }
     result.hostId = profile.hostId;
@@ -216,10 +250,18 @@ async function runControl(arguments_) {
 async function main() {
   const arguments_ = parseArguments(process.argv.slice(2));
   let result;
+  if (['--help', 'help'].includes(arguments_.command)) {
+    process.stdout.write('eda-host: register | status | ensure | windows | select | execute --code-file FILE [--request-id UUID] | request --request-id UUID --session-id ORIGINAL_UUID; use --eda PROVIDER.\nRequest only reads the Bridge record. Reconcile EDA state before continuing a workflow after an unknown result.\n');
+    return;
+  }
   if (arguments_.command === 'register') result = await registerAdapter(arguments_.eda, arguments_.adapterRoot);
-  else if (['status', 'ensure', 'windows', 'select', 'execute'].includes(arguments_.command)) {
+  else if (['status', 'ensure', 'windows', 'select', 'execute', 'request'].includes(arguments_.command)) {
     if (arguments_.command === 'select' && !arguments_.windowId) throw new Error('--window-id is required');
     if (arguments_.command === 'execute' && !arguments_.codeFile) throw new Error('--code-file is required');
+    if (arguments_.command === 'request' && (!arguments_.requestId || !arguments_.sessionId)) throw new Error('--request-id and --session-id are required');
+    if (arguments_.command === 'request' && (arguments_.codeFile || arguments_.inputFile || arguments_.requireEda || arguments_.windowId)) {
+      throw new Error('request is read-only and accepts no execution or connection options');
+    }
     result = await runControl(arguments_);
   } else throw new Error(`Unknown command: ${arguments_.command}`);
   process.stdout.write(`${JSON.stringify(result)}\n`);
@@ -228,9 +270,14 @@ async function main() {
 main().catch((error) => {
   process.stderr.write(`${JSON.stringify({
     status: 'error',
+    success: false,
     error: { code: error.code || 'EDA_HOST_ERROR', message: error.message },
     ...(error.hint ? { hint: error.hint } : {}),
     ...(error.bridgeStatus ? { bridgeStatus: error.bridgeStatus } : {}),
+    ...(error.request ? { request: error.request } : {}),
+    ...(error.executionOutcome ? { success: false, executionOutcome: error.executionOutcome } : {}),
+    ...(error.submissionReceipt ? { submissionReceipt: error.submissionReceipt } : {}),
+    ...(error.requestPersisted !== undefined ? { requestPersisted: error.requestPersisted } : {}),
   })}\n`);
   process.exitCode = 1;
 });

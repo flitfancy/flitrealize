@@ -1,0 +1,221 @@
+# 3.1 PCB design and review
+
+Read this reference when the schematic and main parts are established and the project needs board outline, stackup, placement, routing, copper, or DRC work.
+
+This stage turns schematic electrical intent into the physical PCB. Stable design enters section 3.x of `CURRENT_HANDOFF.md`; complete geometry remains in the PCB source.
+
+## Confirm inputs
+
+At the start of PCB work, read:
+
+- the current schematic and Contract;
+- parts and exact packages;
+- board outline, mounting holes, and interface positions;
+- enclosure, height, and mechanical conditions;
+- functional architecture and power tree;
+- current, voltage, sensitivity, and topology of important nets;
+- antenna, acoustic, optical, thermal, and assembly keepouts;
+- test points and debug access.
+
+An input may be confirmed, provisional, or not applicable.
+
+Return to the previous stage only when a gap prevents current PCB work or is likely to overturn a main part, package, interface, or board outline. Converge the remaining conditions during PCB work.
+
+## Establish the physical foundation
+
+Determine first:
+
+- board outline;
+- mounting holes;
+- edge interfaces;
+- mechanical anchors;
+- routing and height restrictions;
+- copper layer count;
+- the role of each layer;
+- main reference planes;
+- current manufacturing capability.
+
+The board outline, interfaces, and mounting holes first serve the product and enclosure.
+
+## Select the stackup
+
+Choose the copper layer count from the actual design, considering:
+
+- routing density;
+- references for critical nets;
+- power and ground planes;
+- current and thermal needs;
+- high-speed, RF, analog, or low-noise behavior;
+- thickness, impedance, and fabrication capability;
+- cost and prototype quantity.
+
+Record each layer's role and the reference used by important signals. Physical dielectric, copper weight, and impedance values come from current fabricator capabilities or an explicit design assumption.
+
+## Place by function
+
+Place mechanically constrained objects first:
+
+- connectors;
+- switches and buttons;
+- sensor openings;
+- antennas;
+- microphone and speaker interfaces;
+- mounting holes;
+- debug interfaces;
+- user-visible parts.
+
+Then place by functional relationship:
+
+```text
+Connector
+    -> input protection
+    -> power or interface circuit
+    -> load or processor
+```
+
+Check that:
+
+- protection sits near the entry;
+- decoupling sits near the powered pin;
+- switching power loops are compact;
+- feedback and sense paths stay away from switching nodes;
+- crystals, references, and sensitive analog paths remain near their parts;
+- high-current, hot, and noisy circuits stay away from sensitive blocks;
+- test, insertion, rework, and assembly remain accessible;
+- orientation follows pin 1, interface, thermal, and routing relationships.
+
+Placement establishes clear current and signal paths. It is not decorative alignment.
+
+Review one critical block and the whole-board partition before completing the full placement.
+
+## Adjust pins locally
+
+After rough placement, a configurable part whose current assignment creates obvious crossings, detours, congestion, or vias may use the `unused_configurable_only` policy from 2.1.
+
+After an actual change, update the Contract, schematic, manuscript, and affected firmware interface before formal routing continues.
+
+## Build net rules
+
+Use the schematic's electrical conditions together with the actual stackup and copper weight to determine:
+
+- continuous and peak current;
+- allowed voltage drop;
+- working voltage;
+- allowed temperature rise;
+- route length;
+- outer or inner layer;
+- via count and dimensions;
+- return path;
+- differential, impedance, or length relationships;
+- spacing from noise sources and sensitive nets.
+
+Fabrication minimum width and spacing are process limits, not the design value for every net.
+
+Pad escape may be narrower than the trunk, but its neck length should remain bounded. For high-current nets, inspect the narrowest point across traces, copper, vias, and connectors.
+
+Create net classes only for requirements that actually differ.
+
+## Route by risk
+
+Prioritize:
+
+1. main power and return paths;
+2. switching-power loops;
+3. high-speed, clock, and differential interfaces;
+4. feedback, sense, and sensitive analog paths;
+5. protection and fault shutdown;
+6. ordinary control and low-speed digital nets.
+
+For each critical path, check:
+
+- implemented topology;
+- branches and stubs;
+- layer transitions;
+- reference plane;
+- return-path continuity;
+- coupling to noise sources;
+- vias and neck-downs;
+- test-point branches.
+
+Automatic or batch routing may handle well-bounded ordinary nets. Review the result by net purpose afterward.
+
+## Ground, planes, and copper
+
+Grounding follows actual current and signal returns.
+
+Prefer a continuous reference in ordinary cases. When partitioning is needed, explain how current flows and how crossing signals return.
+
+Check:
+
+- decoupling loops;
+- power parts and thermal pads;
+- ESD discharge paths;
+- reference return near signal layer changes;
+- isolated ground copper and narrow channels;
+- breaks caused by keepouts or slots;
+- actual copper shape after pouring.
+
+Ground vias close return, thermal, or shielding paths. Their count is not itself the goal.
+
+For EasyEDA Pro:
+
+- layers, outline, keepouts, and reference copper:
+  [3.2-pcb-foundation.md](providers/easyeda-pro/3.2-pcb-foundation.md);
+- layer-transition return and ground vias:
+  [3.3-pcb-grounding.md](providers/easyeda-pro/3.3-pcb-grounding.md).
+
+Use this order:
+
+```text
+3.2 Establish layers, outline, and functional keepouts
+    -> 3.1 Complete placement and critical routing
+    -> 3.2 Repour and confirm reference copper
+    -> 3.3 Close return paths and grounding
+    -> 3.1 Complete whole-board review
+```
+
+## Thermal and mechanical
+
+Check:
+
+- copper area and cooling for power parts;
+- thermal vias and exposed pads;
+- effects of hot parts on sensors, batteries, and enclosure;
+- airflow and sealed enclosures;
+- component height and assembly orientation;
+- connector insertion space;
+- screws, standoffs, and enclosure load;
+- rework and probe access;
+- acoustic openings, optical paths, airflow, and antenna regions.
+
+Empty area may serve antenna, acoustic, thermal, assembly, or routing needs.
+
+## Update the project manuscript
+
+Write stable PCB conclusions under section 3.x:
+
+- outline and mechanical conditions;
+- functional partitioning and placement relationships;
+- net classes, trace widths, and via strategy;
+- critical topology and return paths;
+- keepouts, thermal, and assembly requirements;
+- current placement, routing, copper, and DRC state;
+- current PCB source.
+
+Do not copy full geometry or DRC output into the manuscript.
+
+## Finish this stage
+
+Before manufacturing preparation, confirm:
+
+- the PCB source is saved;
+- main parts, outline, holes, and interface positions are correct;
+- all required nets are routed;
+- critical power, signal, and return paths follow the current design;
+- copper is current;
+- pin adjustments are synchronized;
+- current DRC issues are explained or resolved;
+- mechanical, assembly, test, and thermal conditions are reviewed;
+- section 3.x and the current handoff at the top are updated.
+
+Handle Gerber, drill, BOM, CPL, and fabricator preview in [4.1-production-handoff.md](4.1-production-handoff.md).

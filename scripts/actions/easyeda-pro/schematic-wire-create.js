@@ -9,6 +9,12 @@ return await (async () => {
     throw error;
   }
 
+  async function assertTarget(documentUuid, projectUuid = null) {
+    const current = await eda.dmt_SelectControl.getCurrentDocumentInfo();
+    if (Number(current?.documentType) !== 1 || current?.uuid !== documentUuid
+      || (projectUuid && current.parentProjectUuid !== projectUuid)) fail('DOCUMENT_MISMATCH', 'The active schematic changed during the operation.');
+  }
+
   function callGetter(object, name, fallback = null) {
     try {
       return typeof object?.[name] === 'function' ? object[name]() : fallback;
@@ -101,7 +107,7 @@ return await (async () => {
       nativeId,
       position: x !== null && y !== null ? { x, y } : null,
       rotation: finiteOrNull(callGetter(pin, 'getState_Rotation')),
-      noConnect: callGetter(pin, 'getState_NoConnect', false) === true,
+      noConnect: callGetter(pin, 'getState_NoConnected', callGetter(pin, 'getState_NoConnect', false)) === true,
     };
   }
 
@@ -168,6 +174,7 @@ return await (async () => {
       documentUuid: document?.uuid,
       geometryFingerprint,
     }));
+    await assertTarget(document?.uuid, document?.parentProjectUuid);
     return {
       document,
       components,
@@ -175,8 +182,8 @@ return await (async () => {
       geometryFingerprint,
       inspectionFingerprint,
       coverage: {
-        components: componentsProbe.unsupported ? 'unsupported' : componentsProbe.error ? 'error' : 'queried',
-        wires: wiresProbe.unsupported ? 'unsupported' : wiresProbe.error ? 'error' : 'queried',
+        components: componentsProbe.unsupported ? 'unsupported' : componentsProbe.error ? 'error' : Array.isArray(componentsProbe.value) ? 'queried' : 'unexpected-result',
+        wires: wiresProbe.unsupported ? 'unsupported' : wiresProbe.error ? 'error' : Array.isArray(wiresProbe.value) ? 'queried' : 'unexpected-result',
         pins: components.some((component) => component.pinCoverage !== 'ok') ? 'incomplete' : 'queried',
       },
     };
@@ -213,6 +220,7 @@ return await (async () => {
     return {
       wires: sourceWires.map(normalizeWire),
       expectedDocumentUuid: wirePlan ? value.document?.nativeId ?? null : value.expectedDocumentUuid ?? null,
+      expectedProjectUuid: wirePlan ? value.project?.nativeId ?? null : value.expectedProjectUuid ?? null,
       sourceGeometryFingerprint: wirePlan ? value.source?.geometryFingerprint ?? null : value.sourceGeometryFingerprint ?? null,
       sourceSnapshotFingerprint: wirePlan ? value.source?.snapshotFingerprint ?? null : value.sourceSnapshotFingerprint ?? null,
       sourceWirePlanFingerprint: wirePlan ? value.fingerprints?.plan ?? null : value.sourceWirePlanFingerprint ?? null,
@@ -222,6 +230,8 @@ return await (async () => {
 
   function analyzePlan(state, plan) {
     const globalIssues = [];
+    if (plan.expectedProjectUuid && state.document?.parentProjectUuid !== plan.expectedProjectUuid) globalIssues.push({ code: 'PROJECT_MISMATCH' });
+    if (state.coverage.components !== 'queried' || state.coverage.wires !== 'queried') globalIssues.push({ code: 'INCOMPLETE_INSPECTION_COVERAGE' });
     if (!plan.expectedDocumentUuid) globalIssues.push({ code: 'DOCUMENT_IDENTITY_REQUIRED' });
     else if (state.document?.uuid !== plan.expectedDocumentUuid) {
       globalIssues.push({ code: 'DOCUMENT_MISMATCH', expected: plan.expectedDocumentUuid, actual: state.document?.uuid });
@@ -271,8 +281,8 @@ return await (async () => {
     const values = await Promise.all(unique.map(async (id) => {
       try {
         return await eda.sch_PrimitiveWire.get(id);
-      } catch {
-        return null;
+      } catch (error) {
+        fail('WIRE_READBACK_FAILED', `Cannot read wire ${id}: ${error.message}`);
       }
     }));
     return values.filter(Boolean).map(summarizeWire);
@@ -307,7 +317,8 @@ return await (async () => {
     })).sort((left, right) => String(left.primitiveId).localeCompare(String(right.primitiveId)))));
   }
 
-  async function deleteAndVerify(created) {
+  async function deleteAndVerify(created, document) {
+    await assertTarget(document.uuid, document.parentProjectUuid);
     const ids = created.map((wire) => wire.primitiveId).filter(Boolean);
     if (!ids.length) return { deleted: true, remaining: 0, remainingIds: [], coverage: 'targeted-by-id' };
     let deleted = false;
@@ -317,6 +328,7 @@ return await (async () => {
       deleted = false;
     }
     const remaining = await getWiresByIds(ids);
+    await assertTarget(document.uuid, document.parentProjectUuid);
     return {
       deleted: Boolean(deleted),
       remaining: remaining.length,
@@ -349,20 +361,28 @@ return await (async () => {
     }
     const created = [];
     const createdIds = [];
+    const existingIds = new Set(before.wires.map(item => item.primitiveId));
+    let uncertainWrite = false;
     try {
       for (let offset = 0; offset < plan.wires.length; offset += APPLY_BATCH_SIZE) {
         const batch = plan.wires.slice(offset, offset + APPLY_BATCH_SIZE);
         const batchCreated = [];
         for (const item of batch) {
           const line = item.points.flatMap((point) => [point.x, point.y]);
+          await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+          uncertainWrite = true;
           const primitive = await eda.sch_PrimitiveWire.create(line, item.net, item.color, item.lineWidth, item.lineType);
           if (!primitive) fail('CREATE_WIRE_FAILED', `EasyEDA rejected wire ${item.key}.`);
           const primitiveId = callGetter(primitive, 'getState_PrimitiveId');
           if (!primitiveId) fail('CREATE_WIRE_WITHOUT_ID', `Wire ${item.key} has no primitive ID.`);
+          if (existingIds.has(primitiveId) || createdIds.includes(primitiveId)) fail('CREATE_ID_NOT_NEW', 'Create returned an existing primitive ID; ownership is unconfirmed.');
+          await assertTarget(before.document.uuid, before.document.parentProjectUuid);
           createdIds.push(primitiveId);
+          uncertainWrite = false;
           batchCreated.push({ item, primitiveId });
         }
         const readback = await getWiresByIds(batchCreated.map((entry) => entry.primitiveId));
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
         const byId = new Map(readback.map((wire) => [wire.primitiveId, wire]));
         for (const entry of batchCreated) {
           const actual = byId.get(entry.primitiveId);
@@ -382,6 +402,7 @@ return await (async () => {
       const mismatches = created.filter((wire) => !wireMatchesRecord(targetedById.get(wire.primitiveId), wire));
       if (mismatches.length) fail('POST_APPLY_TARGETED_VERIFY_FAILED', `${mismatches.length} created wire(s) failed ID-based verification.`);
       const after = await captureState();
+      await assertTarget(before.document.uuid, before.document.parentProjectUuid);
       const expectedCreatedFingerprint = targetedFingerprint(created);
       return {
         schemaVersion: 2,
@@ -401,6 +422,7 @@ return await (async () => {
           mode: 'rollback',
           request: {
             expectedDocumentUuid: plan.expectedDocumentUuid,
+            expectedProjectUuid: before.document.parentProjectUuid,
             expectedCreatedFingerprint,
             expectedRestoredFingerprint: before.inspectionFingerprint,
             created,
@@ -409,17 +431,28 @@ return await (async () => {
       };
     } catch (error) {
       const rollbackTargets = createdIds.map((primitiveId) => created.find((wire) => wire.primitiveId === primitiveId) || { primitiveId });
-      const rollback = await deleteAndVerify(rollbackTargets);
-      const restored = await captureState();
+      let rollback = { deleted: false, remaining: null };
+      if (!uncertainWrite) {
+        try { rollback = await deleteAndVerify(rollbackTargets, before.document); }
+        catch (recoveryError) { rollback.error = recoveryError.message; }
+      }
+      let restored = null;
+      try {
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+        const captured = await captureState();
+        await assertTarget(before.document.uuid, before.document.parentProjectUuid);
+        restored = captured;
+      } catch { /* Preserve known IDs when the original schematic cannot be read. */ }
       return {
         schemaVersion: 2,
-        status: rollback.remaining === 0 && restored.inspectionFingerprint === before.inspectionFingerprint
+        status: !uncertainWrite && rollback.remaining === 0 && restored?.coverage.wires === 'queried' && restored.coverage.components === 'queried' && restored.inspectionFingerprint === before.inspectionFingerprint
           ? 'rolled-back'
-          : rollback.remaining === 0 ? 'rolled-back-targeted' : 'rollback-incomplete',
+          : 'rollback-incomplete',
         error: { code: error.code ?? 'APPLY_FAILED', message: error.message },
         createdBeforeFailure: rollbackTargets,
+        uncertainWrite,
         rollback,
-        restoredInspectionFingerprint: restored.inspectionFingerprint,
+        restoredInspectionFingerprint: restored?.inspectionFingerprint ?? null,
         expectedRestoredFingerprint: before.inspectionFingerprint,
         saved: false,
       };
@@ -484,6 +517,7 @@ return await (async () => {
     const documentProbe = await optionalCall('dmt_SelectControl', 'getCurrentDocumentInfo');
     if (documentProbe.value?.uuid !== input.expectedDocumentUuid) fail('DOCUMENT_MISMATCH', 'Verify request belongs to another schematic.');
     const actual = await getWiresByIds(input.created.map((wire) => wire.primitiveId));
+    await assertTarget(input.expectedDocumentUuid, input.expectedProjectUuid ?? documentProbe.value.parentProjectUuid);
     const byId = new Map(actual.map((wire) => [wire.primitiveId, wire]));
     const issues = input.created
       .filter((expected) => !wireMatchesRecord(byId.get(expected.primitiveId), expected))
@@ -509,13 +543,14 @@ return await (async () => {
     if (targetedFingerprint(currentTargets) !== input.expectedCreatedFingerprint) {
       fail('STALE_ROLLBACK', 'One or more created wires changed after apply.');
     }
-    const rollback = await deleteAndVerify(input.created);
+    const rollback = await deleteAndVerify(input.created, { uuid: input.expectedDocumentUuid, parentProjectUuid: input.expectedProjectUuid ?? documentProbe.value.parentProjectUuid });
     const restored = await captureState();
+    await assertTarget(input.expectedDocumentUuid, input.expectedProjectUuid ?? documentProbe.value.parentProjectUuid);
     return {
       schemaVersion: 2,
       status: rollback.remaining
         ? 'rollback-incomplete'
-        : restored.inspectionFingerprint === input.expectedRestoredFingerprint ? 'rolled-back' : 'rolled-back-targeted',
+        : restored.coverage.wires === 'queried' && restored.coverage.components === 'queried' && restored.inspectionFingerprint === input.expectedRestoredFingerprint ? 'rolled-back' : 'rolled-back-targeted',
       rollback,
       restoredInspectionFingerprint: restored.inspectionFingerprint,
       expectedRestoredFingerprint: input.expectedRestoredFingerprint,

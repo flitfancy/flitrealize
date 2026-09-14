@@ -55,9 +55,9 @@ function Assert-PublishPreflight {
         throw "Git remote '$RemoteName' is not configured."
     }
 
-    $Staged = @(@(Invoke-GitCapture @("diff", "--cached", "--name-only", "--diff-filter=ACMR", "--")) |
+    $Staged = @(@(Invoke-GitCapture @("diff", "--cached", "--name-only", "--")) |
         Where-Object { $_ })
-    $Unstaged = @(@(Invoke-GitCapture @("diff", "--name-only", "--diff-filter=ACMR", "--")) |
+    $Unstaged = @(@(Invoke-GitCapture @("diff", "--name-only", "--")) |
         Where-Object { $_ })
     $Untracked = @(@(Invoke-GitCapture @("ls-files", "--others", "--exclude-standard")) |
         Where-Object { $_ })
@@ -164,7 +164,7 @@ try {
     }
 
     Invoke-GitCapture @("commit", "-m", $Message) | ForEach-Object { Write-Host $_ }
-    Invoke-GitCapture @("tag", "-a", $TagName, "-m", "FlitRealize T1 $TagName") | Out-Null
+    Invoke-GitCapture @("tag", "-a", $TagName, "-m", "FlitRealize $TagName") | Out-Null
 
     $Pushed = $false
     for ($Attempt = 1; $Attempt -le 2; $Attempt++) {
