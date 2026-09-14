@@ -50,7 +50,9 @@ def main(archive: Path | None = None) -> int:
         for path in runtime_files()
     }
     with tempfile.TemporaryDirectory(prefix="flitrealize-smoke-") as temporary:
-        temporary_root = Path(temporary)
+        # Windows TEMP can contain an 8.3 alias. Import the extracted modules
+        # through the same canonical root used by their containment checks.
+        temporary_root = Path(temporary).resolve()
         with zipfile.ZipFile(archive) as bundle:
             actual_entries = set(bundle.namelist())
             for name in actual_entries:
