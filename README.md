@@ -8,7 +8,7 @@ FlitRealize is a Skill for complete hardware projects, carrying an idea forward 
 
 Each project uses one `CURRENT_HANDOFF.md` as its human-readable project manuscript, keeping requirements, parts, schematic, PCB, manufacturing, and prototype results on one continuous project line. The Contract, EDA source, and manufacturing artifacts continue to own their corresponding machine facts.
 
-> Current stable release: **FlitRealize `v1.0.0`**. See the [release notes](CHANGELOG.md#100---2026-09-14) for changes since the last test release.
+> Current stable release: **FlitRealize `v1.1.0`**. See the [release notes](CHANGELOG.md#110---2026-09-14) and [first-run guide](docs/first-run.md).
 
 ## What it does
 
@@ -104,6 +104,8 @@ EasyEDA Pro is the currently implemented EDA Provider, but it is not required to
 
 ## Getting started
 
+See [docs/first-run.md](docs/first-run.md) for cold start, environment layers, and EDA attach. Summary:
+
 Use `$skill-installer` to install from the GitHub repository, or place the repository at:
 
 ```text
@@ -139,7 +141,10 @@ Placing an order, paying, reserving inventory, or making another new external co
 ```text
 flitrealize/
 |-- SKILL.md            # Runtime entry and full-workflow routing
+|-- docs/first-run.md   # First-run cold start guide
 |-- references/         # Stage and Provider detail loaded on demand
+|-- adapters/
+|   `-- easyeda-pro/    # Embedded EasyEDA Pro bridge channel
 |-- development/        # Action and Provider development notes
 |-- schemas/            # Portable machine Contracts
 |-- scripts/            # Actions, part tools, validation, and packaging

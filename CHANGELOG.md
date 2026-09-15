@@ -2,6 +2,34 @@
 
 All notable changes to FlitRealize will be recorded here.
 
+## [1.1.0] - 2026-09-14
+
+在 v1.0.0 之上补齐「clone 后即可冷启动」所需内容：内嵌 EasyEDA Pro 通道，并新增首次使用说明。硬件业务 Action 与通用 `eda-host` 契约不变。
+
+### 新增
+
+- **内嵌 EasyEDA Pro Adapter 通道** `adapters/easyeda-pro/`：包含 `bridge-control.mjs`、`bridge-server.mjs`、`request-store.mjs`、`package.json` 与恢复说明。注册默认路径为 `<skill>/adapters/easyeda-pro`，不再依赖第二仓库才能 `register`。
+- **首次使用说明** `docs/first-run.md`：分层写清离线设计 / 脚本 / 接入 EDA；区分通用宿主契约与当前 Provider 实现；给出冷启动命令、人工步骤边界与卡住对照。
+
+### 变更
+
+- 发布 ZIP 包含内嵌 Adapter 源码通道（不含 `node_modules` 与本机会话状态）。
+- 仓库校验忽略 `node_modules`，避免依赖文档破坏链接检查。
+- README 标注当前正式版本为 `v1.1.0`，并指向首次使用说明。
+
+### 升级注意
+
+- 本机若已把 `easyeda-pro` 注册到外部 Adapter 目录，可继续使用；新用户应改用树内 `adapters/easyeda-pro`。
+- EasyEDA Pro 客户端与 API Gateway 扩展仍须在嘉立创侧安装，不在本仓库内。
+- 运行包现包含通道源码；完整 API 类文档与独立 Skill 形态仍以 `easyeda-api-skill` 上游为准。
+
+### 发布验证
+
+- `scripts/validate.py` 全部通过；全部 Node 行为测试通过。
+- 内嵌目录完成 `npm install`、`bridge-control status` 与 `eda-host register` 冒烟。
+
+[完整代码对比：v1.0.0 → v1.1.0](https://github.com/flitfancy/flitrealize/compare/v1.0.0...v1.1.0)
+
 ## [1.0.0] - 2026-09-14
 
 FlitRealize 首个正式版本。版本号由 `1.0.0-test.3` 升至 `1.0.0`，产品显示名、Git 标签说明和 Release 标题去掉 T1；正式版标为 GitHub Latest，历史测试标签保留。

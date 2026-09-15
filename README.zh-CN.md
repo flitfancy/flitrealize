@@ -8,7 +8,7 @@ FlitRealize 是一个面向完整硬件项目的 Skill，用来把想法持续�
 
 每个项目使用一个 `CURRENT_HANDOFF.md` 作为人类主文稿，把需求、器件、原理图、PCB、制造和样机结果保存在同一条项目主线上。Contract、EDA 和制造文件继续保存对应的机器事实。
 
-> 当前正式版本：**FlitRealize `v1.0.0`**。相对上一测试版的变化见[发布说明](CHANGELOG.md#100---2026-09-14)。
+> 当前正式版本：**FlitRealize `v1.1.0`**。变化见[发布说明](CHANGELOG.md#110---2026-09-14)；首次安装与冷启动见[首次使用说明](docs/first-run.md)。
 
 ## 它能做什么
 
@@ -106,6 +106,8 @@ EasyEDA Pro 是当前已经实现的 EDA Provider，但不是使用 FlitRealize 
 
 ## 开始使用
 
+详细冷启动、环境分层与 EDA 接入见 [docs/first-run.md](docs/first-run.md)。摘要如下。
+
 可以让 `$skill-installer` 从 GitHub 仓库安装，也可以把仓库放到：
 
 ```text
@@ -141,7 +143,10 @@ $flitrealize 检查当前原理图，只处理会改变连接、额定值、保�
 ```text
 flitrealize/
 ├── SKILL.md            # 中文执行入口和全流程路由
+├── docs/first-run.md   # 首次使用与冷启动
 ├── references/         # 中文阶段和 Provider 执行说明
+├── adapters/
+│   └── easyeda-pro/    # 内嵌 EasyEDA Pro 通道（Bridge）
 ├── development/        # 中文 Action 与 Provider 开发说明
 ├── schemas/            # 可移植机器 Contract
 ├── scripts/            # Action、器件工具、校验和打包
