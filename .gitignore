@@ -6,3 +6,4 @@ __pycache__/
 Thumbs.db
 # Locally downloaded EDA tools; not part of the portable skill or its release.
 PCBAutoRouter/
+adapters/**/node_modules/

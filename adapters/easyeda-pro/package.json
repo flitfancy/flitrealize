@@ -1,0 +1,15 @@
+{
+  "name": "flitrealize-easyeda-pro",
+  "version": "1.1.22",
+  "description": "EasyEDA Pro bridge channel for FlitRealize (vendored from easyeda-api-skill)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "server": "node scripts/bridge-server.mjs",
+    "bridge": "node scripts/bridge-control.mjs ensure",
+    "bridge:status": "node scripts/bridge-control.mjs status"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}
