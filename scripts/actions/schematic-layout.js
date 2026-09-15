@@ -75,12 +75,17 @@ return await (async () => {
   function inferRole(component) {
     const designator = component.designator || '';
     const role = String(component.role || '').toLowerCase();
-    if (/^J/.test(designator)) return 'connector';
-    if (/^SW/.test(designator)) return 'switch';
+    // Explicit Contract/catalog role text wins over designator prefixes.
+    if (role.includes('connector')) return 'connector';
     if (role.includes('charger')) return 'charger';
     if (role.includes('buck') || role.includes('boost') || role.includes('converter')) return 'converter';
     if (role.includes('regulator') || role.includes('ldo')) return 'regulator';
     if (role.includes('protect')) return /^U/.test(designator) ? 'protection-ic' : 'protection';
+    if (role.includes('switch')) return 'switch';
+    // JP/SJ/LJ are jumpers/solder-bridges, not board connectors.
+    if (/^(JP|SJ|LJ)/i.test(designator)) return 'passive';
+    if (/^J\d+$/.test(designator)) return 'connector';
+    if (/^SW/.test(designator)) return 'switch';
     if (/^[UI]/.test(designator)) return 'main-ic';
     return 'passive';
   }

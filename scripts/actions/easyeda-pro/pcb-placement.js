@@ -11,6 +11,18 @@ return await (async () => {
     for (const char of JSON.stringify(value)) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0;
     return `fnv1a32-${hash.toString(16).padStart(8, '0')}`;
   }
+  /** DOCHEAD rewrites client/updateTime/version on every read; compare only stable source identity. */
+  function normalizeSource(source) {
+    if (typeof source !== 'string' || !source) return source;
+    const marker = '"docType"';
+    const start = source.indexOf(marker);
+    if (start < 0) return source;
+    return source.slice(0, start)
+      + source.slice(start)
+        .replace(/"client":"[^"]*"/, '"client":"<volatile>"')
+        .replace(/"updateTime":\d+/, '"updateTime":0')
+        .replace(/"version":"\d+"/, '"version":"<volatile>"');
+  }
   function read(object, key) {
     if (typeof object?.[`getState_${key}`] !== 'function') fail('GEOMETRY_READ_FAILED', `Missing getter ${key}.`);
     const result = object[`getState_${key}`]();
@@ -67,9 +79,10 @@ return await (async () => {
       routingCounts[type] = ['Via', 'Pour'].includes(type) ? items.length : items.filter(item => copper(read(item, 'Layer'))).length;
     }
     await assertTarget(target);
-    if (await eda.sys_FileManager.getDocumentSource() !== source) fail('SNAPSHOT_CHANGED', 'Source changed during geometry readback.');
+    const later = await eda.sys_FileManager.getDocumentSource();
+    if (normalizeSource(later) !== normalizeSource(source)) fail('SNAPSHOT_CHANGED', 'Source changed during geometry readback.');
     const state = { target, source, components, regions, routingCounts };
-    state.fingerprint = fingerprint(state);
+    state.fingerprint = fingerprint({ target, source: normalizeSource(source), components, regions, routingCounts });
     return state;
   }
   function configInput(value) {

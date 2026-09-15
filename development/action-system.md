@@ -96,6 +96,20 @@ inspect → plan → apply → verify
 
 保存是独立操作。无法真正恢复的操作不声明 rollback。
 
+## PCB 源码快照与 DOCHEAD
+
+EasyEDA Pro 的 `getDocumentSource()` 每次读取都会重写 DOCHEAD 中的会话字段（至少 `client`、`updateTime`/`version`）。这些字段变化**不等于**板图被修改。
+
+凡比较「读源码 → 再读 → 是否仍一致」或把源码纳入 fingerprint 的 PCB Action，必须在比较/哈希前规范化 DOCHEAD，禁止全文 `!==`。参考实现见 `pcb-placement.js` / `pcb-trace-width.js` / `pcb-net-color.js` 的 `normalizeSource()`：
+
+- 将 `"client":"…"`、`"version":"…"` 替换为占位；
+- 将 `"updateTime":<数字>` 置 0；
+- fingerprint 只吃规范化后的 source + 几何/对象表。
+
+解析源码记录型 fingerprint 时（如 ground Action），应忽略 `DOCHEAD` 等纯会话记录类型。原理图 reflow 已按整行过滤 `"type":"DOCHEAD"`。
+
+这条规则写死在脚本里，不交给运行时模型判断。
+
 ## 临时运行文件
 
 一次执行产生的输入、Bridge 片段和报告可以放在：

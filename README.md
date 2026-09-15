@@ -8,7 +8,7 @@ FlitRealize is a Skill for complete hardware projects, carrying an idea forward 
 
 Each project uses one `CURRENT_HANDOFF.md` as its human-readable project manuscript, keeping requirements, parts, schematic, PCB, manufacturing, and prototype results on one continuous project line. The Contract, EDA source, and manufacturing artifacts continue to own their corresponding machine facts.
 
-> Current stable release: **FlitRealize `v1.1.0`**. See the [release notes](CHANGELOG.md#110---2026-09-14) and [first-run guide](docs/first-run.md).
+> Current stable release: **FlitRealize `v1.2.0`**. See the [release notes](CHANGELOG.md#120---2026-09-15) and [first-run guide](docs/first-run.md).
 
 ## What it does
 

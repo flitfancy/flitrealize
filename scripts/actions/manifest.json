@@ -154,6 +154,22 @@
     }
   },
   "actions": {
+    "pcb-board-outline": {
+      "file": "easyeda-pro/pcb-board-outline.js",
+      "description": "在 BOARD_OUTLINE 层用 Polyline 创建或替换矩形板框，回读闭合几何并可单独保存。",
+      "discovery": {
+        "keywords": ["板框", "板边", "outline", "board outline", "矩形板框"],
+        "reference": "references/providers/easyeda-pro/3.2-pcb-foundation.md",
+        "limitations": ["只用 pcb_PrimitivePolyline.create，不用 Line 写 layer 11。", "默认拒绝覆盖已有板框；replace:true 时仅允许替换唯一已有板框。", "矩形或显式 path；不自动从器件包围盒推导板框。"]
+      },
+      "contractVersion": 1, "domain": "pcb", "runtime": "eda", "providers": ["easyeda-pro"], "defaultMode": "inspect",
+      "modes": { "inspect": { "mutates": false }, "plan": { "mutates": false }, "apply": { "mutates": true }, "verify": { "mutates": false }, "save": { "mutates": true } },
+      "requires": {
+        "all": ["document.current", "project.current", "polyline.list", "math.polygon.create"],
+        "apply": ["polyline.create", "polyline.delete"],
+        "save": ["pcb.document.save"]
+      }
+    },
     "pcb-placement": {
       "file": "easyeda-pro/pcb-placement.js",
       "description": "比较 PCB 功能块平移或器件布局方案，检查空白、锁定、重叠与预留区，并执行明确的未布线器件移动。",

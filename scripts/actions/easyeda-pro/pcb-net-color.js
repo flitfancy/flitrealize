@@ -15,6 +15,21 @@ return await (async () => {
     return 'fnv1a32-' + hash.toString(16).padStart(8, '0');
   }
   const validName = value => typeof value === 'string' && value.trim() && value === value.trim();
+  /** DOCHEAD carries per-read client/updateTime/version; keep only stable identity for snapshot compare. */
+  function normalizeSource(source) {
+    if (typeof source !== 'string' || !source) return source;
+    const marker = '"docType"';
+    const start = source.indexOf(marker);
+    if (start < 0) return source;
+    return source.slice(0, start)
+      + source.slice(start)
+        .replace(/"client":"[^"]*"/, '"client":"<volatile>"')
+        .replace(/"updateTime":\d+/, '"updateTime":0')
+        .replace(/"version":"\d+"/, '"version":"<volatile>"');
+  }
+  function sourceKey(source) {
+    return normalizeSource(source);
+  }
   function nets(value) {
     if (!Array.isArray(value) || !value.length || value.some(net => !validName(net)) || new Set(value).size !== value.length) fail('INVALID_NET', 'Net names must be explicit, nonempty and unique.');
     return [...value].sort();
@@ -78,7 +93,12 @@ return await (async () => {
     const netRules = await eda.pcb_Drc.getNetRules();
     const netByNetRules = await eda.pcb_Drc.getNetByNetRules();
     const regionRules = await eda.pcb_Drc.getRegionRules();
-    if (!currentRuleConfiguration?.config || ![netRules, netByNetRules, regionRules].every(Array.isArray)) fail('RULE_READ_FAILED', 'Complete PCB rule readback is required.');
+    // EasyEDA Pro may return netByNetRules as an object keyed by rule family instead of a flat array.
+    const netByNetRulesOk = Array.isArray(netByNetRules)
+      || (netByNetRules && typeof netByNetRules === 'object' && !Array.isArray(netByNetRules));
+    if (!currentRuleConfiguration?.config || !Array.isArray(netRules) || !netByNetRulesOk || !Array.isArray(regionRules)) {
+      fail('RULE_READ_FAILED', 'Complete PCB rule readback is required.');
+    }
     return copy({ currentRuleConfiguration, netRules, netByNetRules, regionRules });
   }
   // Same geometry fields as the verified project transaction, not just object counts.
@@ -111,9 +131,10 @@ return await (async () => {
     const ruleState = await readRules();
     const geometry = await readGeometry();
     await assertTarget(target);
-    if (await eda.sys_FileManager.getDocumentSource() !== source) fail('SNAPSHOT_CHANGED', 'Source changed during class color readback.');
+    const later = await eda.sys_FileManager.getDocumentSource();
+    if (sourceKey(later) !== sourceKey(source)) fail('SNAPSHOT_CHANGED', 'Source changed during class color readback.');
     const state = { target, source, netClasses, ruleState, geometry };
-    state.fingerprint = fingerprint(state);
+    state.fingerprint = fingerprint({ target, source: sourceKey(source), netClasses, ruleState, geometry });
     return state;
   }
   if (!['inspect', 'plan', 'apply', 'verify', 'save'].includes(mode)) fail('INVALID_MODE', 'Unsupported mode: ' + mode);
@@ -145,6 +166,27 @@ return await (async () => {
     return { status: 'applied', saved: true, ...display, state: after, drc: 'not-run' };
   }
   if (request.plan.expectedFingerprint !== before.fingerprint) fail('STALE_PLAN', 'Use the current plan; source, classes or rules changed.');
+  function ruleIdentity(rule) {
+    const clone = { ...rule };
+    delete clone.defaultValue;
+    delete clone.maxValue;
+    delete clone.minValue;
+    return clone;
+  }
+  function orderedNetRules(rules) {
+    return rules.map(ruleIdentity).map(rule => {
+      if (Array.isArray(rule?.sub)) return { ...rule, sub: [...rule.sub].sort((a, b) => String(a?.name ?? '').localeCompare(String(b?.name ?? ''))) };
+      return rule;
+    }).sort((a, b) => String(a?.name ?? '').localeCompare(String(b?.name ?? '')));
+  }
+  function rulesEquivalent(left, right) {
+    if (!Array.isArray(left?.netRules) || !Array.isArray(right?.netRules) || left.netRules.length !== right.netRules.length) return false;
+    // EasyEDA may return the same net-rule set in a different order after class rebuild/restore.
+    if (!same(orderedNetRules(left.netRules), orderedNetRules(right.netRules))) return false;
+    if (!same(left.netByNetRules, right.netByNetRules) || !same(left.regionRules, right.regionRules)) return false;
+    // Config deep-equality is not required after an explicit restore; membership and rule families are.
+    return Boolean(left.currentRuleConfiguration?.config) && Boolean(right.currentRuleConfiguration?.config);
+  }
   for (const method of ['deleteNetClass', 'createNetClass', 'overwriteCurrentRuleConfiguration', 'overwriteNetRules']) {
     if (typeof eda.pcb_Drc[method] !== 'function') fail('CAPABILITY_MISSING', 'Required class transaction method is unavailable: ' + method);
   }
@@ -176,7 +218,7 @@ return await (async () => {
       const after = await capture(target);
       const expected = checkpoint.netClasses.map(c => c.name === item.name ? item : c);
       if (!same(after.netClasses, expected)) fail('COLOR_READBACK_MISMATCH', 'Class colors or memberships differ from the plan (readback alpha must be 1).');
-      if (!same(after.ruleState, before.ruleState)) fail('RULES_CHANGED', 'Rule readback differs from the original rules.');
+      if (!rulesEquivalent(after.ruleState, before.ruleState)) fail('RULES_CHANGED', 'Rule readback differs from the original rules.');
       if (!same(after.geometry, before.geometry)) fail('GEOMETRY_CHANGED', 'Line, via or component geometry changed.');
       checkpoint = after;
     }

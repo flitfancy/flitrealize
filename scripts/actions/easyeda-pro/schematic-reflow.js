@@ -60,6 +60,51 @@ return await (async () => {
   const flags=allComponents.filter(c=>['netflag','netport'].includes(c.getState_ComponentType()));
   if(phase==='initial'&&(wires.length||flags.length))throw new Error('Initial pass requires an unconnected sheet; use complete to preserve connections');
   if(allComponents.some(c=>!c.getState_Designator()&&!['netflag','netport'].includes(c.getState_ComponentType())))throw new Error('Unsupported component/marker without a layout owner');
+  const getter=(object,name,fallback=null)=>typeof object?.[name]==='function'?object[name]():fallback;
+  const pinNumber=pin=>String(getter(pin,'getState_PinNumber')??getter(pin,'getState_Number')??getter(pin,'getState_Name')??'').trim();
+  function readNoConnectBoolean(pin){
+    const value=getter(pin,'getState_NoConnected',getter(pin,'getState_NoConnect',undefined));
+    return typeof value==='boolean'?value:null;
+  }
+  async function snapshotNoConnects(components,pinMap){
+    const map=new Map();
+    for(const c of components){
+      const designator=String(c.getState_Designator()||'').trim();
+      if(!designator)continue;
+      const pins=pinMap?.get(c.getState_PrimitiveId())||await c.getAllPins();
+      for(const pin of pins){
+        const number=pinNumber(pin);
+        if(!number)continue;
+        const nc=readNoConnectBoolean(pin);
+        if(nc===true)map.set(designator+'.'+number,true);
+      }
+    }
+    return map;
+  }
+  async function restoreNoConnects(expected){
+    if(!expected.size)return {restored:0};
+    if(typeof eda.sch_PrimitivePin?.modify!=='function')throw new Error('PIN_API_UNAVAILABLE: sch_PrimitivePin.modify is required to restore no-connect markers after reflow');
+    const live=await eda.sch_PrimitiveComponent.getAll();
+    const restored=[];
+    for(const c of live){
+      const designator=String(c.getState_Designator()||'').trim();
+      if(!designator)continue;
+      const pins=await c.getAllPins();
+      for(const pin of pins){
+        const key=designator+'.'+pinNumber(pin);
+        if(!expected.has(key))continue;
+        const current=readNoConnectBoolean(pin);
+        if(current===true){restored.push(key);continue;}
+        if(!await eda.sch_PrimitivePin.modify(pin,{noConnected:true}))throw new Error('PIN_RESTORE_FAILED: could not set no-connect on '+key);
+        restored.push(key);
+      }
+    }
+    for(const key of expected.keys())if(!restored.includes(key))throw new Error('PIN_RESTORE_FAILED: missing pin '+key+' after reflow import');
+    return {restored:restored.length};
+  }
+  const noConnectSnapshot=await snapshotNoConnects(allComponents,pinsById);
+  // Preflight only when restore will be required; empty boards need no pin write API.
+  if(noConnectSnapshot.size&&typeof eda.sch_PrimitivePin?.modify!=='function')throw new Error('PIN_API_UNAVAILABLE: sch_PrimitivePin.modify is required before reflow when no-connect markers exist');
   const canonical=source=>source.split(/\r?\n/).filter(l=>l&&!l.includes('"type":"DOCHEAD"')).join('\n');
   const hash=text=>{
     let n=0x811c9dc5;
@@ -654,11 +699,18 @@ function translateSource(model,deltas) {
   if(changed) {
     if(!await eda.sys_FileManager.setDocumentSource(planned.source))throw new Error('Reflow source import rejected; inspect current state before retrying');
     await new Promise(resolve=>setTimeout(resolve,500));
+    // Pin-level no-connect is not in the source codec; restore after the import replaces geometry.
+    const ncRestore=await restoreNoConnects(noConnectSnapshot);
+    if(noConnectSnapshot.size)summary.noConnectRestore={expected:noConnectSnapshot.size,restored:ncRestore.restored};
   }
   const readback=await eda.sys_FileManager.getDocumentSource();
   if(canonical(readback)!==canonical(planned.source))throw new Error('Reflow readback mismatch; retain the plan backup and inspect current state');
   if(!await eda.sch_Document.save())throw new Error('Document save failed; inspect current state and retain the plan backup');
   const saved=await eda.sys_FileManager.getDocumentSource();
   if(canonical(saved)!==canonical(planned.source))throw new Error('Saved source differs from reflow plan');
+  if(noConnectSnapshot.size){
+    const afterNc=await snapshotNoConnects(await eda.sch_PrimitiveComponent.getAll());
+    for(const key of noConnectSnapshot.keys())if(!afterNc.has(key))throw new Error('PIN_RESTORE_FAILED: no-connect lost after save: '+key);
+  }
   return {...summary,status:'applied',readOnly:false,saved:true,changed,afterFingerprint:hash(canonical(saved))};
 })();

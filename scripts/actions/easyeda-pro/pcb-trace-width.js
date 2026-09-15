@@ -10,6 +10,18 @@ return await (async () => {
     for (const char of JSON.stringify(value)) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193) >>> 0;
     return `fnv1a32-${hash.toString(16).padStart(8, '0')}`;
   }
+  /** DOCHEAD rewrites client/updateTime/version on every read; compare only stable source identity. */
+  function normalizeSource(source) {
+    if (typeof source !== 'string' || !source) return source;
+    const marker = '"docType"';
+    const start = source.indexOf(marker);
+    if (start < 0) return source;
+    return source.slice(0, start)
+      + source.slice(start)
+        .replace(/"client":"[^"]*"/, '"client":"<volatile>"')
+        .replace(/"updateTime":\d+/, '"updateTime":0')
+        .replace(/"version":"\d+"/, '"version":"<volatile>"');
+  }
   function read(object, name) {
     if (typeof object?.[`getState_${name}`] !== 'function') fail('LINE_READ_FAILED', `Missing line getter: ${name}`);
     const value = object[`getState_${name}`]();
@@ -40,9 +52,10 @@ return await (async () => {
     const records = lines.map(lineSnapshot).sort((a, b) => a.primitiveId.localeCompare(b.primitiveId));
     if (new Set(records.map(r => r.primitiveId)).size !== records.length) fail('DUPLICATE_ID', 'Line IDs are not unique.');
     await assertTarget(target);
-    if (await eda.sys_FileManager.getDocumentSource() !== source) fail('SNAPSHOT_CHANGED', 'Source changed during line readback.');
+    const later = await eda.sys_FileManager.getDocumentSource();
+    if (normalizeSource(later) !== normalizeSource(source)) fail('SNAPSHOT_CHANGED', 'Source changed during line readback.');
     const state = { target, source, lines: records };
-    state.fingerprint = fingerprint(state);
+    state.fingerprint = fingerprint({ target, source: normalizeSource(source), lines: records });
     return state;
   }
   function resolveRules(rules, state) {

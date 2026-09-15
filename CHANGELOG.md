@@ -2,6 +2,34 @@
 
 All notable changes to FlitRealize will be recorded here.
 
+## [1.2.0] - 2026-09-15
+
+修复现场暴露的 EasyEDA 兼容问题，并补齐可执行板框入口。硬件阶段文档结构不变。
+
+### 新增
+
+- **`pcb-board-outline`**：在 `BOARD_OUTLINE`（layer 11）用 `pcb_PrimitivePolyline.create` + `pcb_MathPolygon.createPolygon` 创建或替换矩形板框。默认拒绝覆盖已有板框；`replace: true` 仅允许替换唯一已有板框。发现关键词：「板框」。说明见 [3.2](references/providers/easyeda-pro/3.2-pcb-foundation.md)。
+- 能力探测补充 `polyline.create` / `polyline.delete`。
+
+### 修复
+
+- **DOCHEAD 快照误报**：EasyEDA 每次 `getDocumentSource()` 会重写 DOCHEAD 的 `client` / `updateTime` / `version`。`pcb-placement`、`pcb-trace-width`、`pcb-net-color` 改为规范化后再比较与计算 fingerprint；真改图仍会 `STALE` / `SNAPSHOT_CHANGED`。规则写入 [development/action-system.md](development/action-system.md)，由脚本写死，不交给运行时模型判断。
+- **`schematic-layout` 角色推断**：`JP` / `SJ` / `LJ` 不再因 `/^J/` 被当成 connector；Contract/catalog 的 role 文本优先；仅 `J`+数字按 connector。
+- **`schematic-reflow` NC 恢复**：`setDocumentSource` 不携带 pin 级 `noConnected`。apply 前快照 NC；有 NC 且缺少 `sch_PrimitivePin.modify` 时写前失败；import 后写回并在 save 后复核，失败硬报错。
+
+### 升级注意
+
+- 旧 plan 的 fingerprint 因源规范化可能失效，需重新 plan（预期行为）。
+- reflow 前若原理图含 NC，必须保证 pin API 可用；无 NC 时行为与原先一致。
+- 板框入口目前通过 `action-runner` 调用，尚未挂入 `pcb-edit.mjs` 的 ACTIONS 集合。
+
+### 发布验证
+
+- `scripts/validate.py` 全部通过。
+- 全部 Node 测试通过（含 `pcb-board-outline`）。
+
+[完整代码对比：v1.1.0 → v1.2.0](https://github.com/flitfancy/flitrealize/compare/v1.1.0...v1.2.0)
+
 ## [1.1.0] - 2026-09-14
 
 在 v1.0.0 之上补齐「clone 后即可冷启动」所需内容：内嵌 EasyEDA Pro 通道，并新增首次使用说明。硬件业务 Action 与通用 `eda-host` 契约不变。

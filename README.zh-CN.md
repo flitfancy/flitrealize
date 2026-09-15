@@ -8,7 +8,7 @@ FlitRealize 是一个面向完整硬件项目的 Skill，用来把想法持续�
 
 每个项目使用一个 `CURRENT_HANDOFF.md` 作为人类主文稿，把需求、器件、原理图、PCB、制造和样机结果保存在同一条项目主线上。Contract、EDA 和制造文件继续保存对应的机器事实。
 
-> 当前正式版本：**FlitRealize `v1.1.0`**。变化见[发布说明](CHANGELOG.md#110---2026-09-14)；首次安装与冷启动见[首次使用说明](docs/first-run.md)。
+> 当前正式版本：**FlitRealize `v1.2.0`**。变化见[发布说明](CHANGELOG.md#120---2026-09-15)；首次安装与冷启动见[首次使用说明](docs/first-run.md)。
 
 ## 它能做什么
 
