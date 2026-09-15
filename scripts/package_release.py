@@ -18,6 +18,22 @@ ZIP_CREATE_SYSTEM = 3
 ZIP_VERSION = 20
 
 
+def adapter_runtime_files() -> list[Path]:
+    """Ship adapter sources only; never node_modules or other dependency trees."""
+    root = ROOT / "adapters"
+    if not root.is_dir():
+        return []
+    collected: list[Path] = []
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if "node_modules" in path.parts:
+            continue
+        if path.suffix in {".mjs", ".md"} or path.name in {"package.json", "package-lock.json"}:
+            collected.append(path)
+    return sorted(collected)
+
+
 def runtime_files() -> list[Path]:
     return [
         ROOT / "LICENSE",
@@ -36,10 +52,7 @@ def runtime_files() -> list[Path]:
         *sorted((ROOT / "scripts/actions").rglob("*.js")),
         *sorted((ROOT / "scripts/parts").rglob("*.mjs")),
         *sorted((ROOT / "scripts/lib").rglob("*.mjs")),
-        *sorted((ROOT / "adapters").rglob("*.mjs")),
-        *sorted((ROOT / "adapters").glob("*/package.json")),
-        *sorted((ROOT / "adapters").glob("*/package-lock.json")),
-        *sorted((ROOT / "adapters").rglob("*.md")),
+        *adapter_runtime_files(),
         *sorted((ROOT / "schemas").glob("*.json")),
         *sorted((ROOT / "references").rglob("*.md")),
         ROOT / "development/action-system.md",
