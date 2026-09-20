@@ -8,7 +8,7 @@ FlitRealize is an agent skill for requirements, parts, schematics, PCB work, man
 
 Each project keeps one `CURRENT_HANDOFF.md`: the current objective at the top, followed by design decisions, constraints, sources, and verification results. The skill advances the stage you request and preserves context for the next task.
 
-> **Release status:** the latest published release is `v1.2.0`. The `main` branch adds bundled View State, fixed PCB signal colors, and updated handoff conventions; these are not in the existing v1.2.0 download. See [Unreleased](CHANGELOG.md#unreleased).
+> **Current release: `v1.3.0`** — bundled View State, fixed PCB signal colors, and updated handoff conventions. [Download the runtime ZIP](https://github.com/flitfancy/flitrealize/releases/tag/v1.3.0) · [Release notes](CHANGELOG.md#130---2026-09-20).
 
 ## What you can do
 

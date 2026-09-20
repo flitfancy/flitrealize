@@ -2,7 +2,9 @@
 
 All notable changes to FlitRealize will be recorded here.
 
-## [Unreleased]
+## [1.3.0] - 2026-09-20
+
+将 View State 作为 Skill 的内置组件分发，并更新 PCB 配色及项目交接流程。
 
 ### 新增
 
@@ -20,9 +22,18 @@ All notable changes to FlitRealize will be recorded here.
 
 ### 升级注意
 
-- 现有 v1.2.0 发布包不包含以上更新；本节记录当前开发分支，尚未发布新的版本标签。
+- View State 从本版本开始随运行包分发，启动命令为 `node view-state/server.mjs --project-root "<项目绝对路径>"`，无需额外安装或构建。
 - 旧配色指纹计划、独立 verify/save 与配色 `--resume-save` 已停用，需要使用新计划；上游仍负责确定用途及维护 EDA 中已有网络类。
 - View State 是可选的只读面板，旧主文稿缺少梗概标记时仍可读取原文，不会自动补写内容。
+
+### 发布验证
+
+- 184 项 Node 测试通过，包含 Skill 与 View State；29 项 Python 发布工具测试通过。
+- 仓库校验、Skill 校验及待提交内容扫描通过。
+- PowerShell 发布检查通过，干净 ZIP 验证覆盖 View State CLI、HTTP 服务、静态资源，以及原有原理图和 PCB 模拟流程。
+- 本次集成不连接 EDA 写入实板；模拟验证和历史实板记录分别保留。
+
+[完整代码对比：v1.2.0 → v1.3.0](https://github.com/flitfancy/flitrealize/compare/v1.2.0...v1.3.0)
 
 ## [1.2.0] - 2026-09-15
 

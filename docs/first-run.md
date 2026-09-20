@@ -24,7 +24,7 @@
 
 ## 查看项目交接（View State）
 
-当前开发分支已内置 `view-state/`，之后构建的运行 ZIP 也包含它；现有 v1.2.0 下载包尚不包含。需要 Node.js 22+ 和浏览器，无需 npm 安装或连接 EDA。
+从 v1.3.0 开始，源码和运行 ZIP 均内置 `view-state/`。需要 Node.js 22+ 和浏览器，无需 npm 安装或连接 EDA。
 
 可以直接要求 `$flitrealize 为 <项目绝对路径> 打开 View State`，或在 Skill 根目录运行：
 

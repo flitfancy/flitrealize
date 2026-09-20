@@ -8,7 +8,7 @@ FlitRealize 是一个覆盖需求、器件、原理图、PCB、制造准备与�
 
 每个项目维护一份 `CURRENT_HANDOFF.md`：顶部说明当前目标和下一步，正文保留设计理由、约束、资料来源与验证结果。每次只推进你要求的阶段，并把后续工作需要的上下文留在项目里。
 
-> **版本状态：**最新已发布版本为 `v1.2.0`。当前 `main` 已加入 View State、固定 PCB 信号配色和新的交接约定；现有 v1.2.0 下载包尚不包含这些更新。详见[未发布更新](CHANGELOG.md#unreleased)。
+> **当前版本：`v1.3.0`**，内置 View State、固定 PCB 信号配色和新的交接约定。[下载运行包](https://github.com/flitfancy/flitrealize/releases/tag/v1.3.0) · [发布说明](CHANGELOG.md#130---2026-09-20)。
 
 ## 能做什么
 
