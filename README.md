@@ -8,7 +8,7 @@ FlitRealize is an agent skill for requirements, parts, schematics, PCB work, man
 
 Each project keeps one `CURRENT_HANDOFF.md`: the current objective at the top, followed by design decisions, constraints, sources, and verification results. The skill advances the stage you request and preserves context for the next task.
 
-> **Current release: `v1.3.0`** — bundled View State, fixed PCB signal colors, and updated handoff conventions. [Download the runtime ZIP](https://github.com/flitfancy/flitrealize/releases/tag/v1.3.0) · [Release notes](CHANGELOG.md#130---2026-09-20).
+> **Current release: `v1.3.1`** — View State opens when the skill starts a new project or first takes over an existing one. Includes the viewer and PCB color workflows introduced in v1.3.0. [Download the runtime ZIP](https://github.com/flitfancy/flitrealize/releases/tag/v1.3.1) · [Release notes](CHANGELOG.md#131---2026-09-20).
 
 ## What you can do
 
@@ -51,7 +51,9 @@ Keep the project directory separate from the skill repository. Topic-specific gu
 
 View State ships in **this repository and newly built runtime ZIPs** under `view-state/`. It needs Node.js 22+ and a browser, with no third-party npm runtime dependencies or build step.
 
-Ask the skill to open it:
+The skill opens the project's panel after confirming the project directory when starting a new project or first taking over an existing one. It reuses an existing service, respects an explicit opt-out, and continues hardware work if the viewer cannot start. Later operations update the handoff without reopening the panel.
+
+You can also ask the skill to open it:
 
 ```text
 $flitrealize Open View State for the project at <PROJECT_ROOT>.

@@ -8,7 +8,7 @@ FlitRealize 是一个覆盖需求、器件、原理图、PCB、制造准备与�
 
 每个项目维护一份 `CURRENT_HANDOFF.md`：顶部说明当前目标和下一步，正文保留设计理由、约束、资料来源与验证结果。每次只推进你要求的阶段，并把后续工作需要的上下文留在项目里。
 
-> **当前版本：`v1.3.0`**，内置 View State、固定 PCB 信号配色和新的交接约定。[下载运行包](https://github.com/flitfancy/flitrealize/releases/tag/v1.3.0) · [发布说明](CHANGELOG.md#130---2026-09-20)。
+> **当前版本：`v1.3.1`**，新建项目或首次接管项目时自动打开 View State，包含 v1.3.0 引入的面板和 PCB 配色流程。[下载运行包](https://github.com/flitfancy/flitrealize/releases/tag/v1.3.1) · [发布说明](CHANGELOG.md#131---2026-09-20)。
 
 ## 能做什么
 
@@ -51,7 +51,9 @@ $flitrealize 继续 <PROJECT_ROOT> 的硬件项目。
 
 View State 位于本仓库的 **`view-state/`**，也随之后构建的运行 ZIP 一起分发。需要 Node.js 22+ 和浏览器，没有第三方 npm 运行依赖，无需构建。
 
-直接让 Skill 打开：
+新建项目或首次接管已有项目时，Skill 确认项目目录后会主动打开面板，优先复用已有服务。明确表示不需要面板时跳过；面板启动失败不阻塞硬件工作。后续操作更新主文稿，不重复打开页面。
+
+也可以直接让 Skill 打开：
 
 ```text
 $flitrealize 为 <PROJECT_ROOT> 打开 View State。

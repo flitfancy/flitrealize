@@ -26,7 +26,9 @@
 
 从 v1.3.0 开始，源码和运行 ZIP 均内置 `view-state/`。需要 Node.js 22+ 和浏览器，无需 npm 安装或连接 EDA。
 
-可以直接要求 `$flitrealize 为 <项目绝对路径> 打开 View State`，或在 Skill 根目录运行：
+从 v1.3.1 开始，新建项目或首次接管项目时，Skill 确认项目根目录后主动打开面板。已有服务优先复用，后续操作不重复打开；用户明确不需要时跳过，环境不可用时继续硬件工作。
+
+也可以直接要求 `$flitrealize 为 <项目绝对路径> 打开 View State`，或在 Skill 根目录运行：
 
 ```sh
 node view-state/server.mjs --project-root "<项目绝对路径>"
