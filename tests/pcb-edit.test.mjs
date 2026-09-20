@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { runPcbEdit } from '../scripts/pcb-edit.mjs';
 import { pcbFixture } from './helpers/pcb-tools-fixture.mjs';
 import { pcbActionExecutor } from './helpers/pcb-edit-fixture.mjs';
+import { loadAction } from './helpers/action-harness.mjs';
 
 const inputs = {
   'pcb-net-color': { rules: [{ nets: ['PWR'], color: '#FF0000' }] },
@@ -15,8 +16,103 @@ const inputs = {
   'pcb-placement': { boardBounds: { minX: 0, minY: 0, maxX: 1000, maxY: 500 }, lockedDesignators: ['U1'], reservedRegions: [], placements: [{ designator: 'R1', x: 200, y: 200 }] },
 };
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
+const routing = await loadAction('pcb-routing-plan');
 
-async function fixture(t, action = 'pcb-net-color', overrides = {}) {
+test('routing kind reaches the color wrapper, opaque readback and save', async t => {
+  for (const [style, expected] of [
+    [{ kind: 'power' }, { r: 216, g: 92, b: 92, alpha: 1 }],
+    [{ kind: 'i2c_scl' }, { r: 40, g: 116, b: 91, alpha: 1 }],
+    [{ kind: 'i2c_sda' }, { r: 70, g: 130, b: 180, alpha: 1 }],
+    [{ color: '#112233' }, { r: 17, g: 34, b: 51, alpha: 1 }],
+    [{ kind: 'power', color: '#112233' }, { r: 17, g: 34, b: 51, alpha: 1 }],
+  ]) {
+    const f = await fixture(t, 'pcb-net-color');
+    const generated = await routing(null, { ...f.target, rules: { units: 'mil', classes: [
+      { name: 'PWR', nets: ['PWR'], priority: 1, widthMil: 25, ...style },
+    ] } });
+    assert.ok(generated.colorPlanRequest, 'Routing must emit a color request for kind as well as color');
+    await writeFile(f.inputFile, JSON.stringify(generated.colorPlanRequest));
+    const result = await runPcbEdit({ ...f.options, apply: true });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.saved, true);
+    assert.deepEqual(f.calls, ['plan', 'apply']);
+    assert.deepEqual(f.scene.netClasses.find(c => c.name === 'PWR').color, expected);
+  }
+});
+
+test('color preview and apply expose the same assignments through the command entrypoint', async t => {
+  const f = await fixture(t, 'pcb-net-color', { save: true, rules: [{ name: 'PWR', kind: 'power' }] });
+  const preview = await runPcbEdit(f.options);
+  assert.equal(preview.saved, null);
+  assert.equal(f.scene.saves, 0);
+  const planned = (await json(preview.steps[0].reportFile)).response.result;
+  assert.deepEqual(preview.assignments, planned.assignments);
+  assert.equal(preview.changedCount, planned.changedCount);
+  const applied = await runPcbEdit({ ...f.options, apply: true });
+  assert.deepEqual(applied.assignments, preview.assignments);
+  assert.equal(applied.changedCount, preview.changedCount);
+  assert.equal(applied.saved, true);
+  const repeated = await runPcbEdit({ ...f.options, apply: true });
+  assert.equal(repeated.changedCount, 0);
+  assert.deepEqual(repeated.assignments, preview.assignments);
+  assert.equal(f.scene.writes.length, 2);
+});
+
+test('routing preserves multi-class selection and same-kind colors through apply', async t => {
+  const f = await fixture(t, 'pcb-net-color');
+  const generated = await routing(null, { ...f.target, rules: { units: 'mil', classes: [
+    { name: 'PWR', nets: ['PWR'], priority: 1, widthMil: 25, kind: 'power' },
+    { name: 'SIG', nets: ['SIG'], priority: 2, widthMil: 8, kind: 'power' },
+  ] } });
+  await writeFile(f.inputFile, JSON.stringify(generated.colorPlanRequest));
+  const result = await runPcbEdit({ ...f.options, apply: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.changedCount, 2);
+  assert.deepEqual(result.assignments.map(c => c.hex), ['#D85C5C', '#D85C5C']);
+  assert.deepEqual(f.scene.netClasses.map(c => [c.name, c.nets]), [['PWR', ['PWR']], ['SIG', ['SIG']]]);
+  assert.equal(f.scene.saves, 1);
+});
+
+test('upstream requires complete coloring input and the corrected request can be passed directly to coloring', async t => {
+  const f = await fixture(t, 'pcb-net-color');
+  const input = { ...f.target, requireColor: true, netNames: ['PWR', 'SIG'], rules: { units: 'mil', classes: [
+    { name: 'PWR', nets: ['PWR'], priority: 1, widthMil: 25, kind: 'power' },
+    { name: 'SIG', nets: ['SIG'], priority: 2, widthMil: 8 },
+  ] } };
+  await assert.rejects(routing(null, input), { code: 'COLOR_KIND_REQUIRED' });
+  assert.equal(f.scene.writes.length, 0);
+  input.rules.classes[1].kind = 'enable';
+  const generated = await routing(null, input);
+  await writeFile(f.inputFile, JSON.stringify(generated.colorPlanRequest));
+  const result = await runPcbEdit({ ...f.options, apply: true });
+  assert.equal(result.ok, true);
+  assert.equal(result.saved, true);
+  assert.deepEqual(result.assignments.map(c => [c.name, c.nets, c.hex]), [
+    ['PWR', ['PWR'], '#D85C5C'], ['SIG', ['SIG'], '#009B77'],
+  ]);
+});
+
+test('routing rejects partial color groups; unspecified styling stays unchanged and unknown kinds cannot write', async t => {
+  const f = await fixture(t, 'pcb-net-color');
+  for (const style of [{ kind: 'power' }, { color: '#112233' }]) {
+    await assert.rejects(routing(null, { ...f.target, selectNets: ['PWR'], rules: { units: 'mil', classes: [
+      { name: 'PWR', nets: ['PWR', 'PWR2'], priority: 1, widthMil: 25, ...style },
+    ] } }), { code: 'PARTIAL_CLASS_COLOR' });
+  }
+  const input = { ...f.target, rules: { units: 'mil', classes: [
+    { name: 'PWR', nets: ['PWR'], priority: 1, widthMil: 25 },
+  ] } };
+  assert.equal((await routing(null, input)).colorPlanRequest, undefined);
+  input.rules.classes[0].kind = 'unknown-kind';
+  const generated = await routing(null, input);
+  await writeFile(f.inputFile, JSON.stringify(generated.colorPlanRequest));
+  const result = await runPcbEdit({ ...f.options, apply: true });
+  assert.equal(result.ok, false);
+  assert.equal(f.scene.writes.length, 0);
+  assert.equal(f.scene.saves, 0);
+});
+
+async function fixture(t, action = 'pcb-trace-width', overrides = {}) {
   const projectRoot = await mkdtemp(join(tmpdir(), 'flitrealize-pcb-edit-'));
   t.after(() => rm(projectRoot, { recursive: true, force: true }));
   const { scene, eda, target } = pcbFixture();
@@ -41,20 +137,65 @@ test('default plans preserve source and retain a separate report for each suppor
   }
 });
 
-test('explicit apply chains apply, verify, save and verification after save for all three Actions', async t => {
+test('wrapper uses two calls for color and the separate verification/save flow for layout and width', async t => {
   for (const action of Object.keys(inputs)) {
     const f = await fixture(t, action);
     const result = await runPcbEdit({ ...f.options, apply: true });
     assert.equal(result.status, 'verified', JSON.stringify(result));
     assert.equal(result.ok, true); assert.equal(result.saved, true); assert.equal(result.readOnly, false);
-    assert.deepEqual(f.calls, ['plan', 'apply', 'verify', 'save', 'verify']);
+    assert.deepEqual(f.calls, action === 'pcb-net-color' ? ['plan', 'apply'] : ['plan', 'apply', 'verify', 'save', 'verify']);
     assert.equal(f.scene.saves, 1); assert.equal(f.scene.writes.length, action === 'pcb-net-color' ? 2 : 1);
     for (const step of result.steps) {
       assert.equal((await json(step.inputFile)).mode, step.mode);
       assert.equal((await json(step.reportFile)).mode, step.mode);
     }
-    assert.equal((await json(result.resumeSaveReport)).response.result.status, 'applied');
+    if (action !== 'pcb-net-color') assert.equal((await json(result.resumeSaveReport)).response.result.status, 'applied');
   }
+});
+
+test('color wrapper preserves save outcomes and stops after a failed or unknown apply', async t => {
+  for (const failure of ['write', 'save', 'after-save', 'transport']) {
+    const f = await fixture(t, 'pcb-net-color');
+    if (failure === 'write') f.eda.pcb_Drc.createNetClass = async () => false;
+    if (failure === 'save') f.eda.pcb_Document.save = async () => false;
+    if (failure === 'after-save') f.eda.pcb_Document.save = async () => {
+      f.scene.netClasses.find(c => c.name === 'PWR').color.alpha = 0;
+      return true;
+    };
+    const invoke = async (action, input, context) => {
+      if (failure === 'transport' && input.mode === 'apply') throw Object.assign(new Error('lost reply'), { code: 'ETIMEDOUT' });
+      return f.invoke(action, input, context);
+    };
+    const result = await runPcbEdit({ ...f.options, invoke, apply: true });
+    assert.equal(result.ok, false);
+    assert.equal(result.saved, failure === 'write' ? false : failure === 'after-save' ? true : null);
+    assert.equal(result.status, failure === 'transport' ? 'outcome-unknown' : 'apply-failed');
+    assert.deepEqual(result.steps.map(s => s.mode), ['plan', 'apply']);
+    assert.equal(result.resumeSaveReport, undefined);
+    assert.equal(result.changedCount, null, 'A failed apply must not report the preview count as completed work');
+  }
+});
+
+test('color rejects a returned result for another PCB even when action and status match', async t => {
+  const f = await fixture(t, 'pcb-net-color');
+  const invoke = async (...args) => {
+    const report = await f.invoke(...args);
+    if (args[1].mode === 'apply') report.response.result.target = { ...f.target, expectedDocumentUuid: 'foreign-pcb' };
+    return report;
+  };
+  const result = await runPcbEdit({ ...f.options, invoke, apply: true });
+  assert.equal(result.ok, false);
+  assert.equal(result.status, 'outcome-unknown');
+  assert.equal(result.saved, null);
+});
+
+test('routing rejects invalid class names and incomplete targets instead of generating unusable requests', async () => {
+  const { target } = pcbFixture();
+  const rules = { units: 'mil', classes: [{ name: 'PWR', nets: ['PWR'], kind: 'power', priority: 1, widthMil: 25 }] };
+  await assert.rejects(routing(null, { ...target, rules: { ...rules, classes: [{ ...rules.classes[0], name: ' PWR ' }] } }), { code: 'INVALID_CLASS' });
+  await assert.rejects(routing(null, { expectedProjectUuid: target.expectedProjectUuid, rules }), { code: 'TARGET_REQUIRED' });
+  await assert.rejects(routing(null, { ...target, expectedDocumentUuid: ' ', rules }), { code: 'TARGET_REQUIRED' });
+  assert.equal((await routing(null, { rules })).colorPlanRequest, undefined);
 });
 
 const scenarios = [
@@ -98,7 +239,7 @@ test('failed writes stop with their partial-change report and do not verify or s
 test('verification mismatch stops before saving while retaining the successful apply report', async t => {
   const f = await fixture(t);
   const invoke = async (action, input, context) => {
-    if (input.mode === 'verify') f.scene.netClasses.find(item => item.name === 'PWR').color.alpha = 1 / 255;
+    if (input.mode === 'verify') f.scene.lines[0].lineWidth = 99;
     return f.invoke(action, input, context);
   };
   const result = await runPcbEdit({ ...f.options, invoke, apply: true });
@@ -110,7 +251,7 @@ test('a change after saving fails the final verification and preserves the confi
   const f = await fixture(t);
   let verifications = 0;
   const invoke = async (action, input, context) => {
-    if (input.mode === 'verify' && ++verifications === 2) f.scene.netClasses.find(item => item.name === 'PWR').color.alpha = 1 / 255;
+    if (input.mode === 'verify' && ++verifications === 2) f.scene.lines[0].lineWidth = 99;
     return f.invoke(action, input, context);
   };
   const result = await runPcbEdit({ ...f.options, invoke, apply: true });
@@ -131,7 +272,7 @@ test('save failure resumes from either workflow or apply report without replayin
     const result = await runPcbEdit({ projectRoot: f.projectRoot, invoke: f.invoke, apply: true,
       resumeSave: kind === 'workflow' ? failed.reportFile : failed.resumeSaveReport });
     assert.equal(result.status, 'verified', JSON.stringify(result)); assert.equal(result.saved, true);
-    assert.deepEqual(f.calls, ['verify', 'save', 'verify']); assert.equal(f.scene.writes.length, 2);
+    assert.deepEqual(f.calls, ['verify', 'save', 'verify']); assert.equal(f.scene.writes.length, 1);
     assert.equal(await readFile(failed.reportFile, 'utf8'), oldReport);
     assert.notEqual(result.reportFile, failed.reportFile);
     await assert.rejects(readFile(result.saveAttemptFile), { code: 'ENOENT' });
@@ -142,10 +283,10 @@ test('save recovery rejects a changed live fingerprint and cannot silently reapp
   const f = await fixture(t);
   const applied = await runPcbEdit({ ...f.options, apply: true });
   const saves = f.scene.saves;
-  f.scene.netClasses.find(item => item.name === 'PWR').color.alpha = 1 / 255; f.calls.length = 0;
+  f.scene.lines[0].lineWidth = 99; f.calls.length = 0;
   const result = await runPcbEdit({ projectRoot: f.projectRoot, invoke: f.invoke, apply: true, resumeSave: applied.resumeSaveReport });
   assert.equal(result.status, 'verify-failed'); assert.equal(f.scene.saves, saves);
-  assert.deepEqual(f.calls, ['verify']); assert.equal(f.scene.writes.length, 2);
+  assert.deepEqual(f.calls, ['verify']); assert.equal(f.scene.writes.length, 1);
 });
 
 test('save recovery validates action, successful apply, project-local location and request targets', async t => {

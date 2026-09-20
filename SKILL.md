@@ -25,6 +25,12 @@ Contract 保存机器设计意图，EDA 源文件和回读保存实际实现，�
 
 主文稿结构、稳定结果更新与续接方法见 [0.1 项目主文稿](references/0.1-continuation.md)。
 
+## 打开 View State
+
+用户要求打开交接面板或查看可视化进度时，按 [View State 启动步骤](view-state/README.md#由-skill-拉起面板)确认项目、复用或启动本机服务，并打开对应项目页面。入口为 `node <skill>/view-state/server.mjs --project-root <项目绝对路径>`，需要 Node.js 22+，无需安装 npm 依赖或连接 EDA。
+
+面板只读展示同一份主文稿。梗概更新按 [0.1](references/0.1-continuation.md)执行；纯查看时不补写主文稿或推断工程状态，日常设计也不需要反复启动面板。
+
 ## 工作方式
 
 1. 确认当前目标和阶段。首次进入、跨阶段或原入口已不适用时，按 [阶段地图](references/0.0-overview.md) 读本阶段说明，并检查 Skill 和当前项目已有工具。
@@ -50,7 +56,8 @@ Contract 保存机器设计意图，EDA 源文件和回读保存实际实现，�
 | 制造文件、BOM/CPL、板厂预览和原型下单 | [4.1 制造准备](references/4.1-production-handoff.md) |
 | 限流上电、功能/故障测试与改版 | [5.1 样机验证](references/5.1-prototype-validation.md) |
 | 用户要求的重复生产或正式发布 | [6.1 产品化](references/6.1-production-release.md) |
-| 音频项目的专用条件 | [1.3 音频设计](references/1.3-audio-systems.md) |
+
+专项参考使用 `D.x` 编号，不属于通用推进阶段。涉及音频硬件时，按需读取 [D.1 音频系统](references/domains/D.1-audio-systems.md)，在本次相关阶段应用其中要求。
 
 普通缺口不影响当前器件或连接时，可以保留为明确样机测试；影响身份、引脚、额定值或保护行为的关键事实须在对应实现前确认。法规或正式发布结论依赖适用标准和专业证据，本 Skill 本身不是发布证明。
 

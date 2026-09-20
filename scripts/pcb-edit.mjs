@@ -71,7 +71,7 @@ async function resumeApply(root, options) {
   const applied = record.response?.result;
   if (record.schemaVersion !== 2 || !ACTIONS.has(record.action) || record.mode !== 'apply' || record.mutates !== true
       || record.runtime !== 'eda' || record.provider !== 'easyeda-pro' || record.response?.success !== true
-      || applied?.status !== 'applied' || applied.saved !== false) {
+      || record.action === 'pcb-net-color' || applied?.status !== 'applied' || applied.saved !== false) {
     fail('INVALID_APPLY_REPORT', 'Resume saving requires a successful PCB apply report, not an arbitrary request or a failed write.');
   }
   if (typeof record.projectRoot !== 'string' || !record.projectRoot) fail('PROJECT_OWNERSHIP_REQUIRED', 'The apply report must record its local projectRoot; legacy reports without ownership require reconciliation.');
@@ -193,11 +193,12 @@ export async function runPcbEdit(options) {
       });
     }
     try {
-      for (const state of [result?.before, result?.after, result?.state]) if (state?.target) sameTarget(state.target, target);
+      for (const state of [result, result?.before, result?.after, result?.state]) if (state?.target) sameTarget(state.target, target);
     } catch (error) {
       if (mutates) error.workflowStatus = 'outcome-unknown';
       throw error;
     }
+    if (request.mode === 'apply') summary.saved = unknown ? null : result?.saved ?? null;
     if (request.mode === 'save' && !unknown && (result?.status || response?.status === 'error')) writeOutcomeUnknown = false;
     if (unknown || response?.success !== true || result?.status !== expectedStatus || (request.mode === 'save' && result.saved !== true)) {
       const error = new Error(result?.error?.message || response?.error?.message || `${name} did not complete: ${item.status}`);
@@ -205,12 +206,29 @@ export async function runPcbEdit(options) {
       error.workflowStatus = item.status === 'unknown' ? 'outcome-unknown' : name + '-failed';
       throw error;
     }
-    if (request.mode === 'apply') summary.saved = false;
     if (request.mode === 'save') summary.saved = true;
     return result;
   }
+  async function colorEdit() {
+    const planned = await step('plan', { ...input, mode: 'plan' }, 'planned');
+    summary.assignments = planned.assignments;
+    summary.changedCount = planned.changedCount;
+    if (!options.apply) { summary.status = 'planned'; summary.ok = true; return; }
+    if (planned.applyRequest?.mode !== 'apply' || planned.issues?.length) fail('BLOCKED_PLAN', 'Color plan has blockers or no apply request.');
+    summary.changedCount = null;
+    const applied = await step('apply', { ...planned.applyRequest, save: true }, 'applied');
+    if (applied.saved !== true) fail('SAVE_FAILED', 'Color apply did not confirm saving.');
+    summary.assignments = applied.assignments;
+    summary.changedCount = applied.changedCount;
+    summary.status = 'verified'; summary.ok = true;
+  }
   await persist();
   try {
+    if (action === 'pcb-net-color') {
+      await colorEdit();
+      await persist();
+      return summary;
+    }
     let applied = resumed?.applied;
     if (!resumed) {
       const planned = await step('plan', { ...input, mode: 'plan' }, 'planned');
@@ -276,6 +294,7 @@ const HELP = `Usage:
     [--window-id <id>]
   Optional: --report-dir <new-directory-with-existing-parent-inside-project>
 Default: plan only. --apply performs apply, verify, save, and verification after saving.
+Net color verifies and saves within apply; it does not use separate verify/save or --resume-save.
 Placement scenarios require an explicit unique --candidate before writing.
 Save recovery reads a successful apply report inside this project and never replays apply.
 Unknown/in-flight saves retain a project-local attempt marker and cannot be retried automatically.

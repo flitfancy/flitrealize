@@ -25,6 +25,19 @@ from package_release import (
 
 
 class RuntimePackagingTests(unittest.TestCase):
+    def test_view_state_runtime_and_assets_ship_without_its_tests(self) -> None:
+        packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
+        for entry in (
+            "view-state/server.mjs", "view-state/cli.mjs", "view-state/config.mjs",
+            "view-state/lib/project.mjs", "view-state/lib/handoff.mjs", "view-state/lib/bridge.mjs",
+            "view-state/public/index.html", "view-state/public/app.js", "view-state/public/app.css",
+            "view-state/public/document.html", "view-state/public/document.js",
+            "view-state/public/document.css", "view-state/public/format.mjs",
+            "view-state/public/names.mjs", "view-state/public/navigation.mjs",
+        ):
+            self.assertIn(entry, packaged)
+        self.assertFalse(any(path.startswith("view-state/tests/") for path in packaged))
+
     def test_nested_provider_actions_are_packaged(self) -> None:
         packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
         self.assertIn(

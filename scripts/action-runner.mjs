@@ -368,7 +368,7 @@ export function summarizeExecution(response, descriptor, reportFile = null, skil
     status: payload.status ?? response?.status ?? 'unknown',
     readOnly: payload.readOnly ?? !descriptor.mutates,
     saved: payload.saved ?? null,
-    documentUuid: document?.uuid ?? payload.plan?.expectedDocumentUuid ?? null,
+    documentUuid: document?.uuid ?? payload.target?.expectedDocumentUuid ?? payload.plan?.expectedDocumentUuid ?? null,
     fingerprints,
     counts,
     issueCount: [
@@ -377,7 +377,7 @@ export function summarizeExecution(response, descriptor, reportFile = null, skil
       payload.errors,
       payload.blockers,
     ].filter(Array.isArray).reduce((total, items) => total + items.length, 0),
-    nextRequestAvailable: Boolean(payload.nextRequest || payload.applyRequest),
+    nextRequestAvailable: Boolean(payload.nextRequest || payload.applyRequest || payload.widthPlanRequest || payload.colorPlanRequest),
     rollbackAvailable: Boolean(payload.rollbackRequest),
     bridge: {
       hostId: response?.hostId ?? null,

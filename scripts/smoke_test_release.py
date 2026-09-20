@@ -190,6 +190,22 @@ def main(archive: Path | None = None) -> int:
         if isolated_state.exists() or handoff_file.read_bytes() != handoff_bytes:
             fail("Handoff checking changed host or project state")
 
+        view_state_cli = run(
+            [node, str(extracted_root / "view-state/cli.mjs"), "--project-root", str(handoff_project)],
+            cwd=extracted_root, environment=environment,
+        )
+        if view_state_cli.returncode != 0 or json.loads(view_state_cli.stdout).get("documentExists") is not True:
+            fail(f"Packaged View State CLI failed: {view_state_cli.stderr}")
+        view_state_environment = {
+            **environment, "FLITREALIZE_TEST_VIEW_STATE_ROOT": str(extracted_root / "view-state"),
+        }
+        view_state_http = run(
+            [node, "--test", str(ROOT / "view-state/tests/view-state-http.test.mjs")],
+            cwd=extracted_root, environment=view_state_environment,
+        )
+        if view_state_http.returncode != 0 or isolated_state.exists() or handoff_file.read_bytes() != handoff_bytes:
+            fail(f"Packaged View State HTTP/read-only checks failed: {view_state_http.stdout}\n{view_state_http.stderr}")
+
         batch_help = run([node, str(extracted_root / "scripts/schematic-components.mjs"), "--help"], cwd=extracted_root, environment=environment)
         if batch_help.returncode != 0 or "--resume" not in batch_help.stdout or isolated_state.exists():
             fail("Packaged batch help failed or initialized an EDA host")
@@ -262,6 +278,7 @@ def main(archive: Path | None = None) -> int:
     print(f"[PASS] runtime entries: {len(expected_entries)} exact files")
     print("[PASS] packaged purpose discovery and domain isolation without host initialization")
     print("[PASS] packaged handoff integrity, stale input and unknown save state without mutations")
+    print("[PASS] packaged View State CLI, HTTP, reader assets and read-only boundaries")
     print("[PASS] packaged batch placement and partial-failure resume with isolated EDA mock")
     print("[PASS] packaged PCB layout, width, color and priority tools with isolated EDA mock")
     print("[PASS] packaged PCB wrapper and save-only recovery with isolated EDA mock")

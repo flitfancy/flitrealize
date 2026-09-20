@@ -7,11 +7,13 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const testRoot = join(root, 'tests');
-const testFiles = (await readdir(testRoot))
-  .filter((name) => name.endsWith('.test.mjs'))
-  .sort()
-  .map((name) => join(testRoot, name));
+const testRoots = [join(root, 'tests'), join(root, 'view-state', 'tests')];
+const testFiles = (await Promise.all(testRoots.map(async (testRoot) =>
+  (await readdir(testRoot))
+    .filter((name) => name.endsWith('.test.mjs'))
+    .sort()
+    .map((name) => join(testRoot, name))
+))).flat();
 
 if (testFiles.length === 0) {
   process.stderr.write('No Node test files found.\n');

@@ -22,6 +22,18 @@
 2. 需求 / Contract / 主文稿与具体 EDA 平台无关；写入或回读真实 EDA 文档时，才需要「通用宿主接口 + 当前 Provider 实现」。
 3. 当前唯一已实现的 Provider 是 **EasyEDA Pro**；接口本身按可替换 Provider 设计，不是写死嘉立创。
 
+## 查看项目交接（View State）
+
+当前开发分支已内置 `view-state/`，之后构建的运行 ZIP 也包含它；现有 v1.2.0 下载包尚不包含。需要 Node.js 22+ 和浏览器，无需 npm 安装或连接 EDA。
+
+可以直接要求 `$flitrealize 为 <项目绝对路径> 打开 View State`，或在 Skill 根目录运行：
+
+```sh
+node view-state/server.mjs --project-root "<项目绝对路径>"
+```
+
+打开 [127.0.0.1:49700](http://127.0.0.1:49700)，查看阶段导航、`ViewState:` 梗概和交接原文。梗概由 Skill 写入项目 `CURRENT_HANDOFF.md`，面板只读展示；没有梗概时可以继续阅读原文。服务复用和完整步骤见 [View State](../view-state/README.md)。
+
 ## 接口分层（先看懂这个）
 
 ```text

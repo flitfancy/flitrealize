@@ -13,7 +13,7 @@ from urllib.parse import unquote
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TEXT_SUFFIXES = {".js", ".json", ".md", ".mjs", ".py", ".ps1", ".txt", ".yaml", ".yml"}
+TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".md", ".mjs", ".py", ".ps1", ".txt", ".yaml", ".yml"}
 IGNORED_PARTS = {".git", ".flitrealize", "dist", "__pycache__", "node_modules"}
 
 
@@ -219,6 +219,9 @@ def main() -> int:
         ROOT / "scripts/scan_staged_secrets.py",
         ROOT / "scripts/smoke_test_release.py",
         ROOT / "scripts/actions/manifest.json",
+        ROOT / "view-state/server.mjs",
+        ROOT / "view-state/cli.mjs",
+        ROOT / "view-state/public/index.html",
         ROOT / "schemas/schematic-contract.v1.schema.json",
         ROOT / "schemas/schematic-placement-plan.v1.schema.json",
         ROOT / "schemas/schematic-snapshot.v1.schema.json",

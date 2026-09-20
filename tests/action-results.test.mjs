@@ -24,6 +24,11 @@ assert.deepEqual(withRequest.request, request);
 assert.equal(withRequest.bridge.sessionId, request.sessionId);
 assert.equal(withRequest.bridge.windowId, request.windowId);
 assert.equal(summarizeExecution({ success: true, request }, descriptor).ok, false);
+assert.equal(summarizeExecution({ success: true, result: { status: 'applied', target: { expectedDocumentUuid: 'pcb-color' } } }, descriptor).documentUuid, 'pcb-color');
+for (const key of ['colorPlanRequest', 'widthPlanRequest']) {
+  assert.equal(summarizeExecution({ success: true, result: { status: 'generated', [key]: { mode: 'plan', rules: [] } } },
+    { actionName: 'pcb-routing-plan', mode: 'generate', mutates: false }).nextRequestAvailable, true);
+}
 
 const runner = fileURLToPath(new URL('../scripts/action-runner.mjs', import.meta.url));
 const catalog = spawnSync(process.execPath, [runner, 'list', '--domain', 'schematic', '--full'], { encoding: 'utf8', windowsHide: true });

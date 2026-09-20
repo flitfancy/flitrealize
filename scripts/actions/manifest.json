@@ -204,26 +204,29 @@
     },
     "pcb-net-color": {
       "file": "easyeda-pro/pcb-net-color.js",
-      "description": "按项目色值重建指定已有 PCB 网络类，保留原成员和规则，使用不透明颜色，回读后单独保存。",
+      "description": "按固定用途/信号色表修改已有网络类；一次执行完成规则恢复、回读和可选保存。",
       "discovery": {
-        "keywords": ["配色", "线路颜色", "网络颜色", "net color", "pcb color"],
+        "keywords": ["配色","线路颜色","网络颜色","net color","pcb color"],
         "reference": "references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md",
         "entrypoint": "scripts/pcb-edit.mjs",
-        "limitations": ["仅重建选定已有网络类，不逐网络上色或清除历史覆盖；不自动建类或改变成员。", "颜色必须为 #RRGGBB，写入 alpha=255、回读 alpha=1；API 回读不能代替画布目视验证。"]
+        "limitations": ["仅重建选定已有网络类，不逐网络上色或清除历史覆盖；不自动建类或改变成员。","按 kind 固定着色，支持电源、地、逻辑供电、I2C、SPI、UART等信号；不猜用途或自动补色。显式色值优先，写入 alpha=255、回读 alpha=1。"]
       },
-      "contractVersion": 2, "domain": "pcb", "runtime": "eda", "providers": ["easyeda-pro"], "defaultMode": "inspect",
-      "modes": { "inspect": { "mutates": false }, "plan": { "mutates": false }, "apply": { "mutates": true }, "verify": { "mutates": false }, "save": { "mutates": true } },
-      "requires": { "all": ["document.current", "project.current", "file.documentSource", "drc.netClass.list", "drc.config.get", "drc.netRules.get", "drc.netByNetRules.get", "drc.regionRules.get", "line.list", "via.list", "component.list"], "apply": ["drc.netClass.delete", "drc.netClass.create", "drc.config.overwrite", "drc.netRules.overwrite"], "save": ["pcb.document.save"] }
+      "contractVersion": 4, "domain": "pcb", "runtime": "eda", "providers": ["easyeda-pro"], "defaultMode": "inspect",
+      "modes": { "inspect": { "mutates": false }, "plan": { "mutates": false }, "apply": { "mutates": true } },
+      "requires": {
+        "all": ["document.current","project.current","drc.netClass.list"],
+        "apply": ["drc.config.get","drc.netRules.get","drc.netByNetRules.get","drc.regionRules.get","drc.netClass.delete","drc.netClass.create","drc.config.overwrite","drc.netRules.overwrite","pcb.document.save"]
+      }
     },
     "pcb-routing-plan": {
       "file": "pcb-routing-plan.js",
-      "description": "离线整理 PCB 网络规则和走线优先级，按主干、局部与逃逸角色生成明确线段的线宽计划请求。",
+      "description": "离线整理 PCB 网络规则和走线优先级，检查输入网络清单与用途字段，生成明确线段的线宽计划请求。",
       "discovery": {
         "keywords": ["走线优先级", "布线顺序", "网络规则", "线宽分类", "routing priority", "net classes"],
         "reference": "references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md",
         "limitations": ["只生成有序计划及已有线段的改宽/配色请求，不实际布线或写入 EDA 网络类。", "排序不等于自动路由器已按优先级执行；后续执行者需逐组完成并核对证据。"]
       },
-      "contractVersion": 1, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "generate",
+      "contractVersion": 3, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "generate",
       "modes": { "generate": { "mutates": false } }
     },
     "schematic-reflow": {

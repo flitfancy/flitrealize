@@ -1,173 +1,121 @@
 # FlitRealize
 
-[English](README.md)
+**从硬件想法推进到可测试的样机，让设计、验证和下一步在不同任务之间持续衔接。**
 
-FlitRealize 是一个面向完整硬件项目的 Skill，用来把想法持续推进到可测试的实物。
+[English](README.md) · [首次使用](docs/first-run.md) · [View State 可视化](view-state/README.md) · [更新记录](CHANGELOG.md)
 
-中文是唯一维护和执行语言：修改根目录 [SKILL.md](SKILL.md)、`references/` 和 `development/` 中的中文说明。`docs/en-backup/` 是切换前的固定英文备份，不参与执行、不要求随中文同步；旧 `docs/zh-CN/` 只保留跳转。脚本、命令、API 和机器字段名不翻译。
+FlitRealize 是一个覆盖需求、器件、原理图、PCB、制造准备与样机验证的智能体 Skill。它把工程设计说明、可复用的 EasyEDA Pro 操作和 **View State 本地交接面板**放在同一个仓库中。
 
-每个项目使用一个 `CURRENT_HANDOFF.md` 作为人类主文稿，把需求、器件、原理图、PCB、制造和样机结果保存在同一条项目主线上。Contract、EDA 和制造文件继续保存对应的机器事实。
+每个项目维护一份 `CURRENT_HANDOFF.md`：顶部说明当前目标和下一步，正文保留设计理由、约束、资料来源与验证结果。每次只推进你要求的阶段，并把后续工作需要的上下文留在项目里。
 
-> 当前正式版本：**FlitRealize `v1.2.0`**。变化见[发布说明](CHANGELOG.md#120---2026-09-15)；首次安装与冷启动见[首次使用说明](docs/first-run.md)。
+> **版本状态：**最新已发布版本为 `v1.2.0`。当前 `main` 已加入 View State、固定 PCB 信号配色和新的交接约定；现有 v1.2.0 下载包尚不包含这些更新。详见[未发布更新](CHANGELOG.md#unreleased)。
 
-## 它能做什么
+## 能做什么
 
-```text
-想法和需求
-    → 架构、接口和器件意图
-    → 器件解析与确认
-    → 原理图设计
-    → EDA 原理图
-    → PCB 约束、布局和布线
-    → 制造文件与下单
-    → 样机上电和测试
-    → 改版
-```
+| 范围 | 当前支持的工作 |
+| --- | --- |
+| 需求与器件 | 架构、接口、电源关系、器件身份、手册资料与库存匹配 |
+| 原理图 | 可移植设计 Contract、引脚网络检查、批量放件、连接、重排和回读 |
+| PCB | 板框、布局候选、间距、指定线段改宽、接地工具与网络类配色 |
+| 制造与样机 | 源文件和输出对齐、BOM/CPL 交接、测量记录、未决事项与改版决定 |
+| 项目续接 | 一份项目主文稿、派生事实表，以及区分历史证据和当前验证的检查 |
+| View State | 阶段导航、人工编写的梗概、交接原文阅读、中英切换与本机桥接状态 |
 
-FlitRealize 理解完整流程，但每次只推进用户当前要求的阶段。
+当前已实现的 EDA Provider 是 EasyEDA Pro。没有 EDA 客户端时，也能完成需求、选型、计算与原理图设计 Contract；操作真实 EDA 文档时，需要客户端、API Gateway 和仓库内的 Adapter 通道，详见[首次使用说明](docs/first-run.md)。
 
-它适合：
-
-- 从需求和架构开始的新硬件项目；
-- 继续完成原理图、PCB、制造或样机验证的现有项目；
-- 需要在不同任务之间保持连续设计状态的项目；
-- 能够从器件资料、库存和 EDA 自动化中获益的工作。
-
-它不用于纯软件工作、孤立器件知识、教材问题，或不需要项目上下文的一步式 EDA 问题。
-
-## 项目主文稿
-
-`CURRENT_HANDOFF.md` 从项目开始持续更新，包括：
-
-- 当前目标、阶段和下一步；
-- 需求、架构、接口和电源树；
-- 器件选择和资料状态；
-- 原理图分块、引脚网络、计算和测试点；
-- PCB 约束、布局布线和制造状态；
-- 样机结果、改版决定和当前未决事项。
-
-普通续接先读取顶部当前交接和本次相关章节。只有接管缺少主文稿的旧项目、发生全局变化或发现实际冲突时，才重新检查整个项目。
-
-文稿可以较长：顶部摘要短，正文按稳定章节保留设计理由、限制、物理引脚/网络表，以及 PCB 功能块的成员、位置和布局理由。机器文件仍是各自事实的来源，主文稿提供可读视图，不退化成文件链接清单，也不为每个阶段另建一份交接。具体结构见 [0.1](references/0.1-continuation.md)。
-
-## 它怎样工作
-
-### 默认直接推进
-
-普通项目工作直接完成当前阶段需要的内容。不会影响当前设计的缺口可以转成明确的样机测试，不把每个任务扩展成正式评审。
-
-### 只在必要位置深入
-
-`CURIOUS_MODE` 是局部深入核验。
-
-只有准确型号、引脚、封装、关键行为、曲线、温升、保护功能或资料冲突确实影响当前判断时才进入。问题确认或转成具体测试后，继续普通工作。
-
-### AI 做判断，脚本做重复工作
-
-AI 负责需求、架构、电路、关键计算、器件判断和跨阶段整理。
-
-脚本负责：
-
-- 资料检索和下载；
-- 本地缓存和库存匹配；
-- 格式转换和去重；
-- Contract 检查；
-- 重复 EDA 操作。
-
-自动化服务于设计，不代替设计判断。
-
-## 三个主要阶段
-
-### 1. 设计与原理图
-
-把产品想法整理成需求、架构、接口、电源关系、器件决定和完整原理图设计。
-
-进入 EDA 前，确认影响器件身份、引脚、额定值、连接和保护行为的关键事实。
-
-### 2. PCB 与制造准备
-
-确定板框、接口、层叠、网络规则和关键布局关系，再完成布局、布线、铺铜和 DRC。
-
-准备制造时，让当前源文件、Gerber、钻孔、BOM、CPL 和板厂预览保持一致。
-
-### 3. 样机验证与改版
-
-检查实物和未上电电源轨，再限流上电。先确认电源轨，然后逐步启用功能，并测试当前产品需要的负载、上下电和故障行为。
-
-测量结果用于确认当前设计或形成下一版修改。
-
-## 器件和 EDA
-
-器件意图和原理图设计与具体 EDA 平台分开。
-
-电气身份、制造商型号、采购身份、资料依据以及 EDA 符号和封装绑定是相关但不同的事实。
-
-EasyEDA Pro 是当前已经实现的 EDA Provider，但不是使用 FlitRealize 的前提。没有 EasyEDA 时，项目仍然可以完成需求、架构、器件选择、计算和原理图 Contract。
+布线计划整理顺序和约束，不代表自动布线器已经执行。样机验证仍需要实物与仪表。计划、EDA 回读、保存、DRC 和实测结果分别记录，不混用为“已完成”。
 
 ## 开始使用
 
-详细冷启动、环境分层与 EDA 接入见 [docs/first-run.md](docs/first-run.md)。摘要如下。
-
-可以让 `$skill-installer` 从 GitHub 仓库安装，也可以把仓库放到：
-
-```text
-$HOME/.agents/skills/flitrealize
-```
-
-之后使用 `$flitrealize`。
+通过宿主的 Skill 安装器安装本仓库，或将仓库 clone 到宿主 Skill 目录，使 `flitrealize/` 下直接可见 `SKILL.md`。常见位置为 `$HOME/.agents/skills/flitrealize`。安装后新开任务，使用 `$flitrealize` 调用。
 
 开始新项目：
 
 ```text
-$flitrealize 从 <PROJECT_ROOT> 的空白项目开始设计。
-当前只完成需求、架构和器件候选，在我审阅前不要写入 EDA。
+$flitrealize 从 <PROJECT_ROOT> 开始一个硬件项目。
+这次完成需求、架构和器件候选。
+把设计说明与下一步写入 CURRENT_HANDOFF.md。
 ```
 
 继续现有项目：
 
 ```text
 $flitrealize 继续 <PROJECT_ROOT> 的硬件项目。
-读取 CURRENT_HANDOFF.md，然后完成我这次要求的设计工作。
+读取 CURRENT_HANDOFF.md，处理其中记录的 PCB 布局问题。
+同步更新受影响的设计章节和 ViewState 梗概。
 ```
 
-只处理一个阶段：
+项目目录与 Skill 仓库分开。[音频系统](references/domains/D.1-audio-systems.md)等专项知识按项目需要加载。
+
+## View State 可视化
+
+View State 位于本仓库的 **`view-state/`**，也随之后构建的运行 ZIP 一起分发。需要 Node.js 22+ 和浏览器，没有第三方 npm 运行依赖，无需构建。
+
+直接让 Skill 打开：
 
 ```text
-$flitrealize 检查当前原理图，只处理会改变连接、额定值、保护行为或样机结果的问题。
+$flitrealize 为 <PROJECT_ROOT> 打开 View State。
 ```
 
-下单、付款、预留库存或其他新的外部承诺，需要用户对该动作明确授权。
+也可以在仓库或解压后的 Skill 根目录运行，将 `<PROJECT_ROOT>` 替换为项目绝对路径：
 
-## 仓库结构
+```sh
+node view-state/server.mjs --project-root "<PROJECT_ROOT>"
+```
+
+打开 [127.0.0.1:49700](http://127.0.0.1:49700)。小窗提供阶段导航、项目切换、中英文界面、手动刷新与前台每五秒刷新；从梗概进入原文时，会定位到对应标题。
+
+Skill 在主文稿中编写 `ViewState:` 段落，面板按原文展示。缺少梗概或工程状态时明确显示未提供；桥接连接只表示本机连接情况，不代表设计已通过验证。面板只读取项目文件，不回写工程内容。
+
+需要 JSON 输出时运行：
+
+```sh
+node view-state/cli.mjs --project-root "<PROJECT_ROOT>"
+```
+
+启动步骤、端口设置与梗概约定见 [View State 说明](view-state/README.md)。
+
+## 当前 PCB 配色流程
+
+上层明确已有网络类的完整成员和信号用途 `kind`，也可提供显式 `#RRGGBB` 色值。固定用途覆盖电源、地、逻辑供电、I2C、SPI、UART 及常用控制信号；相同 kind 跨项目使用相同颜色。
+
+`pcb-routing-plan` 可对照输入的实际 PCB 网络清单检查覆盖范围，并生成配色请求；`pcb-edit` 衔接计划与执行，在执行内完成规则保留、回读和保存。着色模块不猜用途、不创建或拆分网络类。旧配色指纹计划及独立 verify/save 请求需要改为重新生成计划。
+
+完整字段、调用示例与能力边界见 [PCB 布局布线工具](references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md)。
+
+## 开发与验证
+
+中文 `SKILL.md`、`references/` 和 `development/` 是唯一维护的执行源。英文首页用于介绍项目；`docs/en-backup/` 保存固定历史快照，`docs/zh-CN/` 保留旧链接跳转。
 
 ```text
 flitrealize/
-├── SKILL.md            # 中文执行入口和全流程路由
-├── docs/first-run.md   # 首次使用与冷启动
-├── references/         # 中文阶段和 Provider 执行说明
-├── adapters/
-│   └── easyeda-pro/    # 内嵌 EasyEDA Pro 通道（Bridge）
-├── development/        # 中文 Action 与 Provider 开发说明
-├── schemas/            # 可移植机器 Contract
-├── scripts/            # Action、器件工具、校验和打包
-│   ├── actions/
-│   └── parts/
-├── tests/
-└── docs/
-    ├── en-backup/      # 固定英文快照（.bak），不参与执行
-    └── zh-CN/          # 旧链接兼容跳转，不维护第二份正文
+├── SKILL.md           Skill 入口与阶段路由
+├── references/        阶段、Provider 和专项参考
+├── adapters/          EasyEDA Pro 桥接通道
+├── schemas/           可移植原理图 Contract
+├── scripts/           Action、交接工具、校验与打包
+├── view-state/        本地面板、原文阅读、CLI 与测试
+├── tests/             Action 和发布工具回归测试
+├── development/       开发与 Action 系统说明
+└── docs/              首次使用与历史文档
 ```
 
-开发和修改仓库时运行：
+工具与面板需要 Node.js 22+；仓库校验和打包还需要 Python 3.10+。在源码仓库运行：
 
-```powershell
+```sh
 python scripts/validate.py
 npm test
+python -m unittest discover -s tests -p "test_*.py"
+```
+
+`npm test` 统一执行 Skill 和 View State 测试。完整 PowerShell 检查还会验证确定性打包及干净 ZIP 解压后的实际运行：
+
+```powershell
 ./scripts/release.ps1 -DryRun
 ```
 
-发布流程生成可复现 ZIP 和 SHA-256 文件，运行包使用原路径的中文执行说明，不包含英文备份。英文快照按原始 SHA-256 校验；修改中文不需要同步英文，也不要刷新备份哈希。旧 `scripts/update_translation_hashes.py` 已停用。
+运行包包含面板及静态资源，不包含测试、英文历史备份、本地项目记录、下载的安装包或 `node_modules`。这些检查本身不会发布新版本。
 
 ## 许可证
 
-FlitRealize 使用 [MIT License](LICENSE) 发布。Copyright (c) 2026 FlitFancy。
+[MIT](LICENSE) · Copyright (c) 2026 FlitFancy。

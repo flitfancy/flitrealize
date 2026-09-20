@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>View State · FlitRealize</title><link rel="stylesheet" href="./app.css"></head>
+<body>
+<div class="shell">
+  <header class="panel-header">
+    <strong class="brand">View State</strong>
+    <div class="header-controls">
+      <button id="runtimeBtn" class="bridge-status" aria-label="桥接状态">桥接</button>
+      <button id="langBtn">EN</button>
+      <button id="refreshBtn" aria-label="刷新 / Refresh" title="刷新 / Refresh">↻</button>
+    </div>
+  </header>
+  <button id="projectBtn" class="project-selector" title="切换项目">
+    <span class="project-copy"><span id="projectLabel">当前项目</span><strong id="projectName">选择项目</strong></span>
+    <span class="project-arrow" aria-hidden="true">⌄</span>
+  </button>
+  <div class="tree-toolbar"><span id="treeLabel">项目阶段</span><button id="collapseBtn" type="button">全部收起</button></div>
+  <div id="banner" role="status" hidden></div>
+  <main id="stages" aria-label="项目阶段树"></main>
+  <footer><a id="fullDocument" target="_blank" rel="noopener">交接文稿 ↗</a><span class="update-copy"><span id="footerNote">文稿更新</span><span id="updateTime"></span></span></footer>
+</div>
+<dialog id="projectDialog" aria-labelledby="projectDialogTitle">
+  <form id="projectForm">
+    <button type="button" id="closeProject" class="close" aria-label="关闭">×</button>
+    <h2 id="projectDialogTitle">打开项目</h2><p id="projectHelp">读取 CURRENT_HANDOFF.md 中的 ViewState 段落。</p>
+    <label id="pathLabel" for="projectRoot">项目绝对路径</label>
+    <input id="projectRoot" required autocomplete="off" spellcheck="false" placeholder="Absolute project path / 项目绝对路径">
+    <button id="openProjectBtn" type="submit" class="primary">打开项目 →</button>
+  </form>
+</dialog>
+<dialog id="bridgeDialog" aria-labelledby="bridgeTitle">
+  <button id="closeBridge" class="close" aria-label="关闭">×</button><h2 id="bridgeTitle">桥接状态</h2><p id="bridgeInfo"></p>
+</dialog>
+<script type="module" src="./app.js"></script>
+</body></html>

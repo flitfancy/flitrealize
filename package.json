@@ -5,6 +5,8 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node scripts/run-tests.mjs"
+    "test": "node scripts/run-tests.mjs",
+    "view-state": "node view-state/server.mjs",
+    "view-state:cli": "node view-state/cli.mjs"
   }
 }

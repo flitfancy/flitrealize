@@ -5,6 +5,11 @@ return await (async () => {
   const fail = (code, message) => { throw Object.assign(new Error(message), { code }); };
   const clone = value => JSON.parse(JSON.stringify(value));
   if ((request.mode ?? 'generate') !== 'generate') fail('INVALID_MODE', 'Only generate is supported; this action cannot route or modify PCB rules.');
+  if (Object.hasOwn(request, 'requireColor') && typeof request.requireColor !== 'boolean') fail('INVALID_COLOR_REQUIREMENT', 'requireColor must be a boolean.');
+  const netNames = request.netNames;
+  if (request.requireColor || netNames !== undefined) {
+    if (!Array.isArray(netNames) || !netNames.length || netNames.some(net => typeof net !== 'string' || !net.trim() || net !== net.trim()) || new Set(netNames).size !== netNames.length) fail('INVALID_NET_INVENTORY', 'Provide unique nonempty netNames read from the target PCB.');
+  }
   const rules = request.rules;
   if (rules?.units !== 'mil' || !Array.isArray(rules.classes) || !rules.classes.length) fail('INVALID_RULES', 'rules needs units: mil and nonempty classes.');
   const classNames = new Set(), byNet = new Map();
@@ -18,12 +23,13 @@ return await (async () => {
     positive(rules.qfnEscape.maxLengthMil, 'qfnEscape.maxLengthMil');
   }
   const classes = rules.classes.map((raw, index) => {
-    if (typeof raw?.name !== 'string' || !raw.name.trim() || classNames.has(raw.name) || !Number.isInteger(raw.priority) || raw.priority < 1 || !Array.isArray(raw.nets) || !raw.nets.length) fail('INVALID_CLASS', 'Each class needs a unique name, positive integer priority and nets.');
+    if (typeof raw?.name !== 'string' || !raw.name.trim() || raw.name !== raw.name.trim() || classNames.has(raw.name) || !Number.isInteger(raw.priority) || raw.priority < 1 || !Array.isArray(raw.nets) || !raw.nets.length) fail('INVALID_CLASS', 'Each class needs a unique name without surrounding whitespace, positive integer priority and nets.');
     classNames.add(raw.name);
     for (const field of widths) if (raw[field] !== undefined) positive(raw[field], `${raw.name}.${field}`);
     if (raw.widthMil === undefined && (raw.trunkWidthMil === undefined || raw.localWidthMil === undefined)) fail('WIDTH_REQUIRED', `${raw.name} needs widthMil or both trunkWidthMil and localWidthMil.`);
     if ((raw.viaHoleMil === undefined) !== (raw.viaDiameterMil === undefined) || (raw.viaHoleMil !== undefined && raw.viaDiameterMil <= raw.viaHoleMil)) fail('INVALID_VIA', `${raw.name} needs an outer via diameter greater than its hole.`);
-    if (Object.hasOwn(raw, 'color') && (typeof raw.color !== 'string' || !/^#[a-f0-9]{6}$/i.test(raw.color))) fail('INVALID_COLOR', 'Class color must be #RRGGBB; omit color to leave the class unchanged.');
+    if (Object.hasOwn(raw, 'color') && (typeof raw.color !== 'string' || !/^#[a-f0-9]{6}$/i.test(raw.color))) fail('INVALID_COLOR', 'Class color must be #RRGGBB.');
+    if (Object.hasOwn(raw, 'kind') && (typeof raw.kind !== 'string' || !raw.kind.trim() || raw.kind !== raw.kind.trim())) fail('INVALID_KIND', 'Color kind must be a nonempty palette key.');
     const item = { ...clone(raw), originalIndex: index };
     for (const net of raw.nets) {
       if (typeof net !== 'string' || !net.trim() || net !== net.trim() || byNet.has(net)) fail('DUPLICATE_NET', 'Each explicit network belongs to exactly one class.');
@@ -34,6 +40,12 @@ return await (async () => {
   if (rules.routingOrder !== undefined && JSON.stringify(rules.routingOrder) !== JSON.stringify(classes.map(c => c.name))) fail('ORDER_CONFLICT', 'routingOrder conflicts with numeric priority (ties retain class order).');
   const selected = request.selectNets === undefined ? [...byNet.keys()] : request.selectNets;
   if (!Array.isArray(selected) || !selected.length || new Set(selected).size !== selected.length || selected.some(net => !byNet.has(net))) fail('INVALID_NET_SELECTION', 'selectNets must be unique known nets.');
+  if (netNames !== undefined) {
+    const actualNets = new Set(netNames);
+    const missing = request.selectNets === undefined ? netNames.filter(net => !byNet.has(net)) : [];
+    const unknown = [...byNet.keys()].filter(net => !actualNets.has(net));
+    if (missing.length || unknown.length) fail('NET_COVERAGE_MISMATCH', 'Missing nets: ' + (missing.join(', ') || 'none') + '; unknown nets: ' + (unknown.join(', ') || 'none') + '.');
+  }
   const selection = new Set(selected);
   const sequence = classes.map(({ originalIndex, ...item }) => ({ ...item, nets: item.nets.filter(net => selection.has(net)) }))
     .filter(item => item.nets.length).map((item, i) => ({ order: i + 1, class: item, status: 'planned',
@@ -55,10 +67,16 @@ return await (async () => {
     return { net: assignment.net, primitiveIds: [...assignment.primitiveIds], targetWidthMil };
   });
   const target = { expectedDocumentUuid: request.expectedDocumentUuid, expectedProjectUuid: request.expectedProjectUuid };
-  const hasTarget = typeof target.expectedDocumentUuid === 'string' && target.expectedDocumentUuid.length > 0 && typeof target.expectedProjectUuid === 'string' && target.expectedProjectUuid.length > 0;
-  const colorRules = sequence.filter(item => Object.hasOwn(item.class, 'color')).map(item => {
-    if (item.class.nets.length !== byNet.get(item.class.nets[0]).nets.length) fail('PARTIAL_CLASS_COLOR', 'A color request must select the complete class; omit color when routing only a subset.');
-    return { name: item.class.name, nets: item.class.nets, color: item.class.color };
+  const hasTarget = Object.values(target).every(value => typeof value === 'string' && value.trim() && value === value.trim());
+  if ((request.requireColor || Object.keys(target).some(key => Object.hasOwn(request, key))) && !hasTarget) fail('TARGET_REQUIRED', 'Provide both project and PCB UUIDs; only plans without requireColor may omit both.');
+  const needsColor = item => Object.hasOwn(item.class, 'color') || Object.hasOwn(item.class, 'kind');
+  const colorSequence = request.requireColor || sequence.some(needsColor) ? sequence : [];
+  const missingColor = colorSequence.filter(item => !needsColor(item)).map(item => item.class.name);
+  if (missingColor.length) fail('COLOR_KIND_REQUIRED', `Every selected class needs an explicit kind or color for coloring. Missing: ${missingColor.join(', ')}. Classify these upstream; no name inference is performed.`);
+  const colorRules = colorSequence.map(item => {
+    if (item.class.nets.length !== byNet.get(item.class.nets[0]).nets.length) fail('PARTIAL_CLASS_COLOR', 'A color request must select the complete class; omit color and kind when routing only a subset.');
+    const { name, nets, color, kind } = item.class;
+    return { name, nets, ...(color === undefined ? {} : { color }), ...(kind === undefined ? {} : { kind }) };
   });
   return {
     schemaVersion: 1, status: 'generated', readOnly: true, units: 'mil', rules: clone(rules), sequence, widthRules, colorRules,

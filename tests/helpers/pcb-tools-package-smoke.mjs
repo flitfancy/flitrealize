@@ -19,10 +19,14 @@ for (const [name, input] of [
   const planned = await action(eda, { mode: 'plan', ...target, ...input });
   assert.equal(planned.status, 'planned'); assert.equal(scene.writes.length, 0);
   assert.throws(() => resolveActionRequest(manifest, name, planned.applyRequest, false), { code: 'WRITE_AUTHORIZATION_REQUIRED' });
-  const applied = await action(eda, planned.applyRequest);
-  assert.equal(applied.status, 'applied'); assert.equal(applied.saved, false);
-  assert.equal((await action(eda, applied.verifyRequest)).status, 'verified');
-  assert.equal((await action(eda, applied.saveRequest)).saved, true);
+  const applied = await action(eda, { ...planned.applyRequest, ...(name === 'pcb-net-color' ? { save: true } : {}) });
+  assert.equal(applied.status, 'applied');
+  if (name === 'pcb-net-color') assert.equal(applied.saved, true);
+  else {
+    assert.equal(applied.saved, false);
+    assert.equal((await action(eda, applied.verifyRequest)).status, 'verified');
+    assert.equal((await action(eda, applied.saveRequest)).saved, true);
+  }
   assert.equal(scene.saves, 1);
   if (name === 'pcb-trace-width') assert.deepEqual(scene.lines.map(l => l.lineWidth), [25, 6, 8]);
   if (name === 'pcb-placement') assert.deepEqual(scene.components.map(c => [c.x, c.y, c.rotation]), [[100, 100, 0], [200, 200, 90]]);

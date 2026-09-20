@@ -56,6 +56,11 @@ def runtime_files() -> list[Path]:
         *sorted((ROOT / "schemas").glob("*.json")),
         *sorted((ROOT / "references").rglob("*.md")),
         ROOT / "development/action-system.md",
+        ROOT / "view-state/README.md",
+        ROOT / "view-state/package.json",
+        *sorted((ROOT / "view-state").glob("*.mjs")),
+        *sorted((ROOT / "view-state/lib").glob("*.mjs")),
+        *sorted(path for path in (ROOT / "view-state/public").iterdir() if path.is_file()),
     ]
 
 

@@ -4,48 +4,11 @@ import { loadAction } from './helpers/action-harness.mjs';
 import { pcbFixture } from './helpers/pcb-tools-fixture.mjs';
 import { loadManifest, resolveActionRequest, summarizeExecution } from '../scripts/action-runner.mjs';
 
-const color = await loadAction('pcb-net-color', 'easyeda-pro');
 const placement = await loadAction('pcb-placement', 'easyeda-pro');
 const width = await loadAction('pcb-trace-width', 'easyeda-pro');
 const routing = await loadAction('pcb-routing-plan');
-const colorRules = [{ nets: ['PWR'], color: '#FF0000' }, { nets: ['SIG'], color: '#5F6673' }];
 const widthRules = [{ net: 'PWR', primitiveIds: ['l1'], targetWidthMil: 25 }];
 const layoutConfig = { boardBounds: { minX: 0, minY: 0, maxX: 1000, maxY: 500 }, lockedDesignators: ['U1'], reservedRegions: [], clearanceMil: 5, cellMil: 25 };
-
-test('PCB color plans without writes, applies and reads back, saves separately', async () => {
-  const { eda, scene, target } = pcbFixture();
-  const plan = await color(eda, { mode: 'plan', ...target, rules: colorRules });
-  assert.equal(scene.writes.length, 0);
-  assert.ok(plan.before.source);
-  const result = await color(eda, plan.applyRequest);
-  assert.equal(result.status, 'applied');
-  assert.equal(result.saved, false);
-  assert.deepEqual(scene.netClasses.find(item => item.name === 'PWR').color, { r: 255, g: 0, b: 0, alpha: 1 });
-  assert.deepEqual(scene.netClasses.find(item => item.name === 'SIG').color, { r: 95, g: 102, b: 115, alpha: 1 });
-  assert.equal((await color(eda, result.verifyRequest)).status, 'verified');
-  assert.equal((await color(eda, result.saveRequest)).saved, true);
-  assert.equal(scene.saves, 1);
-  await assert.rejects(color(eda, plan.applyRequest), { code: 'STALE_PLAN' });
-});
-
-test('missing color class and duplicate rules are rejected', async () => {
-  const { eda, scene, target } = pcbFixture();
-  await assert.rejects(color(eda, { mode: 'plan', ...target, rules: [{ nets: ['MISSING'], color: '#123456' }] }), { code: 'NET_CLASS_NOT_FOUND' });
-  await assert.rejects(color(eda, { mode: 'plan', ...target, rules: [...colorRules, colorRules[0]] }), { code: 'INVALID_NET' });
-  assert.equal(scene.writes.length, 0);
-});
-
-test('color partial failure and switched document never trigger blind rollback or retry', async () => {
-  const { eda, scene, target } = pcbFixture();
-  const plan = await color(eda, { mode: 'plan', ...target, rules: colorRules });
-  scene.afterWrite = () => { scene.documentUuid = 'other-pcb'; throw new Error('lost reply'); };
-  const result = await color(eda, plan.applyRequest);
-  assert.equal(result.status, 'apply-failed');
-  assert.deepEqual(result.attempted, ['PWR']);
-  assert.equal(result.after, null);
-  assert.equal(scene.writes.length, 1);
-  assert.equal(scene.saves, 0);
-});
 
 test('width changes only explicitly selected copper segments, preserves narrow escape and other nets', async () => {
   const { eda, scene, target } = pcbFixture();
@@ -204,7 +167,7 @@ test('routing plan sorts priorities, builds role-specific width/color requests w
   const { target } = pcbFixture();
   const rules = { units: 'mil', classes: [
     { name: 'signals', priority: 2, nets: ['SIG'], widthMil: 8, color: '#123456' },
-    { name: 'power', priority: 1, nets: ['PWR'], trunkWidthMil: 25, localWidthMil: 10 },
+    { name: 'power', priority: 1, nets: ['PWR'], trunkWidthMil: 25, localWidthMil: 10, kind: 'power' },
   ], qfnEscape: { widthMil: 6, maxLengthMil: 50 }, completedNets: ['PWR'] };
   const result = await routing(null, { mode: 'generate', ...target, rules, segmentAssignments: [
     { net: 'PWR', role: 'trunk', primitiveIds: ['l1'] }, { net: 'PWR', role: 'escape', primitiveIds: ['l2'] },
@@ -212,15 +175,43 @@ test('routing plan sorts priorities, builds role-specific width/color requests w
   assert.deepEqual(result.sequence.map(s => s.class.name), ['power', 'signals']);
   assert.deepEqual(result.widthRules.map(r => r.targetWidthMil), [25, 6]);
   assert.equal(result.widthPlanRequest.mode, 'plan');
-  assert.equal(result.colorPlanRequest.rules[0].color, '#123456');
+  assert.deepEqual(result.colorPlanRequest.rules, [
+    { name: 'power', nets: ['PWR'], kind: 'power' },
+    { name: 'signals', nets: ['SIG'], color: '#123456' },
+  ]);
   assert.equal(result.capabilities.autorouterPriorityApplied, false);
   assert.equal(result.capabilities.editorNetClassWritten, false);
   await assert.rejects(routing(null, { rules: { ...rules, routingOrder: ['signals', 'power'] } }), { code: 'ORDER_CONFLICT' });
   await assert.rejects(routing(null, { rules: { ...rules, classes: [...rules.classes, { name: 'again', priority: 3, nets: ['PWR'], widthMil: 8 }] } }), { code: 'DUPLICATE_NET' });
 });
 
+test('routing requires coloring information for every selected class without guessing names', async () => {
+  const { target } = pcbFixture();
+  const rules = { units: 'mil', classes: [
+    { name: 'POWER', nets: ['PWR'], priority: 1, widthMil: 20, kind: 'power' },
+    { name: 'I2C_SCL', nets: ['SCL'], priority: 2, widthMil: 8 },
+    { name: 'GND', nets: ['GND'], priority: 3, widthMil: 20 },
+  ] };
+  const before = structuredClone(rules);
+  for (const targets of [{}, target]) {
+    await assert.rejects(routing(null, { ...targets, rules }), error => {
+      assert.equal(error.code, 'COLOR_KIND_REQUIRED');
+      assert.match(error.message, /I2C_SCL, GND/);
+      return true;
+    });
+  }
+  const selected = await routing(null, { ...target, rules, selectNets: ['PWR'] });
+  assert.deepEqual(selected.colorPlanRequest.rules, [{ name: 'POWER', nets: ['PWR'], kind: 'power' }]);
+  const widthOnly = await routing(null, { ...target, rules, selectNets: ['SCL'], segmentAssignments: [
+    { net: 'SCL', role: 'signal', primitiveIds: ['clock-line'] },
+  ] });
+  assert.equal(widthOnly.colorPlanRequest, undefined);
+  assert.equal(widthOnly.widthPlanRequest.rules[0].targetWidthMil, 8);
+  assert.deepEqual(rules, before);
+});
+
 test('all PCB editing actions reject wrong targets and mixed-time snapshots without writing', async () => {
-  for (const [action, input] of [[color, { rules: colorRules }], [width, {}], [placement, {}]]) {
+  for (const [action, input] of [[width, {}], [placement, {}]]) {
     const { eda, scene, target } = pcbFixture();
     await assert.rejects(action(eda, { mode: 'inspect', ...target, expectedProjectUuid: 'wrong', ...input }), { code: 'TARGET_MISMATCH' });
     let reads = 0;
@@ -271,7 +262,7 @@ test('apply failures retain attempted IDs even when a write mutates then throws'
 
 test('failed saves can be retried independently; later manual edits invalidate verification/save evidence', async () => {
   for (const [action, input] of [
-    [color, { rules: colorRules }], [width, { rules: widthRules }],
+    [width, { rules: widthRules }],
     [placement, { ...layoutConfig, placements: [{ designator: 'R1', x: 200, y: 200 }] }],
   ]) {
     const { eda, scene, target } = pcbFixture(); if (action === placement) scene.lines = [];
@@ -295,7 +286,7 @@ test('failed saves can be retried independently; later manual edits invalidate v
 });
 
 test('save target switches are errors, not confirmed completion', async () => {
-  for (const [action, input] of [[color, { rules: colorRules }], [width, { rules: widthRules }], [placement, { ...layoutConfig, placements: [{ designator: 'R1', x: 200, y: 200 }] }]]) {
+  for (const [action, input] of [[width, { rules: widthRules }], [placement, { ...layoutConfig, placements: [{ designator: 'R1', x: 200, y: 200 }] }]]) {
     const { eda, scene, target } = pcbFixture(); if (action === placement) scene.lines = [];
     const applied = await action(eda, (await action(eda, { mode: 'plan', ...target, ...input })).applyRequest);
     eda.pcb_Document.save = async () => { scene.documentUuid = 'other'; return true; };
@@ -329,7 +320,7 @@ test('width catches collateral edits and unknown DRC instead of treating them as
 
 test('new PCB modes retain runner authorization and failed writes are non-success', async () => {
   const manifest = await loadManifest();
-  for (const name of ['pcb-placement', 'pcb-trace-width', 'pcb-net-color']) {
+  for (const name of ['pcb-placement', 'pcb-trace-width']) {
     for (const mode of ['apply', 'save']) {
       assert.throws(() => resolveActionRequest(manifest, name, { mode }, false), { code: 'WRITE_AUTHORIZATION_REQUIRED' });
       const descriptor = resolveActionRequest(manifest, name, { mode }, true);
@@ -340,4 +331,37 @@ test('new PCB modes retain runner authorization and failed writes are non-succes
   const descriptor = resolveActionRequest(manifest, 'pcb-routing-plan', {}, false);
   assert.equal(descriptor.runtime, 'host');
   assert.equal(descriptor.provider, null);
+});
+
+
+test('explicit coloring checks network inventory and does not silently become a routing-only plan', async () => {
+  const { target } = pcbFixture();
+  const input = { ...target, requireColor: true, netNames: ['PWR', 'GND'], rules: { units: 'mil', classes: [
+    { name: 'POWER', nets: ['PWR'], priority: 1, widthMil: 20, kind: 'power' },
+    { name: 'GROUND', nets: ['GND'], priority: 1, widthMil: 20, kind: 'ground' },
+  ] } };
+  const before = structuredClone(input);
+  assert.equal((await routing(null, input)).colorPlanRequest.rules.length, 2);
+  for (const netNames of [undefined, null, [], 'PWR', ['PWR', 'PWR'], [' PWR', 'GND'], ['PWR', 7]]) {
+    await assert.rejects(routing(null, { ...input, netNames }), { code: 'INVALID_NET_INVENTORY' });
+  }
+  for (const requireColor of ['true', 1, null]) {
+    await assert.rejects(routing(null, { ...input, requireColor }), { code: 'INVALID_COLOR_REQUIREMENT' });
+  }
+  await assert.rejects(routing(null, { ...input, rules: { ...input.rules, classes: [input.rules.classes[0]] } }), error => {
+    assert.equal(error.code, 'NET_COVERAGE_MISMATCH'); assert.match(error.message, /GND/); return true;
+  });
+  await assert.rejects(routing(null, { ...input, netNames: ['PWR'] }), { code: 'NET_COVERAGE_MISMATCH' });
+  const unstyled = input.rules.classes.map(({ kind, ...item }) => item);
+  await assert.rejects(routing(null, { ...input, rules: { units: 'mil', classes: unstyled } }), { code: 'COLOR_KIND_REQUIRED' });
+  const { expectedProjectUuid, expectedDocumentUuid, ...untargeted } = input;
+  await assert.rejects(routing(null, untargeted), { code: 'TARGET_REQUIRED' });
+  const local = await routing(null, { ...input, selectNets: ['PWR'], rules: { ...input.rules, classes: [input.rules.classes[0]] } });
+  assert.deepEqual(local.colorPlanRequest.rules, [{ name: 'POWER', nets: ['PWR'], kind: 'power' }]);
+  await assert.rejects(routing(null, { ...input, selectNets: ['PWR'], rules: { units: 'mil', classes: [
+    { name: 'ALL', nets: ['PWR', 'GND'], priority: 1, widthMil: 20, kind: 'power' },
+  ] } }), { code: 'PARTIAL_CLASS_COLOR' });
+  assert.equal((await routing(null, { rules: { units: 'mil', classes: unstyled } })).colorPlanRequest, undefined);
+  assert.equal((await routing(null, { ...input, requireColor: false, rules: { units: 'mil', classes: unstyled } })).colorPlanRequest, undefined);
+  assert.deepEqual(input, before);
 });
