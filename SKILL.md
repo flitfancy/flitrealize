@@ -61,6 +61,8 @@ Contract 保存机器设计意图，EDA 源文件和回读保存实际实现，�
 | 限流上电、功能/故障测试与改版 | [5.1 样机验证](references/5.1-prototype-validation.md) |
 | 用户要求的重复生产或正式发布 | [6.1 产品化](references/6.1-production-release.md) |
 
+PCB 实际操作按任务读取 [3.4 布局](references/providers/easyeda-pro/3.4-pcb-placement.md)、[3.5 布线规则](references/providers/easyeda-pro/3.5-pcb-routing-plan.md)、[3.6 线宽调整](references/providers/easyeda-pro/3.6-pcb-trace-width.md)或 [3.7 配色](references/providers/easyeda-pro/3.7-pcb-net-color.md)，不一次加载全部。布局独立展示；规则、改宽、配色同步主文稿“网络规则”的汇总表和 `ViewState:`，具体写回要求随操作说明提供。
+
 专项参考使用 `D.x` 编号，不属于通用推进阶段。涉及音频硬件时，按需读取 [D.1 音频系统](references/domains/D.1-audio-systems.md)，在本次相关阶段应用其中要求。
 
 普通缺口不影响当前器件或连接时，可以保留为明确样机测试；影响身份、引脚、额定值或保护行为的关键事实须在对应实现前确认。法规或正式发布结论依赖适用标准和专业证据，本 Skill 本身不是发布证明。

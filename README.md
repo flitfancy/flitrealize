@@ -83,7 +83,7 @@ Define each existing net class's full membership and signal `kind`, or an explic
 
 `pcb-routing-plan` can check the supplied PCB net inventory and generate a color request. `pcb-edit` runs color planning and application, including rule preservation, readback, and saving. The color action does not infer signal purposes or create/reclassify nets. Old color fingerprint plans and separate verify/save requests must be replaced with a fresh plan.
 
-See [PCB tools and color inputs](references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md) for exact contracts and capability limits.
+Operation guides are separate: [3.4 placement](references/providers/easyeda-pro/3.4-pcb-placement.md), [3.5 routing rules](references/providers/easyeda-pro/3.5-pcb-routing-plan.md), [3.6 trace widths](references/providers/easyeda-pro/3.6-pcb-trace-width.md), and [3.7 net colors](references/providers/easyeda-pro/3.7-pcb-net-color.md). Read the relevant guide; each defines its execution limits and handoff updates. View State keeps placement separate and combines rules, widths, and colors into a Network Rules table: net name, width, and a dot in the supplied color. The table and its source context live in the same handoff, distinguishing plans from readback; unknown colors appear as a dash.
 
 ## Develop and verify
 

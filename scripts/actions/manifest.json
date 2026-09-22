@@ -175,7 +175,7 @@
       "description": "比较 PCB 功能块平移或器件布局方案，检查空白、锁定、重叠与预留区，并执行明确的未布线器件移动。",
       "discovery": {
         "keywords": ["PCB布局", "布局优化", "功能块收束", "空白区域", "布局美化", "pcb layout", "placement", "空白检查"],
-        "reference": "references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md",
+        "reference": "references/providers/easyeda-pro/3.4-pcb-placement.md",
         "entrypoint": "scripts/pcb-edit.mjs",
         "limitations": ["矩形边界和保守包围盒检查；不是自动电气布局优化器。", "不移动锁定器件；有走线、过孔或铺铜时不执行移动，不自动清线。", "已通过隔离模拟测试；真实 EDA 新入口仍需代表对象验收。"]
       },
@@ -191,7 +191,7 @@
       "description": "按明确网络和线段 ID 计划、修改与回读 PCB 线宽，检查当前配置 DRC，并单独保存。",
       "discovery": {
         "keywords": ["线宽", "加粗", "主干宽度", "trace width"],
-        "reference": "references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md",
+        "reference": "references/providers/easyeda-pro/3.6-pcb-trace-width.md",
         "entrypoint": "scripts/pcb-edit.mjs",
         "limitations": ["必须指定线段 ID；不根据电流自动算宽、不修改网络类或自动路由器规则。", "不把全部同网线段统一加粗；焊盘逃逸、长度、过孔和实际载流能力另行核验。", "已通过隔离模拟测试；真实 EDA 新入口仍需代表对象验收。"]
       },
@@ -207,7 +207,7 @@
       "description": "按固定用途/信号色表修改已有网络类；一次执行完成规则恢复、回读和可选保存。",
       "discovery": {
         "keywords": ["配色","线路颜色","网络颜色","net color","pcb color"],
-        "reference": "references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md",
+        "reference": "references/providers/easyeda-pro/3.7-pcb-net-color.md",
         "entrypoint": "scripts/pcb-edit.mjs",
         "limitations": ["仅重建选定已有网络类，不逐网络上色或清除历史覆盖；不自动建类或改变成员。","按 kind 固定着色，支持电源、地、逻辑供电、I2C、SPI、UART等信号；不猜用途或自动补色。显式色值优先，写入 alpha=255、回读 alpha=1。"]
       },
@@ -223,7 +223,7 @@
       "description": "离线整理 PCB 网络规则和走线优先级，检查输入网络清单与用途字段，生成明确线段的线宽计划请求。",
       "discovery": {
         "keywords": ["走线优先级", "布线顺序", "网络规则", "线宽分类", "routing priority", "net classes"],
-        "reference": "references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md",
+        "reference": "references/providers/easyeda-pro/3.5-pcb-routing-plan.md",
         "limitations": ["只生成有序计划及已有线段的改宽/配色请求，不实际布线或写入 EDA 网络类。", "排序不等于自动路由器已按优先级执行；后续执行者需逐组完成并核对证据。"]
       },
       "contractVersion": 3, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "generate",

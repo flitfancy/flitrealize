@@ -34,7 +34,7 @@
 node view-state/server.mjs --project-root "<项目绝对路径>"
 ```
 
-打开 [127.0.0.1:49700](http://127.0.0.1:49700)，查看阶段导航、`ViewState:` 梗概和交接原文。梗概由 Skill 写入项目 `CURRENT_HANDOFF.md`，面板只读展示；没有梗概时可以继续阅读原文。服务复用和完整步骤见 [View State](../view-state/README.md)。
+打开 [127.0.0.1:49700](http://127.0.0.1:49700)，查看阶段导航、`ViewState:` 梗概和交接原文。梗概由 Skill 写入项目 `CURRENT_HANDOFF.md`，面板只读展示；没有梗概时可以继续阅读原文。PCB 的 3.4 显示布局，3.5 将布线规则、线宽调整和配色合为“网络名称／线宽／颜色”表，色值用小圆点显示，未知颜色为“—”。表格及计划／回读的来源说明由同一主文稿提供，写法见 [0.1 项目主文稿](../references/0.1-continuation.md#pcb-主题与面板对应)。旧记录仍可打开原文。服务复用和完整步骤见 [View State](../view-state/README.md)。
 
 ## 接口分层（先看懂这个）
 

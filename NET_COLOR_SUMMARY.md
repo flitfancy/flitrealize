@@ -1,6 +1,6 @@
 # PCB 网络配色当前约定
 
-本文件记录当前接口与历史验证范围；正式调用以 [PCB 工具说明](references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md)为准。
+本文件记录当前接口与历史验证范围；正式调用以 [网络配色说明](references/providers/easyeda-pro/3.7-pcb-net-color.md)为准。
 
 ## 职责与输入
 

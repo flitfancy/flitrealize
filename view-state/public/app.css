@@ -87,6 +87,20 @@ h3 { margin: 0 0 5px; color: #7c838f; font-size: 10px; font-weight: 600; }
 .synopsis { margin: 0 0 10px; font-size: 12px; line-height: 1.85; color: #424c5b; white-space: pre-wrap; }
 .synopsis code { font-size: .94em; background: #929aad15; padding: 1px 3px; border-radius: 3px; }
 .empty { margin: 0 0 9px; color: #818a99; font-size: 11px; line-height: 1.8; }
+.network-note { margin: 0 0 9px; color: #737e8d; font-size: 10px; line-height: 1.7; }
+.network-table-wrap { max-height: 340px; overflow: auto; margin: 0 -4px 10px; scrollbar-width: thin; scrollbar-color: #8d95a733 transparent; border: 1px solid var(--line); border-radius: 5px; }
+.network-table { border-collapse: separate; border-spacing: 0; width: 100%; table-layout: fixed; font-size: 10px; line-height: 1.5; }
+.net-name-col { width: 51%; } .net-width-col { width: 31%; } .net-color-col { width: 18%; }
+.network-table th, .network-table td { padding: 7px 4px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: middle; }
+.network-table thead th { position: sticky; top: 0; background: #edf1f6; color: #778290; z-index: 1; font-weight: 500; }
+.network-table thead small { display: block; font-size: 8px; font-weight: 400; }
+.network-table tbody th { font: 9px/1.6 Consolas, monospace; font-weight: 400; overflow-wrap: anywhere; }
+.network-table td { font-variant-numeric: tabular-nums; }
+.network-table td:last-child, .network-table thead th:last-child { text-align: center; }
+.network-table tbody tr:last-child > * { border-bottom: 0; }
+.network-table tbody tr:hover { background: #edf1f555; }
+.net-color-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; box-shadow: inset 0 0 0 1px #00000020, 0 0 0 2px #ffffff; vertical-align: middle; }
+.net-color-unknown { color: #a2aab6; }
 .source-link { display: inline-flex; align-items: center; padding: 3px 7px; border-radius: 4px; background: #edf1f5; color: #59758a; font-size: 10px; }
 footer { grid-row: 6; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 12px; border-top: 1px solid var(--line); background: #f7f7fa9c; }
 #updateTime { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }

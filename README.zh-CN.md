@@ -83,7 +83,7 @@ node view-state/cli.mjs --project-root "<PROJECT_ROOT>"
 
 `pcb-routing-plan` 可对照输入的实际 PCB 网络清单检查覆盖范围，并生成配色请求；`pcb-edit` 衔接计划与执行，在执行内完成规则保留、回读和保存。着色模块不猜用途、不创建或拆分网络类。旧配色指纹计划及独立 verify/save 请求需要改为重新生成计划。
 
-完整字段、调用示例与能力边界见 [PCB 布局布线工具](references/providers/easyeda-pro/3.4-pcb-layout-routing-tools.md)。
+操作说明分为 [3.4 布局与空间](references/providers/easyeda-pro/3.4-pcb-placement.md)、[3.5 布线规则](references/providers/easyeda-pro/3.5-pcb-routing-plan.md)、[3.6 线宽调整](references/providers/easyeda-pro/3.6-pcb-trace-width.md)、[3.7 网络配色](references/providers/easyeda-pro/3.7-pcb-net-color.md)，按任务读取。每份说明包含执行边界和交接写回要求；View State 保留布局项，将规则、改宽和配色合为“网络规则”表，显示网络名称、线宽及实际色值圆点。表格与来源说明写在同一份主文稿中，区分计划与回读结果；未知颜色显示“—”。
 
 ## 开发与验证
 

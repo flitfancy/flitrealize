@@ -1,6 +1,7 @@
 import {escapeHtml as esc,prose} from './format.mjs';
 import {navigation,sourceUrl} from './navigation.mjs';
 import {displayTitle} from './names.mjs';
+import {renderNetworkTable} from './network-table.mjs';
 const $=id=>document.getElementById(id);
 const storage={get(key){try{return localStorage.getItem(key);}catch{return null;}},set(key,value){try{localStorage.setItem(key,value);}catch{}}};
 const state={root:new URLSearchParams(location.search).get('projectRoot')||storage.get('view-state.projectRoot')||'',lang:storage.get('view-state.lang')||'en',snapshot:null,open:new Set(),error:'',controller:null,signature:''};
@@ -56,7 +57,17 @@ function content(node){
   if(node.kind==='mode')return '<p class="empty">'+tr('当前模式未提供。由 skill 明确记录 DEFAULT_MODE 或 CURIOUS_MODE 后再展示。','Current mode is not provided. The skill must explicitly supply DEFAULT_MODE or CURIOUS_MODE.')+'</p>'+source(null);
   if(node.kind==='bridge')return '<div class="field"><span>'+tr('连接','Connection')+'</span><strong data-bridge-label>'+esc(bridgeLabel())+'</strong></div><div class="field"><span>'+tr('地址','Address')+'</span><strong data-bridge-port></strong></div><p class="empty">'+tr('桥接连通不代表已核对当前工程。','A live bridge does not verify the current project.')+'</p>';
   const inventory=node.kind==='parts'?field(tr('库存匹配','Inventory match'),tr('未提供','Not provided')):'';
-  if(!node.sources.length)return inventory+'<p class="empty">'+tr('交接中尚未提供这一项的记录。','No record for this item in the handoff yet.')+'</p>'+source(null);
+  if(!node.sources.length){
+    return inventory+'<p class="empty">'+tr('交接中尚未提供这一项的记录。','No record for this item in the handoff yet.')+'</p>'+source(null);
+  }
+  if(node.kind==='networks'){
+    const tables=node.sources.filter(n=>n.networkTable);
+    if(!tables.length)return renderNetworkTable(null,state.lang)+node.sources.map(n=>source(n,n.title)).join('');
+    return tables.map(n=>'<section class="source-paragraph">'+(tables.length>1?'<h3>'+esc(n.title)+'</h3>':'')+
+      (n.summary?'<p class="network-note">'+prose(n.summary)+'</p>':'<p class="empty">'+tr('数据依据未说明，请查看原文。','Data basis not described; see the source.')+'</p>')+
+      renderNetworkTable(n.networkTable,state.lang)+source(n)+'</section>').join('')+
+      node.sources.filter(n=>!n.networkTable).map(n=>source(n,n.title)).join('');
+  }
   return inventory+node.sources.map(n=>'<section class="source-paragraph">'+(node.sources.length>1?'<h3>'+esc(n.title)+'</h3>':'')+(n.summary?'<p class="synopsis">'+prose(n.summary)+'</p>':'<p class="empty">'+tr('这一节尚未提供梗概。','No summary in this section yet.')+'</p>')+source(n)+'</section>').join('');
 }
 function item(node){
@@ -73,7 +84,7 @@ function render(){
   $('stages').innerHTML=roots.map(group=>'<details class="stage-group'+(group.current?' current':'')+'" data-key="'+group.id+'" '+(state.open.has(group.id)?'open':'')+'><summary><span class="group-code">'+group.code+'</span><span class="group-title">'+esc(title(group))+'</span>'+(group.current?'<span class="current-mark">'+tr('当前','NOW')+'</span>':'')+'<span class="chevron" aria-hidden="true">›</span></summary><div class="group-items">'+group.children.map(item).join('')+'</div></details>').join('')+
     (!roots.length?'<p class="empty">'+tr('选择项目，查看 skill 阶段树。','Choose a project to view the skill tree.')+'</p><button class="primary" data-project>'+tr('打开项目','Open project')+'</button>':'')+
     (state.snapshot&&!state.snapshot.documentExists?'<p class="empty">'+tr('此项目尚无交接文稿。','No handoff document exists.')+'</p>':'')+
-    (state.snapshot?.issues.length?'<p class="empty">'+tr('交接标记重复或阶段无法匹配，请检查原文。','Duplicate markers or unmatched stage; check the source.')+'</p>':'');
+    (state.snapshot?.issues.length?'<p class="empty">'+tr('交接梗概、表格或阶段格式有误，请检查原文。','Check the source: invalid summaries, tables or stage markers.')+'</p>':'');
   chrome();
   $('stages').scrollTop=scroll;
   if(focused)[...$('stages').querySelectorAll('details')].find(el=>el.dataset.key===focused)?.querySelector('summary')?.focus({preventScroll:true});

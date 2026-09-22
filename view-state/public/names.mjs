@@ -13,13 +13,17 @@ export const references = {
   '3.1': reference('3.1-pcb-review.md','PCB 设计与检查'),
   '3.2': reference(provider+'3.2-pcb-foundation.md','PCB 基础'),
   '3.3': reference(provider+'3.3-pcb-grounding.md','PCB 接地'),
-  '3.4': reference(provider+'3.4-pcb-layout-routing-tools.md','PCB 布局与布线工具'),
+  '3.4': reference(provider+'3.4-pcb-placement.md','布局与空间'),
+  '3.5': reference(provider+'3.5-pcb-routing-plan.md','布线规则与优先级'),
+  '3.6': reference(provider+'3.6-pcb-trace-width.md','线宽调整'),
+  '3.7': reference(provider+'3.7-pcb-net-color.md','网络配色'),
   '4.1': reference('4.1-production-handoff.md','制造交接'),
   '5.1': reference('5.1-prototype-validation.md','样机验证'),
   '6.1': reference('6.1-production-release.md','生产发布'),
 };
 // These are VS presentation groups/runtime fields, not reference-file aliases.
 const uiNames = {
+  'pcb-networks':['Network Rules','网络规则'],
   '0.x':['Project & Runtime','项目与运行'],
   '1.x':['Requirements & Parts','需求与器件'],
   '2.x':['Schematic','原理图'],

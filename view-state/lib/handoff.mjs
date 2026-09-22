@@ -1,11 +1,13 @@
 // Parse only the author's display contract; never summarize prose or infer progress.
+import {parseNetworkTable} from './network-table.mjs';
 export const titleText = value => value.replace(/^\d+(?:\.\d+)*[.、]?\s*/, '').trim();
 
 export function parseHandoff(markdown) {
   const sections = [], stack = [], issues = [];
   let fence = null, comment = false, facts = false, metadata = true, currentStage = null, stageCount = 0, updatedAt = null, projectName = null;
   const counts = new Map();
-  for (const [index, raw] of markdown.replace(/^\uFEFF/,'').split(/\r?\n/).entries()) {
+  const lines=markdown.replace(/^\uFEFF/,'').split(/\r?\n/);
+  for (const [index, raw] of lines.entries()) {
     if (facts) { if (raw === '<!-- flitrealize:facts:end -->') facts = false; continue; }
     const marker = raw.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
     if (fence) {
@@ -41,9 +43,19 @@ export function parseHandoff(markdown) {
       owner.summary = raw.slice('ViewState:'.length).trim() || null;
       if (owner.markerCount > 1) { owner.summary = null; issues.push({line:index+1,code:'DUPLICATE_SUMMARY'}); }
     }
+    if(raw==='ViewStateTable: networks') {
+      owner.tableCount=(owner.tableCount||0)+1;
+      owner.networkTable=parseNetworkTable(lines,index+1);
+      if(!owner.networkTable)issues.push({line:index+1,code:'INVALID_NETWORK_TABLE'});
+      if(owner.tableCount>1){owner.networkTable=null;issues.push({line:index+1,code:'DUPLICATE_NETWORK_TABLE'});}
+    }
   }
   function finish(nodes) {
-    for (const n of nodes) { if (n.markerCount > 1) n.summary = null; delete n.markerCount; finish(n.children); }
+    for (const n of nodes) {
+      if (n.markerCount > 1) n.summary = null;
+      if (n.tableCount > 1) n.networkTable = null;
+      delete n.markerCount; delete n.tableCount; finish(n.children);
+    }
   }
   finish(sections);
   if (stageCount > 1) { currentStage = null; issues.push({code:'DUPLICATE_CURRENT_STAGE'}); }
