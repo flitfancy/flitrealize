@@ -4,6 +4,15 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-09-28
+
+### 修复
+
+- 布局报告目录在检查项目边界前统一为文件系统实际路径，支持 Windows 短路径和目录别名；指向项目外的目录链接在创建文件前拒绝。
+- CLI 测试使用规范化的临时项目路径，避免把同一目录的不同拼写误判为回执身份变化；增加目录别名与目录越界的回归测试。
+
+[完整代码对比：v1.4.0 → v1.4.1](https://github.com/flitfancy/flitrealize/compare/v1.4.0...v1.4.1)
+
 ## [1.4.0] - 2026-09-28
 
 加入可复用的 PCB 布局输入准备、多起点求解和候选写回流程，统一器件资料、原理图 Contract 与 PCB 输入约定。

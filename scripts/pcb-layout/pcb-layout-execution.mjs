@@ -1,7 +1,7 @@
 /** Native layout operations with immutable evidence and no automatic replay. */
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { getLayoutProvider } from './pcb-layout-provider.mjs';
 
 export const LAYOUT_EXECUTION_VERSION = 2;
@@ -13,12 +13,20 @@ const fail = (code, message = code) => { throw Object.assign(Error(message), { c
 const within = (root, file) => { const r = relative(root, file); return r !== '..' && !r.startsWith('..\\') && !r.startsWith('../') && !isAbsolute(r); };
 const unsettled = s => ['unknown', 'in-flight', 'outcome-unknown'].includes(s) || s?.endsWith('-running');
 async function atomic(file, value) { await writeFile(file + '.tmp', JSON.stringify(value, null, 2) + '\n'); await rename(file + '.tmp', file); }
+async function canonicalDestination(directory) {
+  try { return await realpath(directory); }
+  catch (error) {
+    const parent = dirname(directory);
+    if (error.code !== 'ENOENT' || parent === directory) throw error;
+    return join(await canonicalDestination(parent), basename(directory));
+  }
+}
 async function context(options) {
   if (!options.projectRoot) fail('LAYOUT_CONTEXT_REQUIRED', 'projectRoot is required.');
   const provider = getLayoutProvider(options.providerId ?? options.snapshot?.layout?.provider ?? options.snapshot?.provider);
   provider.validateContext(options);
   const projectRoot = await realpath(resolve(options.projectRoot));
-  const requested = options.reportDir ? resolve(projectRoot, options.reportDir) : join(projectRoot, 'evidence', 'pcb-layout-execution', new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID());
+  const requested = await canonicalDestination(options.reportDir ? resolve(projectRoot, options.reportDir) : join(projectRoot, 'evidence', 'pcb-layout-execution', new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID()));
   if (!within(projectRoot, requested)) fail('REPORT_OUTSIDE_PROJECT');
   await mkdir(requested, { recursive: true });
   const reportDir = await realpath(requested);

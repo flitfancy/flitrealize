@@ -11,7 +11,7 @@ import { prepareFixture, filterRelation, addIntent } from './helpers/pcb-layout-
 
 const cli=fileURLToPath(new URL('../scripts/pcb-layout.mjs',import.meta.url)),exec=promisify(execFile);
 async function project() {
-  const root=await fs.mkdtemp(path.join(tmpdir(),'layout-portable-'));
+  const root=await fs.realpath(await fs.mkdtemp(path.join(tmpdir(),'layout-portable-')));
   const f=addIntent(prepareFixture(),filterRelation());
   f.snapshot.sourceKind='synthetic-example';
   f.config.contractFile='design/contract.json';f.config.mechanicalRulesFile='design/mechanical.json';

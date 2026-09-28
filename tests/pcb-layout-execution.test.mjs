@@ -1,12 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, writeFile, copyFile } from 'node:fs/promises';
+import { readFile, writeFile, copyFile, symlink, unlink, realpath, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { applyLayout, inspectLayout, resumeLayoutSave, verifyLayout } from '../scripts/pcb-layout/pcb-layout-execution.mjs';
 import { fixture } from './helpers/pcb-layout-execution-fixture.mjs';
 import { compileAssemblyPolicy } from '../scripts/pcb-layout/pcb-layout-assembly-policy.mjs';
 
 async function ready(t) { const f = await fixture(t); f.snapshot = await inspectLayout(f.options()); f.proposed = f.plan(f.snapshot); return f; }
+test('report paths use filesystem identity across directory aliases', async t => {
+  const f = await fixture(t), alias = f.projectRoot + '-alias';
+  await symlink(f.projectRoot, alias, 'junction');
+  t.after(() => unlink(alias));
+  for (const [index, root] of [alias, await realpath(f.projectRoot)].entries()) {
+    const reportDir = join(alias, 'nested', 'report-' + index);
+    const result = await inspectLayout({ ...f.options(), projectRoot: root, reportDir });
+    assert.equal(result.status, 'inspected');
+    await access(join(f.projectRoot, 'nested', 'report-' + index, 'layout-inspect-result.json'));
+  }
+  assert.equal(f.control.saves, 0);
+});
+
+test('a report directory escaping through a junction is rejected before creation or transport', async t => {
+  const f = await fixture(t), outside = await fixture(t);
+  const link = join(f.projectRoot, 'outside');
+  await symlink(outside.projectRoot, link, 'junction');
+  const reportDir = join(link, 'must-not-be-created');
+  await assert.rejects(inspectLayout({ ...f.options(), reportDir }), /REPORT_OUTSIDE_PROJECT/);
+  await assert.rejects(access(join(outside.projectRoot, 'must-not-be-created')), { code: 'ENOENT' });
+  assert.deepEqual(f.calls, []);
+});
+
 test('native inspect is generic, reports actual inventory and does not mutate', async t => {
   const f = await ready(t);
   assert.equal(f.snapshot.components.length, 2); assert.equal(f.snapshot.items.length, 2); assert.equal(f.snapshot.pads.length, 3);

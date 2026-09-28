@@ -4,7 +4,7 @@
 
 [English](README.md) · [首次使用](docs/first-run.md) · [更新记录](CHANGELOG.md) · [发布包](https://github.com/flitfancy/flitrealize/releases)
 
-版本标识：`v1.4.0`。当前源码变更见[更新记录](CHANGELOG.md)。
+版本标识：`v1.4.1`。当前源码变更见[更新记录](CHANGELOG.md)。
 
 FlitRealize 是一个硬件项目 Skill，覆盖需求、选型、原理图、PCB、制造准备和样机验证。AI 负责工程判断，脚本负责读取、转换、计算、批量执行和回读。每个项目维护一份 `CURRENT_HANDOFF.md`，设计事实分别保存在 Contract、EDA 文件及原始证据中。
 

@@ -4,7 +4,7 @@
 
 [简体中文](README.zh-CN.md) · [First run](docs/first-run.md) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/flitfancy/flitrealize/releases)
 
-Version marker: `v1.4.0`. See the [changelog](CHANGELOG.md) for source changes.
+Version marker: `v1.4.1`. See the [changelog](CHANGELOG.md) for source changes.
 
 FlitRealize is an agent skill for requirements, parts, schematics, PCB work, manufacturing preparation, and prototype testing. The agent makes engineering judgments; scripts read, transform, calculate, execute, and verify. Each project keeps one `CURRENT_HANDOFF.md`; contracts, EDA files, and original evidence retain the underlying facts.
 
