@@ -154,7 +154,7 @@ class StagedSecretScanTests(unittest.TestCase):
             ]
         )
         self.assertEqual(
-            scan_staged_secrets.staged_added_lines(diff),
+            scan_staged_secrets.added_lines(diff),
             [("example.txt", 3, "first"), ("example.txt", 4, "second")],
         )
 

@@ -99,14 +99,21 @@ export function renderFacts({ contract, snapshot = null, connections = {}, sourc
     const actualNets = new Set(observedNets.get(key(ref, physical)) || []);
     if (pin.net) actualNets.add(pin.net);
     const nc = pin.noConnect === true ? 'NC=是' : pin.noConnect === false ? 'NC=否' : 'NC 未报告';
-    return `${nc}；${actualNets.size ? '报告网络：' + [...actualNets].join(' / ') : '网络未报告（不等于未连接）'}`;
+    const network = actualNets.size ? '报告网络：' + [...actualNets].join(' / ')
+      : pin.net === '' ? '报告网名为空' : '网络未报告（不等于未连接）';
+    return `${nc}；${network}`;
   }
   for (const group of groups) {
     const componentRows = [], pinRows = [];
     for (const ref of group.refs) {
       const part = parts.get(ref), live = observed.get(ref), delay = deferred.get(ref);
-      componentRows.push([ref, part.role, part.identity?.mpn || part.identity?.value, part.identity?.value,
-        part.footprint?.name, live ? `快照中存在；Value=${text(live.value)}；封装=${text(live.footprint)}` : snapshot ? '快照中未见' : '未核验（无快照）']);
+      const specification = [...new Set([part.identity?.mpn || part.identity?.value, part.identity?.description]
+        .filter(value => typeof value === 'string' && value.trim()))].join('；');
+      const identity = part.identity?.selection === 'unresolved' ? '未确定' + (specification ? '：' + specification : '') : specification;
+      const footprint = part.footprint?.selection === 'unresolved' ? '未确定'
+        : part.footprint?.selection === 'policy' ? part.footprint.policy : part.footprint?.name;
+      componentRows.push([ref, part.role, identity, part.identity?.value,
+        footprint, live ? `快照中存在；Value=${text(live.value)}；封装=${text(live.footprint)}` : snapshot ? '快照中未见' : '未核验（无快照）']);
       if (delay) exceptions.push([ref, '明确延期', delay.reason, live ? '快照中已存在，需核对延期声明' : snapshot ? '快照中未见' : '未核验']);
       else if (snapshot && !live) exceptions.push([ref, '实现缺项', '未声明延期', '快照中未见']);
       const bindingKey = snapshot?.provider === 'easyeda-pro' ? 'easyedaPro' : snapshot?.provider;
@@ -115,7 +122,8 @@ export function renderFacts({ contract, snapshot = null, connections = {}, sourc
       const covered = new Set();
       for (const pin of part.pins) {
         const net = intents.get(key(ref, pin.number));
-        requireThat(!(net && pin.classification === 'no-connect'), 'A pin is both NC and a net endpoint.');
+        const unconnected = pin.classification === 'no-connect' ? 'NC' : pin.classification === 'dnc' ? 'DNC' : null;
+        requireThat(!(net && unconnected), 'A pin is both NC/DNC and a net endpoint.');
         const mapping = pinMap?.[pin.number];
         const physicals = mapping == null ? [null] : Array.isArray(mapping) ? mapping : [mapping];
         requireThat(physicals.length > 0 && physicals.every(value => value === null || (typeof value === 'string' && value.trim())), 'Invalid pin mapping.');
@@ -124,9 +132,9 @@ export function renderFacts({ contract, snapshot = null, connections = {}, sourc
             requireThat(!covered.has(physical) && !extraNc.has(key(ref, physical)), 'Ambiguous physical pin mapping or extra NC overlaps a Contract pin.');
             covered.add(physical);
           }
-          const intent = pin.classification === 'no-connect' ? 'NC' : net || '未分配网络';
-          pinRows.push([ref, pin.number, physical, pin.function, intent, pin.defaultState, observation(ref, physical)]);
-          if (pin.classification === 'no-connect') exceptions.push([`${ref}.${text(physical)}`, 'Contract NC', pin.function, observation(ref, physical)]);
+          const intent = unconnected || net || '未分配网络';
+          pinRows.push([ref, pin.number, physical, pin.function, intent, pin.safeDefault, observation(ref, physical)]);
+          if (unconnected) exceptions.push([`${ref}.${text(physical)}`, 'Contract ' + unconnected, pin.function, observation(ref, physical)]);
         }
       }
       for (const item of extraNc.values()) if (item.designator === ref) {
@@ -143,7 +151,7 @@ export function renderFacts({ contract, snapshot = null, connections = {}, sourc
       table(['位号', 'Contract 引脚', '映射物理引脚', '语义功能', '设计网络/状态', '声明默认状态', '快照观察'], pinRows), '');
   }
   for (const ref of observed.keys()) if (!parts.has(ref)) exceptions.push([ref, '额外器件', '不在 Contract 中', '快照中存在']);
-  lines.push('#### NC、延期与待核对项', '', exceptions.length ? table(['对象', '类别', '设计声明/原因', '快照观察'], exceptions) : '无已声明 NC、延期或缺项；不代表电气审查通过。');
+  lines.push('#### NC／DNC、延期与待核对项', '', exceptions.length ? table(['对象', '类别', '设计声明/原因', '快照观察'], exceptions) : '无已声明 NC／DNC、延期或缺项；不代表电气审查通过。');
   return lines.join('\n') + '\n';
 }
 

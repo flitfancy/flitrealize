@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/flitfancy/flitrealize/schemas/pcb-layout-intent.v1.schema.json",
+  "title": "PCB layout intent extension",
+  "description": "Optional Contract.extensions.pcbLayout. Explicit pin relationships compile to placement distance objectives; they do not prove routing or electrical requirements.",
+  "type": "object",
+  "required": ["schemaVersion", "relations"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "relations": { "type": "array", "items": { "$ref": "#/$defs/relation" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "text": { "type": "string", "minLength": 1, "pattern": "\\S" },
+    "endpoint": {
+      "type": "object",
+      "required": ["ref", "pin"],
+      "properties": { "ref": { "$ref": "#/$defs/text" }, "pin": { "$ref": "#/$defs/text" } },
+      "additionalProperties": false
+    },
+    "relation": {
+      "type": "object",
+      "required": ["id", "kind", "from", "to", "net", "basis"],
+      "properties": {
+        "id": { "$ref": "#/$defs/text" },
+        "kind": { "enum": ["bypass", "bootstrap", "sense", "power-path"] },
+        "from": { "$ref": "#/$defs/endpoint" },
+        "to": { "$ref": "#/$defs/endpoint" },
+        "net": { "$ref": "#/$defs/text" },
+        "basis": { "$ref": "#/$defs/text" },
+        "requirementId": { "$ref": "#/$defs/text" },
+        "maxDistanceMil": { "type": "number", "minimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

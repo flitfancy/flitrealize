@@ -18,6 +18,14 @@ function lookup(query, domain = 'schematic') {
   return JSON.parse(result.stdout);
 }
 
+test('API documentation and library/netlist evidence route to their existing scoped entrypoints', () => {
+  const api = lookup('API文档', 'system');
+  assert.equal(api.actions.find(a => a.name === 'api-reference').entrypoint.file, 'scripts/api-reference.mjs');
+  assert.ok(api.actions.every(a => a.modes.every(m => !m.mutates)));
+  assert.ok(lookup('库身份核对').actions.some(a => a.name === 'schematic-resolve-bindings'));
+  assert.ok(lookup('原生网表').actions.some(a => a.name === 'schematic-inspect'));
+});
+
 test('Chinese and English reflow queries expose the real wrapper and verification modes', () => {
   for (const query of ['原理图重排', '布局美化', 'SCHEMATIC REFLOW']) {
     const result = lookup(query);
@@ -74,7 +82,7 @@ test('wire color capability is discoverable with its actual limited scope', () =
 });
 
 test('PCB tools expose real PCB entrypoints without falling back to schematic capabilities', () => {
-  for (const [query, expected] of [['配色', 'pcb-net-color'], ['布局', 'pcb-placement'], ['走线优先级', 'pcb-routing-plan']]) {
+  for (const [query, expected] of [['配色', 'pcb-net-color'], ['走线优先级', 'pcb-routing-plan']]) {
     const result = lookup(query, 'pcb');
     assert.equal(result.queryStatus, 'matched');
     assert.deepEqual(result.actions.map(a => a.name), [expected]);
@@ -84,12 +92,31 @@ test('PCB tools expose real PCB entrypoints without falling back to schematic ca
     assert.ok(result.actions[0].limitations.length);
     assert.deepEqual(result.workflows, []);
   }
+  const placement = lookup('布局', 'pcb');
+  assert.deepEqual(placement.actions.map(a => a.name).sort(), ['pcb-layout-prepare', 'pcb-placement']);
+  assert.equal(placement.actions.find(a => a.name === 'pcb-placement').entrypoint.file, 'scripts/pcb-edit.mjs');
   const result = JSON.parse(run(['list', '--query', 'pcb layout']).stdout);
-  assert.deepEqual(result.actions.map(a => a.name), ['pcb-placement']);
+  assert.deepEqual(result.actions.map(a => a.name).sort(), ['pcb-layout-prepare', 'pcb-placement']);
   const missing = lookup('自动阻抗求解', 'pcb');
   assert.equal(missing.queryStatus, 'no-match');
   assert.ok(missing.guidance.length > 0);
   assert.equal(lookup('走线优先级', 'schematic').queryStatus, 'no-match');
+});
+
+test('layout input discovery separates read-only preparation from the full layout wrapper', () => {
+  for (const query of ['布局输入', '粗布局', '布局候选', 'pcb layout solver']) {
+    const result = lookup(query, 'pcb');
+    const action = result.actions.find(a => a.name === 'pcb-layout-prepare');
+    assert.ok(action, query);
+    assert.equal(action.runtime, 'host');
+    assert.deepEqual(action.providers, []);
+    assert.equal(action.entrypoint.kind, 'script');
+    assert.equal(action.entrypoint.file, 'scripts/pcb-layout.mjs');
+    assert.deepEqual(action.modes, [{ mode: 'prepare', mutates: false }]);
+    assert.ok(action.reference.endsWith('3.4-pcb-placement.md'));
+    assert.ok(action.limitations.length);
+    assert.ok(result.actions.every(item => item.domain === 'pcb'));
+  }
 });
 
 test('width discovery distinguishes editing existing traces from planning rules', () => {

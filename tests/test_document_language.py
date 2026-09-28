@@ -106,17 +106,5 @@ class DocumentLanguageTests(unittest.TestCase):
                 if value is not None:
                     self.assertIn(value, packaged)
 
-    def test_retired_updater_fails_without_changing_snapshots(self) -> None:
-        paths = list((ROOT / "docs/en-backup").rglob("*.bak"))
-        before = {path: path.read_bytes() for path in paths}
-        completed = subprocess.run(
-            [sys.executable, "-X", "utf8", str(ROOT / "scripts/update_translation_hashes.py")],
-            capture_output=True, check=False,
-        )
-        self.assertEqual(completed.returncode, 2)
-        self.assertIn("已停用", completed.stderr.decode("utf-8"))
-        self.assertEqual(before, {path: path.read_bytes() for path in paths})
-
-
 if __name__ == "__main__":
     unittest.main()

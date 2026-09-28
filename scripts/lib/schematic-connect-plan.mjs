@@ -130,7 +130,7 @@ export async function planConnections(input, snapshot, { phase = 'plan' } = {}) 
       semanticKeys.add(semanticKey);
       for (const physicalPin of mapping(component, pin.number)) {
         if (!(live.pins || []).some(p => String(p.number) === physicalPin)) issue('PIN_NOT_REALIZED', 'A mapped Contract pin is absent from the live symbol.', { designator: ref, pin: String(pin.number), providerPin: physicalPin });
-        if (pin.classification === 'no-connect') setExpected(ref, physicalPin, { noConnect: true, net: null, semanticPin: String(pin.number), reason: 'Contract classification: no-connect' });
+        if (['no-connect', 'dnc'].includes(pin.classification)) setExpected(ref, physicalPin, { noConnect: true, net: null, semanticPin: String(pin.number), reason: `Contract classification: ${pin.classification}` });
       }
     }
   }

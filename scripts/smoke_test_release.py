@@ -224,6 +224,10 @@ def main(archive: Path | None = None) -> int:
         if pcb_edit_smoke.returncode != 0 or isolated_state.exists():
             fail(f"Packaged isolated PCB wrapper failed: {pcb_edit_smoke.stdout}\n{pcb_edit_smoke.stderr}")
 
+        layout_smoke = run([node, str(ROOT / "tests/helpers/pcb-layout-package-smoke.mjs"), str(extracted_root)], cwd=extracted_root, environment=environment)
+        if layout_smoke.returncode != 0 or isolated_state.exists():
+            fail(f"Packaged layout workflow failed: {layout_smoke.stdout}\n{layout_smoke.stderr}")
+
         audit_report = temporary_root / "schematic-contract-audit-report.json"
         audit_fixture = ROOT / "tests/fixtures/schematic-contract/valid-minimal.json"
         host_audit = run(
@@ -282,6 +286,7 @@ def main(archive: Path | None = None) -> int:
     print("[PASS] packaged batch placement and partial-failure resume with isolated EDA mock")
     print("[PASS] packaged PCB layout, width, color and priority tools with isolated EDA mock")
     print("[PASS] packaged PCB wrapper and save-only recovery with isolated EDA mock")
+    print("[PASS] packaged layout preparation, solving, API lookup and save recovery")
     print("[PASS] packaged host schematic contract audit is deterministic and provider-free")
     print("[PASS] isolated missing-adapter failure is clear and evidence-backed")
     return 0

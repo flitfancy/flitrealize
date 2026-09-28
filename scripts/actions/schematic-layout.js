@@ -37,7 +37,7 @@ return await (async () => {
 
   function finitePositive(value, fallback, name) {
     if (value === undefined || value === null) return fallback;
-    if (!Number.isFinite(value) || value <= 0 || value > 10000) fail('INVALID_LAYOUT_CONFIG', `${name} must be a finite number between 0 and 10000.`);
+    if (!Number.isFinite(value) || value <= 0) fail('INVALID_LAYOUT_CONFIG', `${name} must be a positive finite number.`);
     return Number(value);
   }
 
@@ -82,8 +82,6 @@ return await (async () => {
     if (role.includes('regulator') || role.includes('ldo')) return 'regulator';
     if (role.includes('protect')) return /^U/.test(designator) ? 'protection-ic' : 'protection';
     if (role.includes('switch')) return 'switch';
-    // JP/SJ/LJ are jumpers/solder-bridges, not board connectors.
-    if (/^(JP|SJ|LJ)/i.test(designator)) return 'passive';
     if (/^J\d+$/.test(designator)) return 'connector';
     if (/^SW/.test(designator)) return 'switch';
     if (/^[UI]/.test(designator)) return 'main-ic';

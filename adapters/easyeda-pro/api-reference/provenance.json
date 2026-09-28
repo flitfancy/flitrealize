@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "name": "easyeda-api",
+    "version": "1.1.22",
+    "snapshot": "2026-09-12",
+    "status": "historical-snapshot",
+    "officialReferenceBase": "https://prodocs.lceda.cn/en/api/reference/",
+    "currentApiAvailability": "not-verified"
+  },
+  "archive": {
+    "name": "easyeda-api-full.zip",
+    "sha256": "8e9f5389cf95336c0906a57e146a8c7ad70150f85a995791c3c9f0824d1566ac"
+  },
+  "selection": {
+    "directories": [
+      "references/classes",
+      "references/interfaces",
+      "references/enums",
+      "references/types"
+    ],
+    "entryCount": 346,
+    "counts": {
+      "class": 127,
+      "enum": 73,
+      "interface": 122,
+      "type": 24
+    }
+  },
+  "normalization": "CR/CRLF line endings normalized to LF. Entry sha256 covers stored UTF-8 text; sourceSha256 covers original archive bytes. Text, examples and embedded notices are retained.",
+  "attribution": {
+    "author": "JLCEDA",
+    "licenseDeclaration": "MIT",
+    "declarationSource": "upstream SKILL.md frontmatter",
+    "standaloneLicenseFilePresent": false,
+    "note": "No standalone top-level license file was present in the archive. The declaration is provenance, not a new license grant or an assertion about every upstream document."
+  },
+  "scope": "Only reference documents are included. Upstream skills, bridge scripts, dependencies, execution instructions and project files were not imported. API examples are inert reference text and must not be executed by lookup.",
+  "freshness": "The snapshot is historical, not a claim about current API behavior or an EDA instance. Official source URLs are references, not fetched or verified by the lookup command."
+}

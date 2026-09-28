@@ -195,6 +195,37 @@ test('a missing physical mapping is not invented from matching pin numbers', () 
   assert.ok(rows(markdown, 'J1').some(line => line.includes('映射未覆盖') && /\|\s*1\s*\|/.test(line)));
 });
 
+test('Contract safeDefault, description-only generic parts and footprint policies survive rendering', () => {
+  const f = data(), part = f.contract.components[0];
+  part.identity = { selection: 'generic', description: 'Specified controller, 3.3 V logic' };
+  part.footprint = { selection: 'policy', policy: 'Four terminals, dimensions to be confirmed' };
+  part.pins[0].safeDefault = 'Disabled until initialization';
+  const markdown = renderFacts(f);
+  assert.ok(rows(markdown, 'U1').some(line => line.includes(part.identity.description) && line.includes(part.footprint.policy)));
+  assert.ok(rows(markdown, 'U1').some(line => line.includes('regulated output') && line.includes(part.pins[0].safeDefault)));
+  part.identity = { selection: 'unresolved', description: 'Awaiting selection' };
+  part.footprint = { selection: 'unresolved' };
+  assert.ok(rows(renderFacts(f), 'U1').some(line => line.includes('未确定') && line.includes('Awaiting selection')));
+});
+
+test('DNC remains distinct from unassigned pins and cannot be paired with a declared net', () => {
+  const f = data();
+  f.contract.components[0].pins[1].classification = 'dnc';
+  const markdown = renderFacts(f);
+  assert.ok(rows(markdown, 'U1').some(line => /\|\s*DNC\s*\|/.test(line)));
+  assert.match(markdown, /Contract DNC/);
+  f.contract.nets[0].endpoints.push({ component: 'U1', pin: 'NC' });
+  assert.throws(() => renderFacts(f), /NC\/DNC/);
+});
+
+test('an observed empty net name stays distinct from missing network evidence', () => {
+  const f = data();
+  f.snapshot.components[1].pins[0].net = '';
+  const row = rows(renderFacts(f), 'J1').find(line => line.includes('VOUT'));
+  assert.match(row, /报告网名为空/);
+  assert.doesNotMatch(row, /网络未报告/);
+});
+
 test('Markdown metacharacters cannot inject rows, links or HTML through facts', () => {
   const f = data();
   f.contract.components[0].role = 'A | B\n<script>bad</script> [link](https://example.test)';

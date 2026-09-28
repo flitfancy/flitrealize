@@ -108,4 +108,13 @@ const segmentContact = await wirePlanAction(null, {
 assert.equal(segmentContact.existingEndpointCount, 1);
 assert.equal(segmentContact.wirePlan.wires.length, 0);
 
+for (const classification of ['no-connect', 'dnc']) {
+  const forbidden = structuredClone(contract);
+  forbidden.components[0].pins = [{ number: 'SIGNAL', function: 'reserved', classification }];
+  const blocked = await wirePlanAction(null, { mode: 'generate', contract: forbidden, snapshot: snapshot() });
+  assert.equal(blocked.status, 'generated-with-blockers');
+  assert.ok(blocked.unresolved.some(item => item.code === 'FORBIDDEN_PIN_CONNECTED' && item.classification === classification));
+  assert.ok(blocked.wirePlan.wires.every(wire => wire.endpoint.component !== 'U1'));
+}
+
 process.stdout.write('schematic-wire-plan tests passed\n');

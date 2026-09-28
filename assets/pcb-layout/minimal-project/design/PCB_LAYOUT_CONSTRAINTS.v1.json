@@ -1,0 +1,114 @@
+{
+  "schemaVersion": 1,
+  "description": "illustrative-not-engineering-default: synthetic dimensions, spacing and search preferences demonstrate input structure only; no assembly or electrical approval.",
+  "contractFile": "design/SCHEMATIC_CONTRACT.v1.json",
+  "mechanicalRulesFile": "design/PCB_SILK_RULES.v1.json",
+  "hard": {
+    "boardBounds": null,
+    "fixed": [],
+    "preserveRotations": false,
+    "pinDistanceLimits": []
+  },
+  "groups": [
+    {
+      "id": "power",
+      "label": "Power connections",
+      "links": []
+    },
+    {
+      "id": "sense",
+      "label": "Sense connections",
+      "links": []
+    },
+    {
+      "id": "bypass",
+      "label": "Bypass connection",
+      "links": []
+    }
+  ],
+  "connectivity": {
+    "excludeNets": [],
+    "includeTestPads": false
+  },
+  "comparisonWeights": {
+    "power": 0,
+    "sense": 0,
+    "bypass": 1,
+    "connectivity": 0.2,
+    "uniformity": 0.1
+  },
+  "search": {
+    "iterations": 8,
+    "gridMil": 10,
+    "maxMoveStepMil": 40,
+    "initialTemperature": 0.01,
+    "rotationDeltas": [
+      0,
+      90,
+      180,
+      270
+    ],
+    "rotationMoveProbability": 0.1,
+    "silkMoveProbability": 0.1,
+    "profiles": [
+      {
+        "name": "example",
+        "label": "Illustrative search",
+        "seed": 17,
+        "weightMultipliers": {}
+      }
+    ]
+  },
+  "initialization": {
+    "schemaVersion": 1,
+    "description": "Small deterministic offline example, not recommended production search settings.",
+    "mode": "existing",
+    "count": 1,
+    "seed": 23,
+    "explorationStrength": 0,
+    "packingGapMil": 20,
+    "attemptsPerStart": 1,
+    "maxRepairMil": 50
+  },
+  "assemblyRules": {
+    "schemaVersion": 1,
+    "description": "illustrative-not-engineering-default: synthetic dimensions, spacing and search preferences demonstrate input structure only; no assembly or electrical approval.",
+    "profile": {
+      "id": "synthetic-example",
+      "label": "Illustrative assembly proxy",
+      "basis": "illustrative-not-engineering-default: synthetic dimensions, spacing and search preferences demonstrate input structure only; no assembly or electrical approval."
+    },
+    "source": {
+      "title": "Synthetic example; no manufacturer clearance recommendation",
+      "url": "https://example.invalid/synthetic-layout"
+    },
+    "rules": [
+      {
+        "id": "example-envelope",
+        "footprintNames": [
+          "EXAMPLE_LOAD",
+          "EXAMPLE_BYPASS"
+        ],
+        "marginMm": 0.2,
+        "basis": "illustrative-not-engineering-default: synthetic dimensions, spacing and search preferences demonstrate input structure only; no assembly or electrical approval."
+      }
+    ],
+    "overrides": [],
+    "independentPads": {
+      "marginMm": 0,
+      "basis": "No independent pads in this example."
+    }
+  },
+  "spacingPolicy": {
+    "schemaVersion": 2,
+    "mode": "active",
+    "source": "assembly-courtyard",
+    "geometry": "physical",
+    "bandRatios": {
+      "rejectBelow": 0.75,
+      "neutralMin": 0.9,
+      "neutralMax": 1.2
+    },
+    "requirements": []
+  }
+}

@@ -1,141 +1,110 @@
-# Action 与 EDA Provider 开发
+# Action 与 Provider 开发
 
-只有修改 Action runner、Action manifest、已有 Provider，或者实现新的 EDA Provider 时读取本文档。
+修改工具、发现入口或 Provider 时读取。操作说明分别放在 `references/`，连接方法见 [0.4 环境与连接](../references/providers/easyeda-pro/0.4-environment.md)。
 
-普通硬件设计和正常 EDA 操作不需要读取。
+## 四部分职责
 
-## 系统边界
+| 部分 | 负责内容 |
+| --- | --- |
+| `SKILL.md` | 共同规则、阶段选择与按需加载 |
+| 专项参考 | 工程意图、输入归属、操作方式与支持范围 |
+| CLI／manifest | 查找能力、解析输入、衔接执行、保留结果 |
+| 实现脚本 | 确定性计算、检查和 Provider 原生操作 |
 
-`SchematicContract` 保存与具体 EDA 无关的设计意图。
+Contract 保存设计意图，EDA 文件保存实际实现。plan、snapshot、输入包和 report 是派生产物；稳定结果更新到拥有该事实的制品，再同步 `CURRENT_HANDOFF.md`，不另建项目数据库。
 
-EDA Provider 负责把设计意图转换成目标 EDA 中的器件与库身份、引脚与网络、文档对象与几何，以及写入、保存和回读结果。
+项目参数和器件例外留在项目。通用模块不包含某块板的位号、数量、UUID 或安装路径。
 
-Action 的 plan、snapshot 和 report 是执行制品，不是项目数据库。
+## Action 与流程入口
 
-稳定结果分别进入：
+`scripts/actions/manifest.json` 登记已实现的 Action、Workflow 和 Provider。Action 是可独立验证的操作；Workflow 说明已有操作的顺序。输入输出稳定且需要重复执行时，用薄入口衔接，不新增通用工作流语言。
 
-- Contract 或对应机器制品；
-- EDA 源文件；
-- 制造或测试文件；
-- `CURRENT_HANDOFF.md` 中对应的人类可读章节。
+- `schematic-components.mjs`：冻结放件输入，分批执行，按实际对象 ID 续接。
+- `schematic-connect.mjs`：由 Contract 和现场计算短线、标识、NC 缺项，衔接重排、保存和 DRC。
+- `pcb-edit.mjs`：明确移动、线宽和配色。
+- `pcb-layout.mjs`：输入准备、候选求解及选定候选写入。
 
-## Action 与 Workflow
+内部 Action 可从默认发现结果隐藏，仍保留准确名称、输入输出和测试。`list --full` 从 manifest 展开内部项，不维护第二份能力目录。
 
-`scripts/actions/manifest.json` 登记可以执行的 Action 和 Workflow。
+### 发现信息
 
-Action 表示一个可以独立运行和验证的操作。
-
-Workflow 描述多个已有 Action 的执行顺序，不建立另一套通用工作流语言。
-
-多步输入输出已经稳定且需重复执行时，用薄封装复用 Action；例如 `schematic-components.mjs` 冻结批次输入，先记录写入意图、后保留终态回执，再按实际对象 ID 续接。事务文件只属于该次运行，不自动改写项目主文稿；未知写入没有确定终态时不能重试或以新批次绕过。
-
-`pcb-edit.mjs` 只衔接已有布局、线宽和配色 Action 的计划、修改、验证与保存，不引入新输入语言。只恢复保存时复用项目内的成功 apply 报告，不重放修改。
-
-`schematic-connect.mjs` 使用 Contract 与现场计算端点短线、标识和 NC 缺项，并衔接要求的重排、保存和严格 DRC。某步无对象时记录不适用，不能把没有调用底层 Action 误报为遗漏或失败；存在明确对象时则验证结果。输入不携带某个历史项目的 UUID、器件列表或布局常数。
-
-内部 Action 可以从普通发现结果中隐藏，但仍应：
-
-- 在 manifest 中登记；
-- 可以按准确名称调用；
-- 具有明确输入输出；
-- 能够独立测试。
-
-Manifest 只登记已经实现的 Provider、Action 和 Workflow。
-
-`action-runner.mjs list --full` 从这份登记表展开内部 Action 和 Workflow 步骤；默认列表保持简洁，不另行维护一份能力目录。
-
-### 用途发现元数据
-
-Action 和 Workflow 可以在同一条注册记录中声明 `discovery`：
+已有条目可声明：
 
 ```json
 {
   "keywords": ["原理图重排", "布局美化", "reflow"],
   "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md",
   "entrypoint": "scripts/schematic-reflow.mjs",
-  "limitations": ["只处理已支持的原理图对象，不是 PCB 布局优化器。"]
+  "limitations": ["仅处理已支持的原理图对象。"]
 }
 ```
 
-只填写实际用途和已存在的运行文件。`reference` 指向中文阶段说明，`entrypoint` 仅在已有封装脚本时填写；普通 Action 的调用参数和 Workflow 的步骤直接由原登记记录派生。不得为了让查询命中而登记尚未实现的能力。
+`reference` 指向专项说明；`entrypoint` 仅填写已存在的封装脚本。`list --query` 检索名称、说明、域和关键词，不检索限制文字；Workflow 结果区分直接入口和依赖步骤。
 
-`list --query` 检索名称、说明、域和 `keywords`，不检索限制说明；限制中出现某用途不能让不支持该用途的能力被命中。匹配 Workflow 时同时返回它依赖的 Action，并区分 `direct` 与 `workflow-step`，不扩大到无关域。
+修改发现信息后检查入口存在、用途命中、域隔离和无结果情况。查询只读本地文件，不连接 EDA 或生成项目报告。Manifest 字段由 runner 的 `loadManifest` 统一校验。
 
-新增或修改发现信息时测试：真实入口存在、用途命中、域隔离、空结果、调用形态以及只读查询无副作用。旧默认列表和 `--full` 继续兼容。发现测试不替代实际 Action 或 EDA 验证。
+## Provider 边界
 
-入口区分通信成功和 Action 的实际结果。新增状态时，同步入口认可的完成状态及行为测试。被阻止、验证失败、结果未知，以及 apply 失败后的自动回滚，不能返回 `ok: true` 或零退出码。主动请求的回滚可以独立成功；部分检查和条件性审计保留各自的明确限制。
+Provider 转换原生身份、引脚映射、层、坐标和网表，并承担读取、修改、保存及回读。目前只实现 EasyEDA Pro；公开登记其他软件前，要有对应实现和验证。
 
-EDA 通信抛错也要保留 unknown 报告，尤其不能把可能已执行的写入当成未执行。Manifest 结构检查统一复用 runner 的 `loadManifest`；Python 发布检查另负责文件清单与文档快照，不维护第二份字段规则。
+布局 Provider 在 `scripts/pcb-layout/pcb-layout-provider.mjs` 选择，当前实现位于 `scripts/providers/easyeda-pro/`：
 
-EasyEDA 主机入口透传 Bridge 的请求句柄与提交回执，runner 在成功及异常报告中保留它们；`eda-host.mjs request` 只读查询原请求。迟到结果是补充证据，不自动重写旧 Action 报告、批次日志或 PCB 保存占用记录，也不触发重放。
+- `layoutRealization(snapshot, contract, mechanical)` 产生公共布局数据，字段见下节。
+- `validateContext(options)`、`target(config)` 核对该软件的连接与目标。
+- `buildOperation(phase, input)` 生成执行制品，`execute(request)` 调用软件并返回结果。
+- 公共执行层保留输入和回执，衔接 apply／verify／save，处理未知结果和保存恢复。
 
-## 新增 Provider
+公共算法使用转换结果，原生格式由 Provider 解释。实现及其原生文件纳入发布清单和实现指纹。
 
-新的 EDA Provider 不需要模仿 EasyEDA 的内部实现，但应支持当前工作流需要的能力：
+当前 EasyEDA 通过 `eda-host.mjs` 调用本机 Adapter。复用该宿主时，Adapter 根目录须包含 `package.json` 和 `scripts/bridge-control.mjs`，实现相应的 status／ensure／execute／request 命令。其他 Provider 可以使用自己的执行通道，不要求模仿 EasyEDA Bridge。
 
-1. 检测当前环境和能力；
-2. 把可移植设计映射到原生器件、引脚和文档对象；
-3. 读取实际文档状态；
-4. 对目标对象执行有边界的修改；
-5. 通过原生 ID 或等效身份回读结果；
-6. 明确返回成功、不支持或状态未知。
+### 布局数据接口
 
-Provider 至少完成一个真实操作并具有相应测试后，才加入公开 manifest。
+Provider 将坐标、角度和边界转换到统一约定。转换结果由 `layoutRealization` 返回；外部标准化快照也可在 `snapshot.layout` 提供相同结构。
 
-## 写入事务
+| 字段 | 约定 |
+| --- | --- |
+| `schemaVersion`、`provider` | 版本为 1，软件标识与快照来源一致 |
+| `units`、`coordinateSystem` | `mil`、`cartesian-y-up`，对应实际几何数值 |
+| `layers` | 对象 ID 到层用途的映射；当前求解使用 `top-copper`、`all-copper`、`top-silkscreen` |
+| `pinMaps` | 位号 → 逻辑引脚 → 物理焊盘编号数组 |
+| `labelAlignment.bottomLeft` | Provider 定义的局部底左角文字锚点编码 |
+| `netlist` | 读取状态；成功时提供版本及 `components: [{ref, uniqueId?, pins: [{number, net}]}]` |
+| `netNames` | 读取状态；成功时 `value` 为网名数组 |
+| `target`、`provenance` | `projectId`／`documentId` 及转换依据 |
 
-操作存在恢复价值时使用：
+每个焊盘提供 `owner` 或 `parentComponentId`，独立焊盘明确为 null。两者同时提供时指向同一器件。位号通过所属器件 ID 关联。
 
-```text
-inspect → plan → apply → verify
-```
+原生快照同时保留以下观察，供冻结输入和回读核对使用：
 
-执行前确认目标文档和相关对象仍然与 plan 一致。文档经过手工修改、重新打开或长时间中断后，重新读取实际状态。
+| 字段 | 内容 |
+| --- | --- |
+| `padOwnership`、`pads[].ownershipSource` | 归属核对结果与来源 |
+| `pads[].nativeGeometry` | 原始形状、孔、角度和孔偏移等；`observedPose` 标记读取时的位置，`fields` 保存各项读取状态和值 |
+| `nativeNetlist`、`nativeNetNames` | API 来源与读取状态；成功时保存 `raw` 字符串或 `value` 数组 |
 
-写入后回读目标对象，确认本次增量已经实现，并且没有意外覆盖原有对象。
+几何观察的状态为 `ok`、`unavailable`、`error`；成功返回的 null 保留原义。网表核对区分 `matched`、`partial`、`mismatch`、`unavailable`、`unsupported`、`error`。明确矛盾作为错误，缺失或不支持的观察保留未覆盖状态。额外空网焊盘的用途保持未定，有网络却未声明的焊盘报告不一致。
 
-保存是独立操作。无法真正恢复的操作不声明 rollback。
+求解几何使用包围盒。形状与孔信息作为读取时的原始观察保存，移动后由新的回读取得，不作为已经变换的几何传给求解器。
 
-## PCB 源码快照与 DOCHEAD
+## 结果与恢复
 
-EasyEDA Pro 的 `getDocumentSource()` 每次读取都会重写 DOCHEAD 中的会话字段（至少 `client`、`updateTime`/`version`）。这些字段变化**不等于**板图被修改。
+通信成功和业务成功分别判断。新增结果状态时，同步入口认可的完成状态及行为测试；被阻止、验证失败或未知写入不能报告成功。没有对象的步骤可以记录不适用。
 
-凡比较「读源码 → 再读 → 是否仍一致」或把源码纳入 fingerprint 的 PCB Action，必须在比较/哈希前规范化 DOCHEAD，禁止全文 `!==`。参考实现见 `pcb-placement.js` / `pcb-trace-width.js` / `pcb-net-color.js` 的 `normalizeSource()`：
+写入前确认目标及输入仍匹配；写入后核对增量和原有内容，保存另留证据。不能实际恢复的操作不声明 rollback。保存已成功而后续验证失败时，保留已保存事实。
 
-- 将 `"client":"…"`、`"version":"…"` 替换为占位；
-- 将 `"updateTime":<数字>` 置 0；
-- fingerprint 只吃规范化后的 source + 几何/对象表。
+超时不等于未执行。保留请求句柄和未决记录，先取得原执行终态并对照现场，再继续；不重放未知写入。只恢复保存时使用同一执行链的成功 apply 回执，不重做修改。
 
-解析源码记录型 fingerprint 时（如 ground Action），应忽略 `DOCHEAD` 等纯会话记录类型。原理图 reflow 已按整行过滤 `"type":"DOCHEAD"`。
+`eda-host.mjs request` 只读查询原请求；迟到结果作为补充证据，不自动改写旧报告或释放工作流占用。执行期间仍须避免其他写入者，保存占用记录不是整张板的事务锁。
 
-这条规则写死在脚本里，不交给运行时模型判断。
+## 源码与证据
 
-## 临时运行文件
+EasyEDA 源码中的 DOCHEAD 含会话字段。比较源码或生成指纹时，沿用对应 Provider 的规范化函数，避免把会话变化误判为设计变化；几何和对象事实仍参与核对。
 
-一次执行产生的输入、Bridge 片段和报告可以放在：
+运行输入、执行片段和分步报告保存在项目运行目录，需要恢复或追溯时保留。稳定证据不能只有临时副本；主文稿只引用来源并说明结果范围。`handoff-check` 检查引用完整性，不替代 Action 验证。
 
-```text
-.flitrealize/runs/<run-id>/
-```
+## 修改与测试
 
-这些文件只服务当前事务。执行完成并不再需要恢复后，可以删除对应 run。
+围绕实际缺陷或重复工作，修改负责该行为的模块。测试输入转换、约束效果、失败状态及恢复；Provider 改动先用隔离样例，再验证实际需要的原生操作。
 
-稳定设计、EDA 源文件和验证证据进入项目正式目录。影响项目判断的结果同步到 `CURRENT_HANDOFF.md` 的对应章节。
-
-`.flitrealize/runs` 不保存任何稳定制品的唯一副本。
-
-需要供后续阶段引用的结果报告，应连同相关输入版本保留到项目稳定证据目录，并按 [项目续接](../references/0.1-continuation.md) 在主文稿中记录范围和入口。`handoff-check.mjs` 只检查这些引用的完整性，不解析所有 Provider 报告，也不替 Action 验证。不要让通用 runner 仅凭通信成功自动把项目写成完成；由当前工作流依据实际结果更新受影响结论。
-
-## 扩展与维护
-
-只有重复操作确实减少错误或明显节省工作时，才增加 Action 或 Workflow。
-
-修改实现时：
-
-1. 用真实失败或重复需求说明问题；
-2. 把问题缩减成可重复测试的输入；
-3. 修改负责该行为的最小模块；
-4. 添加能够观察实际结果的测试；
-5. 保留仍然不支持的范围。
-
-系统价值来自可靠复用、过期操作拒绝和实际结果验证，不来自 Action 数量。
+审查时沿一条真实流程核对说明、入口、实现和报告是否一致，并覆盖缺项、冲突和未知结果。测试通过、现场只读和真实写入后的验证分别记录。

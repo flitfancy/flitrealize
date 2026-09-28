@@ -93,6 +93,8 @@ return await (async () => {
       footprint: text(value.footprint),
       supplierId: text(value.supplierId),
       pinMap: normalizePinMap(value.pinMap, component),
+      ...Object.fromEntries(['symbolUuid', 'symbolLibraryUuid', 'symbolName', 'footprintUuid', 'footprintLibraryUuid', 'footprintName'].filter(key => text(value[key])).map(key => [key, text(value[key])])),
+      ...(value.extensions && typeof value.extensions === 'object' && !Array.isArray(value.extensions) ? { extensions: JSON.parse(JSON.stringify(value.extensions)) } : {}),
       resolution: { source, verified: false },
     };
   }
@@ -236,6 +238,101 @@ return await (async () => {
       .sort((left, right) => left.designator.localeCompare(right.designator))));
   }
 
+  // Library item interfaces expose identity and association metadata only.
+  // They do not prove symbol-pin mapping, PCB geometry or electrical ratings.
+  // https://prodocs.lceda.cn/cn/api/reference/pro-api.ilib_deviceassociationitem.html
+  // https://prodocs.lceda.cn/cn/api/reference/pro-api.ilib_symbolitem.html
+  // https://prodocs.lceda.cn/cn/api/reference/pro-api.ilib_footprintitem.html
+  async function readLibraryItem(kind, target, cache) {
+    const source = `lib_${kind}.get`, identity = { libraryUuid: text(target?.libraryUuid), uuid: text(target?.uuid) };
+    if (!identity.libraryUuid || !identity.uuid) return { readStatus: 'unavailable', source, requested: identity, reason: 'exact-library-and-item-uuid-required' };
+    const key = JSON.stringify([kind, identity.libraryUuid, identity.uuid]);
+    if (!cache.has(key)) cache.set(key, (async () => {
+      if (typeof eda?.[`lib_${kind}`]?.get !== 'function') return { readStatus: 'unavailable', source, requested: identity, reason: 'api-unavailable' };
+      try {
+        // Both IDs are always explicit; never fall back to the API's system library.
+        const value = await eda[`lib_${kind}`].get(identity.uuid, identity.libraryUuid);
+        if (value === undefined || value === null) return { readStatus: 'not-found', source, requested: identity };
+        if (typeof value !== 'object' || Array.isArray(value)) return { readStatus: 'error', source, requested: identity, error: 'Invalid library item response.' };
+        const observed = { uuid: text(value.uuid), libraryUuid: text(value.libraryUuid), name: text(value.name) };
+        const rawCount = value.otherProperty?.PinCount;
+        const count = (typeof rawCount === 'number' || typeof rawCount === 'string' && /^\d+$/.test(rawCount.trim())) ? Number(rawCount) : NaN;
+        observed.pinCount = Number.isInteger(count) && count > 0 ? count : null;
+        observed.pinCountSource = observed.pinCount === null ? null : 'otherProperty.PinCount';
+        const association = kind === 'Device' && value.association && typeof value.association === 'object' ? {
+          symbol: associationIdentity(value.association, 'symbol'),
+          footprint: associationIdentity(value.association, 'footprint'),
+        } : null;
+        return { readStatus: 'ok', source, requested: identity, observed, ...(association ? { association } : {}) };
+      } catch (error) { return { readStatus: 'error', source, requested: identity, error: error?.message ?? String(error) }; }
+    })());
+    return cache.get(key);
+  }
+
+  function associationIdentity(association, kind) {
+    const nested = association[kind];
+    return { uuid: text(nested?.uuid) ?? text(association[kind + 'Uuid']), libraryUuid: text(nested?.libraryUuid), legacyUuid: text(association[kind + 'Uuid']) };
+  }
+
+  function selectedLibraryTarget(binding, kind, association) {
+    const extensionKey = kind + 'Override', override = binding.extensions?.[extensionKey];
+    const direct = { uuid: text(binding[kind + 'Uuid']), libraryUuid: text(binding[kind + 'LibraryUuid']), name: text(binding[kind + 'Name']) };
+    const declaredDirect = Boolean(direct.uuid || direct.libraryUuid);
+    if (override !== undefined && override !== null) {
+      const target = { uuid: text(override.uuid) ?? text(override[kind + 'Uuid']), libraryUuid: text(override.libraryUuid), name: text(override.name) };
+      const conflicts = [];
+      for (const key of ['uuid', 'libraryUuid']) if (direct[key] && target[key] && direct[key] !== target[key]) conflicts.push({ code: 'LIBRARY_OVERRIDE_INPUT_CONFLICT', field: kind + '.' + key, expected: direct[key], actual: target[key] });
+      return { ...target, selectionSource: 'binding.extensions.' + extensionKey, explicitOverride: true, defaultAssociation: association ?? null, conflicts };
+    }
+    if (declaredDirect) return { ...direct, selectionSource: 'binding.' + kind + 'Uuid', explicitOverride: true, defaultAssociation: association ?? null, conflicts: [] };
+    return { ...(association ?? {}), name: null, selectionSource: 'lib_Device.get.association.' + kind, explicitOverride: false, defaultAssociation: association ?? null, conflicts: [] };
+  }
+
+  function assessLibraryItem(read, { names = [], pinCount = null } = {}) {
+    const checks = [], conflicts = [];
+    const check = (field, expected, actual, basis) => {
+      if (expected === null || expected === undefined) return;
+      const status = actual === null || actual === undefined ? 'uncovered' : actual === expected ? 'matched' : 'mismatch';
+      const item = { field, expected, actual: actual ?? null, status, basis };
+      checks.push(item);
+      if (status === 'mismatch') conflicts.push({ code: 'LIBRARY_' + field.toUpperCase() + '_MISMATCH', source: read.source, ...item });
+    };
+    check('uuid', read.requested?.uuid, read.observed?.uuid, 'exact-request');
+    check('libraryUuid', read.requested?.libraryUuid, read.observed?.libraryUuid, 'exact-request');
+    for (const { value, basis } of names) if (text(value)) check('name', text(value), read.observed?.name, basis);
+    if (pinCount !== null) check('pinCount', pinCount, read.observed?.pinCount, 'explicit-expected-provider-pin-count');
+    const status = conflicts.length ? 'mismatch' : read.readStatus !== 'ok' ? 'unverified' : checks.some(c => c.status === 'uncovered') ? 'partial' : 'matched';
+    return { ...read, status, checks, conflicts };
+  }
+
+  async function libraryEvidenceFor(component, binding, cache) {
+    const device = assessLibraryItem(await readLibraryItem('Device', { libraryUuid: binding.libraryUuid, uuid: binding.deviceUuid }, cache), {
+      names: [{ value: binding.deviceName, basis: 'binding.deviceName' }],
+    });
+    const association = device.association ?? {}, symbolTarget = selectedLibraryTarget(binding, 'symbol', association.symbol), footprintTarget = selectedLibraryTarget(binding, 'footprint', association.footprint);
+    const [symbolRead, footprintRead] = await Promise.all([
+      readLibraryItem('Symbol', symbolTarget, cache), readLibraryItem('Footprint', footprintTarget, cache),
+    ]);
+    const symbol = { ...assessLibraryItem(symbolRead, { pinCount: expectedProviderPinCount(component), names: [{ value: symbolTarget.name, basis: symbolTarget.selectionSource + '.name' }] }), selection: symbolTarget };
+    const footprint = { ...assessLibraryItem(footprintRead, {
+      names: [
+        { value: footprintTarget.name, basis: footprintTarget.selectionSource + '.name' },
+        { value: footprintTarget.explicitOverride ? null : binding.footprint, basis: 'binding.footprint' },
+        { value: component.footprint?.selection === 'exact' ? component.footprint.name : null, basis: 'contract.footprint.name' },
+      ],
+    }), selection: footprintTarget };
+    const conflicts = [...[device, symbol, footprint].flatMap(item => item.conflicts), ...symbolTarget.conflicts, ...footprintTarget.conflicts];
+    for (const [kind, ref] of [['symbol', symbolTarget], ['footprint', footprintTarget]]) {
+      if (!ref.explicitOverride && ref.legacyUuid && ref.uuid && ref.legacyUuid !== ref.uuid) conflicts.push({ code: 'LIBRARY_ASSOCIATION_UUID_MISMATCH', source: 'lib_Device.get', field: kind, expected: ref.legacyUuid, actual: ref.uuid });
+    }
+    const items = [device, symbol, footprint];
+    return {
+      status: conflicts.length ? 'mismatch' : items.every(item => item.status === 'matched') ? 'matched' : items.some(item => item.status === 'matched' || item.status === 'partial') ? 'partial' : 'unverified',
+      scope: 'library-identity-only', device, symbol, footprint, conflicts,
+      limitations: ['Library metadata is not actual PCB geometry or electrical specification.', 'Device associations are defaults; explicit symbol and footprint overrides take precedence and are not replaced.', 'Pin mappings are preserved from explicit input and are not inferred from names or counts.', 'Symbol and footprint pin counts are not assumed equal; mechanical and duplicate pads may differ.'],
+    };
+  }
+
   async function searchContract(contract, searchMapping) {
     const cache = new Map();
     const results = [];
@@ -287,27 +384,32 @@ return await (async () => {
     const pinMaps = request.pinMaps || {};
     const searchMapping = request.searchMapping || {};
     const cache = new Map();
+    const libraryCache = new Map();
     const providerBindings = {};
     const unresolved = [];
     const evidence = [];
+    async function accept(component, binding, item) {
+      const libraryEvidence = await libraryEvidenceFor(component, binding, libraryCache);
+      evidence.push({ designator: component.designator, ...item, libraryEvidence });
+      if (libraryEvidence.status === 'mismatch') {
+        unresolved.push({ designator: component.designator, code: 'LIBRARY_IDENTITY_MISMATCH', message: `${component.designator}: explicit library evidence conflicts with the requested binding.`, conflicts: libraryEvidence.conflicts });
+      } else providerBindings[component.designator] = { ...binding, resolution: { ...binding.resolution, verificationScope: binding.resolution.source === 'unique-exact-match' ? 'search-metadata-match' : 'explicit-binding-identity', libraryIdentityVerified: libraryEvidence.status === 'matched' }, libraryEvidence };
+    }
     for (const component of contract.components) {
       const existing = normalizeBinding(component.bindings?.easyedaPro, component, 'contract-binding');
       if (existing) {
-        providerBindings[component.designator] = existing;
-        evidence.push({ designator: component.designator, source: 'contract-binding' });
+        await accept(component, existing, { source: 'contract-binding' });
         continue;
       }
       const explicit = explicitBinding(selections[component.designator], component, pinMaps[component.designator]);
       if (explicit) {
-        providerBindings[component.designator] = explicit;
-        evidence.push({ designator: component.designator, source: 'explicit' });
+        await accept(component, explicit, { source: 'explicit' });
         continue;
       }
       const result = await candidatesFor(component, searchMapping, cache);
       const selectable = result.candidates.filter((candidate) => candidate.autoSelectable);
       if (selectable.length === 1) {
-        providerBindings[component.designator] = candidateBinding(selectable[0], result.query, component, pinMaps[component.designator]);
-        evidence.push({ designator: component.designator, source: 'unique-exact-match', query: result.query });
+        await accept(component, candidateBinding(selectable[0], result.query, component, pinMaps[component.designator]), { source: 'unique-exact-match', query: result.query });
         continue;
       }
       const code = result.issue?.code

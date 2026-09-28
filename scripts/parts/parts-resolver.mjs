@@ -59,8 +59,26 @@ function clean(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function normalizeMpn(value) {
-  return clean(value).toUpperCase().replace(/[^A-Z0-9]/g, '');
+function identityValue(value) {
+  return clean(value).toUpperCase().replace(/\s+/g, ' ');
+}
+
+function identityKey(part) {
+  return JSON.stringify([identityValue(part.manufacturer), identityValue(part.mpn)]);
+}
+
+function identityConflicts(expected, observed) {
+  return ['mpn', 'manufacturer'].flatMap(field => {
+    const a = clean(expected?.[field]), b = clean(observed?.[field]);
+    return a && b && identityValue(a) !== identityValue(b) ? [{ field, expected: a, observed: b }] : [];
+  });
+}
+
+function requireIdentity(expected, observed) {
+  const conflicts = identityConflicts(expected, observed);
+  if (conflicts.length) throw Object.assign(new Error('Provided part identity differs from the source record.'), {
+    code: 'PART_IDENTITY_CONFLICT', conflicts,
+  });
 }
 
 function safeName(value) {
@@ -102,6 +120,10 @@ export function validateInput(input) {
   const seen = new Set();
   input.parts.forEach((part, index) => {
     const prefix = 'parts[' + index + ']';
+    if (!part || typeof part !== 'object' || Array.isArray(part)) { errors.push(prefix + ' must be an object'); return; }
+    for (const field of ['lcsc', 'mpn', 'manufacturer', 'currentLcsc', 'url']) {
+      if (part[field] !== undefined && typeof part[field] !== 'string') errors.push(prefix + '.' + field + ' must be a string');
+    }
     const lcsc = clean(part?.lcsc).toUpperCase();
     const mpn = clean(part?.mpn);
     if (!lcsc && !mpn) errors.push(prefix + ' needs lcsc or mpn');
@@ -116,7 +138,7 @@ export function validateInput(input) {
     )) {
       errors.push(prefix + '.keywords must contain non-empty strings');
     }
-    const key = lcsc || normalizeMpn(mpn);
+    const key = lcsc || (mpn ? identityKey(part) : null);
     if (key && seen.has(key)) errors.push(prefix + ' is duplicated');
     seen.add(key);
   });
@@ -131,43 +153,47 @@ async function atomicWrite(path, bytes) {
 }
 
 async function readCachedDirectory(directory) {
+  let record;
   try {
-    const [recordText, pdf] = await Promise.all([
-      readFile(join(directory, 'part.json'), 'utf8'),
-      readFile(join(directory, 'datasheet.pdf')),
-    ]);
-    if (
-      pdf.length < 5
-      || pdf.subarray(0, 5).toString('ascii') !== '%PDF-'
-    ) {
-      return null;
-    }
-    return JSON.parse(recordText);
+    record = JSON.parse(await readFile(join(directory, 'part.json'), 'utf8'));
   } catch {
     return null;
   }
+  if (!record || typeof record !== 'object' || Array.isArray(record)) return null;
+  let pdfValid = false;
+  try {
+    const pdf = await readFile(join(directory, 'datasheet.pdf'));
+    pdfValid = pdf.subarray(0, 5).toString('ascii') === '%PDF-'
+      && (record.pdfSha256 === undefined || record.pdfSha256 === createHash('sha256').update(pdf).digest('hex'));
+  } catch {
+    // The recorded identity still applies when the PDF is missing or unreadable.
+  }
+  return { record, pdfValid };
 }
 
 async function findLocalPart(databaseRoot, part) {
   const lcsc = clean(part.lcsc).toUpperCase();
   if (lcsc) {
     const directory = join(databaseRoot, lcsc);
-    const record = await readCachedDirectory(directory);
-    if (record) return { directory, record };
-  }
-
-  const wantedMpn = normalizeMpn(part.mpn);
-  if (!wantedMpn) return null;
-  const entries = await readdir(databaseRoot, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const directory = join(databaseRoot, entry.name);
-    const record = await readCachedDirectory(directory);
-    if (record && normalizeMpn(record.mpn) === wantedMpn) {
-      return { directory, record };
+    const cached = await readCachedDirectory(directory);
+    if (cached) {
+      requireIdentity(part, cached.record);
+      if (cached.pdfValid) return { directory, record: cached.record };
     }
   }
-  return null;
+
+  const wantedMpn = identityValue(part.mpn);
+  if (!wantedMpn) return null;
+  const entries = await readdir(databaseRoot, { withFileTypes: true });
+  const matches = [];
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    if (!entry.isDirectory()) continue;
+    const directory = join(databaseRoot, entry.name);
+    const cached = await readCachedDirectory(directory);
+    if (cached?.pdfValid && identityValue(cached.record.mpn) === wantedMpn && !identityConflicts(part, cached.record).length) matches.push({ directory, record: cached.record });
+  }
+  if (new Set(matches.map(match => identityKey(match.record))).size > 1) throw Object.assign(new Error('Matching local records have different identities; provide a supplier part code or resolve the ambiguity.'), { code: 'AMBIGUOUS_PART_CACHE' });
+  return matches[0] ?? null;
 }
 
 async function fetchLimited(url, fetchImpl, maxBytes, label) {
@@ -256,6 +282,8 @@ async function storePart(databaseRoot, part, resolvedPart, options) {
   const key = clean(part.lcsc).toUpperCase() || 'MPN_' + safeName(resolvedPart.mpn);
   const directory = join(databaseRoot, key);
   const pdfPath = join(directory, 'datasheet.pdf');
+  const existing = await readCachedDirectory(directory);
+  if (existing) requireIdentity(resolvedPart, existing.record);
   const response = await fetchLimited(
     resolvedPart.datasheetUrl,
     options.fetchImpl,
@@ -295,11 +323,19 @@ async function storePart(databaseRoot, part, resolvedPart, options) {
 }
 
 async function processPart(databaseRoot, part, options) {
-  const local = await findLocalPart(databaseRoot, part);
+  let local;
+  try { local = await findLocalPart(databaseRoot, part); }
+  catch (error) {
+    return { ...(clean(part.lcsc) ? { lcsc: clean(part.lcsc).toUpperCase() } : {}),
+      ...(clean(part.mpn) ? { mpn: clean(part.mpn) } : {}), result: 'error',
+      code: error.code ?? 'CACHE_READ_FAILED', error: error.message,
+      ...(error.conflicts ? { conflicts: error.conflicts } : {}) };
+  }
   if (local) {
     return {
       lcsc: clean(part.lcsc).toUpperCase() || undefined,
       mpn: local.record.mpn,
+      ...(clean(local.record.manufacturer) ? { manufacturer: clean(local.record.manufacturer) } : {}),
       result: 'local',
       localData: slash(local.directory),
     };
@@ -336,10 +372,12 @@ async function processPart(databaseRoot, part, options) {
   }
 
   try {
+    requireIdentity(part, resolvedPart);
     const stored = await storePart(databaseRoot, part, resolvedPart, options);
     return {
       ...(clean(part.lcsc) ? { lcsc: clean(part.lcsc).toUpperCase() } : {}),
       mpn: stored.record.mpn,
+      ...(clean(stored.record.manufacturer) ? { manufacturer: clean(stored.record.manufacturer) } : {}),
       result: 'downloaded',
       localData: slash(stored.directory),
     };
@@ -348,7 +386,9 @@ async function processPart(databaseRoot, part, options) {
       ...(clean(part.lcsc) ? { lcsc: clean(part.lcsc).toUpperCase() } : {}),
       ...(clean(resolvedPart.mpn) ? { mpn: clean(resolvedPart.mpn) } : {}),
       result: 'error',
+      code: error.code ?? 'DATASHEET_ACQUISITION_FAILED',
       error: error.message,
+      ...(error.conflicts ? { conflicts: error.conflicts } : {}),
     };
   }
 }

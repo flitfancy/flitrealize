@@ -154,6 +154,50 @@
     }
   },
   "actions": {
+    "api-reference": {
+      "file": "api-reference.js",
+      "description": "离线检索嘉立创 API 类、方法、参数与类型资料，按需展开准确成员。",
+      "contractVersion": 1,
+      "domain": "system",
+      "runtime": "host",
+      "providers": [],
+      "defaultMode": "search",
+      "modes": {
+        "search": {
+          "mutates": false
+        },
+        "show": {
+          "mutates": false
+        }
+      },
+      "discovery": {
+        "keywords": [
+          "API文档",
+          "接口查询",
+          "api reference",
+          "方法参数",
+          "类型查询"
+        ],
+        "reference": "references/0.3-easyeda-pro.md",
+        "entrypoint": "scripts/api-reference.mjs",
+        "limitations": [
+          "内置语料是历史快照，查到定义不代表当前 EDA 已验证支持。",
+          "只读取本地资料，不执行示例、不启动桥接，不修改项目。"
+        ]
+      }
+    },
+    "pcb-layout-prepare": {
+      "file": "pcb-layout-prepare.js",
+      "description": "将上游设计、PCB 快照与项目规则关联为布局求解输入，报告输入状态和工程要求覆盖；完整读写流程使用布局入口。",
+      "discovery": {
+        "keywords": ["布局输入", "粗布局", "布局候选", "pcb layout solver"],
+        "reference": "references/providers/easyeda-pro/3.4-pcb-placement.md",
+        "entrypoint": "scripts/pcb-layout.mjs",
+        "limitations": ["此 host action 只接受完整输入进行 prepare，不读取或修改 EDA。", "读取现场、求解与应用选定候选使用 pcb-layout.mjs；完整柔性填空和主动收拢尚未实现。", "几何及连接距离是代理检查，不代表实际布线、回流或整板 DRC 通过。"]
+      },
+      "contractVersion": 1, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "prepare",
+      "modes": { "prepare": { "mutates": false } }
+    },
     "pcb-board-outline": {
       "file": "easyeda-pro/pcb-board-outline.js",
       "description": "在 BOARD_OUTLINE 层用 Polyline 创建或替换矩形板框，回读闭合几何并可单独保存。",
@@ -547,16 +591,18 @@
     },
     "schematic-inspect": {
       "file": "easyeda-pro/schematic-inspect.js",
-      "description": "回读原理图器件、引脚坐标、导线、网络及文档证据。",
+      "description": "回读原理图器件、引脚、导线及原生网表，核对当前页连接与文档证据。",
       "discovery": {
         "keywords": [
           "原理图回读",
           "原理图快照",
+          "原生网表",
+          "原理图网表",
           "snapshot"
         ],
         "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md"
       },
-      "contractVersion": 3,
+      "contractVersion": 4,
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
@@ -566,7 +612,7 @@
         "inspect": { "mutates": false }
       },
       "requires": {
-        "all": ["document.current", "sch.component.list", "sch.component.getAllPins", "sch.wire.list", "sch.net.listNames"]
+        "all": ["document.current", "sch.component.list", "sch.component.getAllPins", "sch.wire.list"]
       }
     },
     "schematic-component-place": {
@@ -626,16 +672,17 @@
     },
     "schematic-resolve-bindings": {
       "file": "easyeda-pro/schematic-resolve-bindings.js",
-      "description": "依据显式身份或唯一匹配结果生成 EasyEDA 器件绑定。",
+      "description": "依据显式身份或唯一匹配生成绑定，并只读核对明确的器件、符号及封装库身份。",
       "discovery": {
         "keywords": [
           "器件绑定",
+          "库身份核对",
           "符号封装",
           "bindings"
         ],
         "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md"
       },
-      "contractVersion": 3,
+      "contractVersion": 4,
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",

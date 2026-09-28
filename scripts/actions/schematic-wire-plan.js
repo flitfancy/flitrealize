@@ -228,6 +228,11 @@ return await (async () => {
           unresolved.push({ code: 'CONTRACT_COMPONENT_MISSING', message: `${componentName} is absent from Contract components.`, component: componentName, pin: contractPin, net: net.name });
           continue;
         }
+        const declaredPin = (contractComponent.pins || []).find((pin) => String(pin.number) === contractPin);
+        if (['no-connect', 'dnc'].includes(declaredPin?.classification)) {
+          unresolved.push({ code: 'FORBIDDEN_PIN_CONNECTED', message: `${componentName}.${contractPin} is declared ${declaredPin.classification} in Contract.`, component: componentName, pin: contractPin, net: net.name, classification: declaredPin.classification });
+          continue;
+        }
         if (!component) {
           unresolved.push({ code: 'COMPONENT_NOT_REALIZED', message: `${componentName} is absent from the live Snapshot.`, component: componentName, pin: contractPin, net: net.name });
           continue;

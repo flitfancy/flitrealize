@@ -507,6 +507,7 @@ export async function executeHostAction(descriptor, input, context = {}) {
   const execute = new AsyncFunction('flitrealizeInput', 'flitrealizeContext', code);
   const result = await execute(input, {
     action: descriptor.actionName,
+    actionFile: descriptor.actionFile,
     contractVersion: descriptor.contractVersion,
     domain: descriptor.domain,
     mode: descriptor.mode,

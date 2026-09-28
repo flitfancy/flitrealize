@@ -1,0 +1,189 @@
+{
+  "status": "inspected",
+  "sourceKind": "synthetic-example",
+  "description": "illustrative-not-engineering-default: synthetic dimensions, spacing and search preferences demonstrate input structure only; no assembly or electrical approval.",
+  "units": "mil",
+  "coordinateSystem": "eda-y-up",
+  "source": "{\"type\":\"SYNTHETIC_EXAMPLE\",\"description\":\"illustrative-not-engineering-default: synthetic dimensions, spacing and search preferences demonstrate input structure only; no assembly or electrical approval.\",\"revision\":1}",
+  "sourceHash": 2700023034,
+  "components": [
+    {
+      "id": "example-load",
+      "ref": "U_LOAD",
+      "x": 0,
+      "y": 0,
+      "rotation": 0,
+      "layer": 1,
+      "locked": false,
+      "footprint": {
+        "name": "EXAMPLE_LOAD"
+      },
+      "bbox": {
+        "minX": -40,
+        "minY": -30,
+        "maxX": 40,
+        "maxY": 30
+      }
+    },
+    {
+      "id": "example-bypass",
+      "ref": "C_BYP",
+      "x": 220,
+      "y": 0,
+      "rotation": 0,
+      "layer": 1,
+      "locked": false,
+      "footprint": {
+        "name": "EXAMPLE_BYPASS"
+      },
+      "bbox": {
+        "minX": 200,
+        "minY": -15,
+        "maxX": 240,
+        "maxY": 15
+      }
+    }
+  ],
+  "pads": [
+    {
+      "id": "example-load.pad-1",
+      "owner": "U_LOAD",
+      "number": "1",
+      "net": "SUPPLY",
+      "x": -12,
+      "y": 0,
+      "layer": 1,
+      "locked": false,
+      "bbox": {
+        "minX": -17,
+        "minY": -6,
+        "maxX": -7,
+        "maxY": 6
+      }
+    },
+    {
+      "id": "example-load.pad-2",
+      "owner": "U_LOAD",
+      "number": "2",
+      "net": "RETURN",
+      "x": 12,
+      "y": 0,
+      "layer": 1,
+      "locked": false,
+      "bbox": {
+        "minX": 7,
+        "minY": -6,
+        "maxX": 17,
+        "maxY": 6
+      }
+    },
+    {
+      "id": "example-bypass.pad-1",
+      "owner": "C_BYP",
+      "number": "1",
+      "net": "SUPPLY",
+      "x": 208,
+      "y": 0,
+      "layer": 1,
+      "locked": false,
+      "bbox": {
+        "minX": 203,
+        "minY": -6,
+        "maxX": 213,
+        "maxY": 6
+      }
+    },
+    {
+      "id": "example-bypass.pad-2",
+      "owner": "C_BYP",
+      "number": "2",
+      "net": "RETURN",
+      "x": 232,
+      "y": 0,
+      "layer": 1,
+      "locked": false,
+      "bbox": {
+        "minX": 227,
+        "minY": -6,
+        "maxX": 237,
+        "maxY": 6
+      }
+    }
+  ],
+  "items": [
+    {
+      "id": "example-load.refdes",
+      "owner": "U_LOAD",
+      "parentId": "example-load",
+      "type": "attribute",
+      "text": "U_LOAD",
+      "layer": 3,
+      "width": 60,
+      "height": 12,
+      "fontSize": 10,
+      "lineWidth": 1,
+      "original": {
+        "x": -30,
+        "y": 50,
+        "rotation": 0,
+        "alignMode": 3,
+        "bbox": {
+          "minX": -30,
+          "minY": 50,
+          "maxX": 30,
+          "maxY": 62
+        }
+      }
+    },
+    {
+      "id": "example-bypass.refdes",
+      "owner": "C_BYP",
+      "parentId": "example-bypass",
+      "type": "attribute",
+      "text": "C_BYP",
+      "layer": 3,
+      "width": 60,
+      "height": 12,
+      "fontSize": 10,
+      "lineWidth": 1,
+      "original": {
+        "x": 190,
+        "y": 50,
+        "rotation": 0,
+        "alignMode": 3,
+        "bbox": {
+          "minX": 190,
+          "minY": 50,
+          "maxX": 250,
+          "maxY": 62
+        }
+      }
+    }
+  ],
+  "outlines": [],
+  "regions": [],
+  "routing": {
+    "Line": 0,
+    "Arc": 0,
+    "Polyline": 0,
+    "Via": 0,
+    "Pour": 0
+  },
+  "capabilities": {
+    "units": "mil",
+    "axes": "native-y-up",
+    "componentLayers": [
+      1
+    ],
+    "padLayers": [
+      1,
+      12
+    ],
+    "labelLayers": [
+      3
+    ],
+    "relativeRotationStep": 90,
+    "routedMovement": false,
+    "unsupported": []
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "description": "illustrative-not-engineering-default: synthetic dimensions, spacing and search preferences demonstrate input structure only; no assembly or electrical approval.",
+  "clearanceMil": 12,
+  "boardBounds": null,
+  "includeFunctionalLabels": false,
+  "labelTemplates": {
+    "default": {
+      "anchor": "body-and-pads",
+      "minGapMil": 12
+    }
+  }
+}

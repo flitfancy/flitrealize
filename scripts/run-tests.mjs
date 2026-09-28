@@ -19,7 +19,7 @@ if (testFiles.length === 0) {
   process.stderr.write('No Node test files found.\n');
   process.exitCode = 1;
 } else {
-  const completed = spawnSync(process.execPath, ['--test', ...testFiles], {
+  const completed = spawnSync(process.execPath, ['--test', '--test-concurrency=4', ...testFiles], {
     cwd: root,
     stdio: 'inherit',
     windowsHide: true,

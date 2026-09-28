@@ -1,0 +1,161 @@
+{
+  "kind": "flitrealize.schematic-contract",
+  "schemaVersion": 1,
+  "project": {
+    "id": "minimal-layout-example",
+    "revision": "example-1",
+    "title": "Minimal synthetic PCB layout example"
+  },
+  "blocks": [
+    {
+      "id": "abstract-load",
+      "purpose": "Demonstrate a load and its explicit bypass relationship",
+      "components": [
+        "U_LOAD",
+        "C_BYP"
+      ],
+      "evidenceState": "OPEN"
+    }
+  ],
+  "powerDomains": [
+    {
+      "id": "example-domain",
+      "sourceNet": "SUPPLY",
+      "returnNet": "RETURN",
+      "evidenceState": "OPEN"
+    }
+  ],
+  "interfaces": [],
+  "components": [
+    {
+      "designator": "U_LOAD",
+      "role": "Abstract powered load",
+      "identity": {
+        "selection": "generic",
+        "description": "Synthetic load; no actual part selected"
+      },
+      "footprint": {
+        "selection": "exact",
+        "name": "EXAMPLE_LOAD"
+      },
+      "pinMapCoverage": "complete",
+      "pins": [
+        {
+          "number": "1",
+          "function": "Supply",
+          "classification": "power-in"
+        },
+        {
+          "number": "2",
+          "function": "Return",
+          "classification": "ground"
+        }
+      ],
+      "includeInBom": false,
+      "includeInPcb": true
+    },
+    {
+      "designator": "C_BYP",
+      "role": "Bypass capacitor serving the abstract load supply",
+      "identity": {
+        "selection": "generic",
+        "description": "Synthetic capacitor; no capacitance or voltage rating selected"
+      },
+      "footprint": {
+        "selection": "exact",
+        "name": "EXAMPLE_BYPASS"
+      },
+      "pinMapCoverage": "complete",
+      "pins": [
+        {
+          "number": "1",
+          "function": "Supply terminal",
+          "classification": "passive"
+        },
+        {
+          "number": "2",
+          "function": "Return terminal",
+          "classification": "passive"
+        }
+      ],
+      "includeInBom": false,
+      "includeInPcb": true
+    }
+  ],
+  "nets": [
+    {
+      "name": "SUPPLY",
+      "kind": "power",
+      "powerDomain": "example-domain",
+      "endpoints": [
+        {
+          "component": "U_LOAD",
+          "pin": "1"
+        },
+        {
+          "component": "C_BYP",
+          "pin": "1"
+        }
+      ]
+    },
+    {
+      "name": "RETURN",
+      "kind": "ground",
+      "powerDomain": "example-domain",
+      "endpoints": [
+        {
+          "component": "U_LOAD",
+          "pin": "2"
+        },
+        {
+          "component": "C_BYP",
+          "pin": "2"
+        }
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "id": "bypass-locality",
+      "type": "layout-and-routing",
+      "appliesTo": [
+        {
+          "kind": "component",
+          "id": "C_BYP"
+        },
+        {
+          "kind": "component",
+          "id": "U_LOAD"
+        }
+      ],
+      "requirement": "Keep the declared supply bypass connection compact. Return routing and actual electrical performance require separate review.",
+      "evidenceState": "OPEN"
+    }
+  ],
+  "exceptions": [],
+  "notes": [
+    "illustrative-not-engineering-default: synthetic dimensions, spacing and search preferences demonstrate input structure only; no assembly or electrical approval."
+  ],
+  "extensions": {
+    "pcbLayout": {
+      "schemaVersion": 1,
+      "relations": [
+        {
+          "id": "load-bypass",
+          "kind": "bypass",
+          "from": {
+            "ref": "U_LOAD",
+            "pin": "1"
+          },
+          "to": {
+            "ref": "C_BYP",
+            "pin": "1"
+          },
+          "net": "SUPPLY",
+          "basis": "Explicit synthetic service relationship; no numeric electrical limit is asserted.",
+          "requirementId": "bypass-locality"
+        }
+      ]
+    }
+  }
+}

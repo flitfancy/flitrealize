@@ -75,11 +75,6 @@ def added_lines(diff: str) -> list[tuple[str, int, str]]:
     return added
 
 
-def staged_added_lines(diff: str) -> list[tuple[str, int, str]]:
-    """Backward-compatible name retained for callers and tests."""
-    return added_lines(diff)
-
-
 def normalize_base_revision(revision: str) -> str:
     """Map GitHub's all-zero first-push sentinel to Git's empty tree."""
     value = revision.strip()

@@ -69,6 +69,22 @@ test('resume repairs missing markers on existing stubs and does not duplicate wi
   assert.ok(codes(verified).includes('MARKERS_INCOMPLETE'));
 });
 
+test('DNC maps to an explicit unconnected marker and remains verifiable', async () => {
+  const f = fixture();
+  f.input.contract.components[0].pins[1].classification = 'dnc';
+  const planned = await planConnections(f.input, f.snapshot);
+  assert.equal(planned.applyReady, true, JSON.stringify(planned.diagnostics));
+  assert.equal(planned.pending.noConnect, 1);
+  assert.equal(planned.noConnectItems[0].reason, 'Contract classification: dnc');
+  complete(f);
+  const verified = await planConnections(f.input, f.snapshot, { phase: 'verify' });
+  assert.equal(verified.verified, true, JSON.stringify(verified.diagnostics));
+  f.input.contract.nets[0].endpoints.push({ component: 'U1', pin: 'NC' });
+  const conflict = await planConnections(f.input, f.snapshot);
+  assert.equal(conflict.applyReady, false);
+  assert.ok(codes(conflict).includes('PIN_INTENT_CONFLICT'));
+});
+
 test('complete snapshot verifies idempotently including a reverse point-order stub', async () => {
   const f = complete(fixture());
   f.snapshot.extensions.easyedaPro.wires[0].points.reverse();
