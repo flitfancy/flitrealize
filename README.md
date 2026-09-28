@@ -4,7 +4,7 @@
 
 [简体中文](README.zh-CN.md) · [First run](docs/first-run.md) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/flitfancy/flitrealize/releases)
 
-Version marker: `v1.5.0`. See the [changelog](CHANGELOG.md) for source changes.
+Version marker: `v1.6.0`. See the [changelog](CHANGELOG.md) for source changes.
 
 FlitRealize is an agent skill for requirements, parts, schematics, PCB work, manufacturing preparation, and prototype testing. The agent makes engineering judgments; scripts read, transform, calculate, execute, and verify. Each project keeps one `CURRENT_HANDOFF.md`; contracts, EDA files, and original evidence retain the underlying facts.
 
@@ -14,7 +14,7 @@ FlitRealize is an agent skill for requirements, parts, schematics, PCB work, man
 | --- | --- |
 | Requirements and parts | Architecture, power and interface relationships, part identity, datasheets, and inventory matching |
 | Schematics | Design contracts, library identity checks, batch placement, connections, reflow, saving, and checks |
-| PCB | Input preparation, multiple layout starts, spacing and edge checks, applying selected candidates; outlines, explicit moves, trace widths, grounding, and colors |
+| PCB | Input preparation, multiple layout starts, 1.5D gravity packing with precomputed cluster shapes, local proposal review, spacing and edge checks; outlines, selected layout application, trace widths, grounding, and colors |
 | Manufacturing and prototypes | Source/output alignment, BOM/CPL handoff, measurement plans, results, and revision decisions |
 | Continuity | One project manuscript and the local View State panel |
 

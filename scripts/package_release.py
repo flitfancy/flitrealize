@@ -47,6 +47,8 @@ def runtime_files() -> list[Path]:
         ROOT / "scripts/schematic-connect.mjs",
         ROOT / "scripts/pcb-edit.mjs",
         ROOT / "scripts/pcb-layout.mjs",
+        ROOT / "scripts/pcb-fine-layout.mjs",
+        ROOT / "scripts/pcb-fine-review.mjs",
         ROOT / "scripts/handoff-check.mjs",
         ROOT / "scripts/handoff-sync.mjs",
         ROOT / "scripts/eda-host.mjs",

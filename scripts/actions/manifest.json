@@ -198,6 +198,30 @@
       "contractVersion": 1, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "prepare",
       "modes": { "prepare": { "mutates": false } }
     },
+    "pcb-fine-layout": {
+      "file": "pcb-fine-layout.js",
+      "description": "1.5维重力算法：局部组形状预生成、按原布局分层取块、重力下落与固定板框装填。",
+      "discovery": {
+        "keywords": ["细布局", "1.5维重力算法", "1.5D gravity", "俄罗斯方块", "重力试排", "预生成形状", "tetris", "pcb gravity layout"],
+        "reference": "references/providers/easyeda-pro/3.4-fine-layout.md",
+        "entrypoint": "scripts/pcb-fine-layout.mjs",
+        "limitations": ["离线有限形状装填；不连接或修改 EDA。", "需要实际矩形板框与装配规则，先合并局部组，再预生成收拢/旋转形状。", "碰撞基于装配包围盒；装入率、精确贴边检查和实际电气验收分别报告。"]
+      },
+      "contractVersion": 1, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "pack",
+      "modes": { "pack": { "mutates": false } }
+    },
+    "pcb-fine-review": {
+      "file": "pcb-fine-review.js",
+      "description": "在实际板框内比较细布局局部候选，回算焊盘距离、网络跨度及几何变化。",
+      "discovery": {
+        "keywords": ["细布局", "局部细化", "焊盘距离", "fine placement", "pcb fine layout"],
+        "reference": "references/providers/easyeda-pro/3.4-fine-review.md",
+        "entrypoint": "scripts/pcb-fine-review.mjs",
+        "limitations": ["只比较显式候选，不搜索、不写入 EDA；没有板框先生成板框请求并重新读取。", "平移与相对90度旋转；矩形板框、二维占位和可选装配规则。", "写入复用 pcb-edit 的现场计划；当前执行器不能带动已有铜线。"]
+      },
+      "contractVersion": 1, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "review",
+      "modes": { "review": { "mutates": false } }
+    },
     "pcb-board-outline": {
       "file": "easyeda-pro/pcb-board-outline.js",
       "description": "在 BOARD_OUTLINE 层用 Polyline 创建或替换矩形板框，回读闭合几何并可单独保存。",

@@ -93,10 +93,10 @@ test('PCB tools expose real PCB entrypoints without falling back to schematic ca
     assert.deepEqual(result.workflows, []);
   }
   const placement = lookup('布局', 'pcb');
-  assert.deepEqual(placement.actions.map(a => a.name).sort(), ['pcb-layout-prepare', 'pcb-placement']);
+  assert.deepEqual(placement.actions.map(a => a.name).sort(), ['pcb-fine-layout', 'pcb-fine-review', 'pcb-layout-prepare', 'pcb-placement']);
   assert.equal(placement.actions.find(a => a.name === 'pcb-placement').entrypoint.file, 'scripts/pcb-edit.mjs');
   const result = JSON.parse(run(['list', '--query', 'pcb layout']).stdout);
-  assert.deepEqual(result.actions.map(a => a.name).sort(), ['pcb-layout-prepare', 'pcb-placement']);
+  assert.deepEqual(result.actions.map(a => a.name).sort(), ['pcb-fine-layout', 'pcb-fine-review', 'pcb-layout-prepare', 'pcb-placement']);
   const missing = lookup('自动阻抗求解', 'pcb');
   assert.equal(missing.queryStatus, 'no-match');
   assert.ok(missing.guidance.length > 0);
@@ -117,6 +117,14 @@ test('layout input discovery separates read-only preparation from the full layou
     assert.ok(action.limitations.length);
     assert.ok(result.actions.every(item => item.domain === 'pcb'));
   }
+});
+
+test('fine placement queries distinguish gravity packing from auxiliary review', () => {
+  const result=lookup('细布局','pcb');
+  assert.deepEqual(result.actions.map(a=>a.name).sort(),['pcb-fine-layout','pcb-fine-review']);
+  const main=result.actions.find(a=>a.name==='pcb-fine-layout');
+  assert.equal(main.entrypoint.file,'scripts/pcb-fine-layout.mjs');
+  assert.deepEqual(main.modes,[{mode:'pack',mutates:false}]);
 });
 
 test('width discovery distinguishes editing existing traces from planning rules', () => {

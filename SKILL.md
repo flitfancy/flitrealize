@@ -59,6 +59,8 @@ PCB 实际操作按任务读取 [3.4 布局](references/providers/easyeda-pro/3.
 
 布局求解先由 `pcb-layout.mjs --mode prepare` 读取上游设计、实际 PCB 和项目规则，关联并检查成统一输入包；AI 只补充缺失的工程意图，不重抄位置、焊盘或网络。生成候选与应用选定候选使用同一入口；明确器件移动和空白分析仍用 `pcb-edit.mjs`。选择与支持范围见 3.4，配置时再读 [布局输入](references/pcb-layout-inputs.md)。
 
+细布局开始前需要实际板框：已有则沿用，没有则先创建并回读。按[1.5维重力算法](references/providers/easyeda-pro/3.4-fine-layout.md)，用 `pcb-fine-layout.mjs` 合并局部组、预生成收拢和旋转形状，再按原布局分层取块、重力下落生成装填候选。距离比较由辅助审阅入口提供。已有铜线时根据执行器是否具备跟线移动或重布线能力选择方法。
+
 软件原生层号、库绑定、网表格式及读写调用由 Provider 转换；公共布局使用层用途、已解析引脚映射和网表记录。更换软件须接入并验证对应 Provider，不能只换名称就宣称支持。
 
 专项参考使用 `D.x` 编号，不属于通用推进阶段。涉及音频硬件时，按需读取 [D.1 音频系统](references/domains/D.1-audio-systems.md)，在本次相关阶段应用其中要求。

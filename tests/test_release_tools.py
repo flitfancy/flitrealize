@@ -25,6 +25,15 @@ from package_release import (
 
 
 class RuntimePackagingTests(unittest.TestCase):
+    def test_fine_layout_entrypoints_ship_with_their_algorithms(self) -> None:
+        packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
+        for entry in (
+            "scripts/pcb-fine-layout.mjs", "scripts/pcb-fine-review.mjs",
+            "scripts/pcb-layout/pcb-gravity-pack.mjs", "scripts/pcb-layout/pcb-gravity-shapes.mjs",
+            "scripts/pcb-layout/pcb-gravity-report.mjs", "scripts/pcb-layout/pcb-layout-fine-review.mjs",
+        ):
+            self.assertIn(entry, packaged)
+
     def test_view_state_runtime_and_assets_ship_without_its_tests(self) -> None:
         packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
         for entry in (
