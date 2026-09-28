@@ -67,6 +67,7 @@ Provider 将坐标、角度和边界转换到统一约定。转换结果由 `lay
 | `schemaVersion`、`provider` | 版本为 1，软件标识与快照来源一致 |
 | `units`、`coordinateSystem` | `mil`、`cartesian-y-up`，对应实际几何数值 |
 | `layers` | 对象 ID 到层用途的映射；当前求解使用 `top-copper`、`all-copper`、`top-silkscreen` |
+| `board` | `status: "none"` 表示没有原生板框；`"rectangle"` 提供 `bounds: {minX,minY,maxX,maxY}`；其他轮廓为 `"unsupported"` 并附原因。原生图元解析由 Provider 完成 |
 | `pinMaps` | 位号 → 逻辑引脚 → 物理焊盘编号数组 |
 | `labelAlignment.bottomLeft` | Provider 定义的局部底左角文字锚点编码 |
 | `netlist` | 读取状态；成功时提供版本及 `components: [{ref, uniqueId?, pins: [{number, net}]}]` |

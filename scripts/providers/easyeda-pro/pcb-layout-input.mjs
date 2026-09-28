@@ -1,5 +1,6 @@
 // EasyEDA data conventions live here; geometry and net comparisons use the
 // resulting layer roles, pin maps and component/pin records.
+import { decodeBoard } from './pcb-layout-board.mjs';
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const array = value => Array.isArray(value) ? value : [];
 const roles = new Map([[1, 'top-copper'], [2, 'bottom-copper'], [3, 'top-silkscreen'], [4, 'bottom-silkscreen'], [12, 'all-copper']]);
@@ -57,7 +58,7 @@ export function layoutRealization(snapshot, contract, mechanical = {}) {
     schemaVersion: 1, provider: 'easyeda-pro',
     units: snapshot.units === undefined ? 'mil' : snapshot.units,
     coordinateSystem: normalizeCoordinateSystem(snapshot.coordinateSystem === undefined ? 'eda-y-up' : snapshot.coordinateSystem),
-    layers, labelAlignment,
+    layers, labelAlignment, board: decodeBoard(snapshot.outlines),
     pinMaps: Object.fromEntries(array(contract?.components).map(c => [c.designator, componentPinMap(c)])),
     netlist: decodeNetlist(snapshot.nativeNetlist), netNames: decodeNetNames(snapshot.nativeNetNames),
     target: { projectId: mechanical.expectedProjectUuid ?? snapshot.document?.parentProjectUuid ?? null, documentId: mechanical.expectedDocumentUuid ?? snapshot.document?.uuid ?? null },

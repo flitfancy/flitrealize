@@ -12,10 +12,10 @@ export function parametersFromEdgePlan(model, plan, checked) {
   }));
 }
 
-// The envelope is a candidate variable, not a manufactured/fixed board outline.
-// A caller may supply a coordinated smaller envelope for later contraction.
-// Ordinary interior moves can enlarge the current candidate envelope here.
+// A fixed board is authoritative. Without one, interior moves may enlarge the
+// candidate envelope used to parameterize edge parts.
 export function candidateEdgeEnvelope(model, current, proposed) {
+  if (model.config?.hard?.boardBounds) return { ...model.config.hard.boardBounds };
   const original = new Map(current.components.map(c => [c.ref, c]));
   const boxes = proposed.map(c => model.edgeDomains?.has(c.ref) ? original.get(c.ref).body : transformBox(model.components.get(c.ref).bbox, model.components.get(c.ref), c));
   return { minX: Math.min(...boxes.map(b => b.minX)), maxX: Math.max(...boxes.map(b => b.maxX)), minY: Math.min(...boxes.map(b => b.minY)), maxY: Math.max(...boxes.map(b => b.maxY)) };

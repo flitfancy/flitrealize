@@ -18,11 +18,13 @@ export function target(config) {
 export async function buildOperation(phase, input) {
   if (!['inspect', 'apply', 'verify', 'save'].includes(phase)) throw Error('UNSUPPORTED_LAYOUT_OPERATION');
   const { assemblyRuntime } = await import('../../pcb-layout/pcb-layout-assembly-policy.mjs');
+  const { boardRuntime } = await import('../../pcb-layout/pcb-layout-board.mjs');
+  const { decodeBoard } = await import('./pcb-layout-board.mjs');
   const runtime = await readFile(new URL('./pcb-layout-native/runtime.js', import.meta.url), 'utf8');
   const body = await readFile(new URL('./pcb-layout-native/' + phase + '.js', import.meta.url), 'utf8');
   return {
     extension: '.js',
-    code: 'const layoutExecutionInput=' + JSON.stringify(input) + ';\nconst assemblyRuntime=(' + assemblyRuntime.toString() + ');\n' + runtime + '\n' + body,
+    code: 'const layoutExecutionInput=' + JSON.stringify(input) + ';\nconst assemblyRuntime=(' + assemblyRuntime.toString() + ');\nconst {resolveBoardBounds,checkBoardBounds}=(' + boardRuntime.toString() + ')();\nconst decodeBoard=(' + decodeBoard.toString() + ');\n' + runtime + '\n' + body,
   };
 }
 

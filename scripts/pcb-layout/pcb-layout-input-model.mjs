@@ -8,7 +8,7 @@ export function layoutInputModel(model) {
   return {
     schemaVersion: 1, kind: 'pcb-layout-input-receipt', units: 'mil', coordinateSystem: 'cartesian-y-up', provider: realization.provider,
     source: { projectId: realization.target?.projectId ?? null, documentId: realization.target?.documentId ?? null, snapshotSourceHash: snapshot.sourceHash, authoritative: { contract: config.contractFile, features: config.featuresFile, spatial: config.spatialFile, geometry: config.geometryViewsFile, coupling: config.blockCouplingFile, spacingPolicy: config.spacingPolicyFile, assemblyRules: config.assemblyRulesFile, initialization: config.initializationFile }, editable: false },
-    board: { bounds: config.hard.boardBounds, placementClearanceMil: mechanical.clearanceMil, explicitFixed: config.hard.fixed ?? [], weights: config.comparisonWeights, scoreReferences: model.scoreReferences, spatialDefaults: { uniformity: model.spacingPolicy ? null : config.spatial?.uniformity ?? null }, zones: config.spatial?.zones ?? [], spacingPolicy: model.spacingPolicy ?? null, assemblyPolicy: model.assemblyPolicy ?? null },
+    board: { bounds: config.hard.boardBounds, sources: model.board.sources, placementClearanceMil: mechanical.clearanceMil, explicitFixed: config.hard.fixed ?? [], weights: config.comparisonWeights, scoreReferences: model.scoreReferences, spatialDefaults: { uniformity: model.spacingPolicy ? null : config.spatial?.uniformity ?? null }, zones: config.spatial?.zones ?? [], spacingPolicy: model.spacingPolicy ?? null, assemblyPolicy: model.assemblyPolicy ?? null },
     blocks: contract.blocks.map(b => ({ id: b.id, purpose: b.purpose ?? '', members: [...b.components], ports: couplingModel.ports.filter(p => p.blockId === b.id).map(p => p.id), localGroups: model.spatialRules.localGroups.filter(g => g.refs.some(ref => b.components.includes(ref))).map(g => g.id), rigidRegion: false })),
     localGroups: model.spatialRules.localGroups,
     components: snapshot.components.map(c => {
@@ -20,7 +20,7 @@ export function layoutInputModel(model) {
     geometry: { representation: 'axis-aligned-bounds', views: ['footprint', 'pads', 'silkscreen', 'placement', ...(model.assemblyPolicy ? ['physical'] : []), 'assembly', 'operation'], envelopes: config.geometryViews?.envelopes ?? [], assemblyAndOperationCoverage: model.assemblyPolicy ? 'assembly-rule-derived-proxy;operation-explicit-only' : 'explicit-declarations-only' },
     search: config.search, initialization: config.initialization ?? null,
     nativeObservations: nativeObservations(snapshot),
-    edgeVariables: [...(model.edgeDomains ?? [])].map(([ref, d]) => ({ ref, status: d.status, fixed: d.fixed, variables: ['side', 'alongMil', 'legalRotation'], normalCoordinate: 'derived-from-current-layout-envelope', states: d.states.map(s => ({ side: s.side, rotation: s.rotation })) })),
+    edgeVariables: [...(model.edgeDomains ?? [])].map(([ref, d]) => ({ ref, status: d.status, fixed: d.fixed, variables: ['side', 'alongMil', 'legalRotation'], normalCoordinate: config.hard.boardBounds ? 'derived-from-fixed-board' : 'derived-from-current-layout-envelope', states: d.states.map(s => ({ side: s.side, rotation: s.rotation })) })),
     review: { decisionOwner: 'user', newQualityScoringAdded: false, roleTemplateCompilation: 'not-implemented', actualRoutingEvaluation: 'not-implemented', unknownGeometryIsNotClearanceApproval: true },
   };
 }

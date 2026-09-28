@@ -123,6 +123,7 @@ async function layoutNative(eda, input) {
       const all = await eda['pcb_Primitive' + type].getAll();
       routing[type] = all.filter(a => ['Via', 'Pour'].includes(type) || [1, 2].includes(get(a, 'Layer')) || get(a, 'Layer') >= 15 && get(a, 'Layer') <= 44).length;
       if (type === 'Polyline') for (const a of all.filter(a => get(a, 'Layer') === 11)) outlines.push({ id: get(a, 'PrimitiveId'), path: get(a, 'Polygon')?.getSource?.() ?? null });
+      if (['Line', 'Arc'].includes(type)) for (const a of all.filter(a => get(a, 'Layer') === 11)) outlines.push({ id: get(a, 'PrimitiveId'), kind: type });
     }
     if (eda.pcb_PrimitiveRegion?.getAll) for (const a of await eda.pcb_PrimitiveRegion.getAll()) regions.push({ id: get(a, 'PrimitiveId'), layer: get(a, 'Layer'), bbox: await box(get(a, 'PrimitiveId')) });
     const [nativeNetlist, nativeNetNames] = await Promise.all([
@@ -149,8 +150,9 @@ async function layoutNative(eda, input) {
     if (!plan || !before || !Array.isArray(plan.issues) || plan.issues.length) fail('PLAN_INVALID');
     if (plan.sourceHash !== before.sourceHash || live.sourceHash !== before.sourceHash) fail('SOURCE_CHANGED_REPLAN');
     if (live.capabilities.unsupported.length) fail('NATIVE_CAPABILITY_UNSUPPORTED ' + JSON.stringify(live.capabilities.unsupported));
-    if (cfg.boardBounds != null) fail('BOARD_BOUNDS_UNSUPPORTED');
-    if (live.outlines.length) fail('NATIVE_BOARD_OUTLINE_UNSUPPORTED');
+    const boardBounds = resolveBoardBounds(decodeBoard(live.outlines), cfg.boardBounds).bounds;
+    if (boardBounds ? !sameBox(boardBounds,plan.boardBounds,.001) : plan.boardBounds != null) fail('PLAN_BOARD_BOUNDS_MISMATCH');
+    if (JSON.stringify(live.outlines) !== JSON.stringify(before.outlines)) fail('BOARD_OUTLINE_CHANGED');
     for (const [name, wanted] of [['components', before.components], ['labels', before.items], ['testPads', before.pads.filter(p => !padComponent(p, before.components))]]) {
       if (!Array.isArray(plan[name]) || plan[name].length !== wanted.length || new Set(plan[name].map(o => o.id)).size !== wanted.length || plan[name].some(o => !wanted.some(a => a.id === o.id))) fail('PLAN_OBJECT_IDS ' + name);
     }
@@ -175,14 +177,15 @@ async function layoutNative(eda, input) {
     if (hasMoves && live.regions.length) fail('REGION_MOVEMENT_UNSUPPORTED');
     const placements = plan.components.map(c => ({ ...c, body: transformBox(before.components.find(a => a.id === c.id).bbox, before.components.find(a => a.id === c.id), c) }));
     const pads = before.pads.map(p => { const c = padComponent(p, before.components); const old = c ?? { ...p, rotation: 0 }, next = c ? plan.components.find(a => a.id === c.id) : { ...plan.testPads.find(a => a.id === p.id), rotation: 0 }; const { nativeGeometry, ...identity } = p; return { ...identity, ...transform(p, old, next), bbox: transformBox(p.bbox, old, next) }; });
-    const proposed = geometry(placements, plan.labels, pads);
+    const proposed = geometry(placements, plan.labels, pads, boardBounds);
     if (proposed.issues.length) fail('PLAN_GEOMETRY_ISSUES ' + JSON.stringify(proposed.issues));
   }
-  function geometry(placements, labels, pads) {
+  function geometry(placements, labels, pads, boardBounds = null) {
     if (cfg.assemblyPolicy && typeof assemblyRuntime !== 'function') fail('ASSEMBLY_RUNTIME_MISSING');
     const testPads = pads.filter(p => !padComponent(p, placements));
     const bundles = placements.map(c => ({ ref: c.ref, bbox: union([c.body ?? c.bbox, ...labels.filter(l => l.owner === c.ref).map(l => l.bbox)]) })).concat(testPads.map(p => ({ ref: p.number, bbox: p.bbox })));
     const issues = []; let minimumAxisGapMil = Infinity;
+    issues.push(...checkBoardBounds(boardBounds,[...placements.map(c=>({ref:c.ref,id:c.id,kind:'component',bbox:c.body??c.bbox})),...labels.map(l=>({...l,kind:'label'})),...pads.map(p=>({...p,kind:'pad'}))]));
     const pairs = new Map((cfg.pairClearancesMil ?? []).map(p => [JSON.stringify([p.a, p.b].sort()), p.hardMinMil]));
     for (let i = 0; i < bundles.length; i++) for (let j = i + 1; j < bundles.length; j++) {
       const a = bundles[i].bbox, b = bundles[j].bbox, gap = Math.max(a.minX - b.maxX, b.minX - a.maxX, a.minY - b.maxY, b.minY - a.maxY), requiredMil = Math.max(cfg.clearanceMil ?? 8, pairs.get(JSON.stringify([bundles[i].ref, bundles[j].ref].sort())) ?? 0);
@@ -211,7 +214,12 @@ async function layoutNative(eda, input) {
       if (!a || a.owner !== p.owner || a.parentComponentId !== p.parentComponentId) issues.push({ code: 'PAD_OWNER_CHANGED', id: p.id });
       if (!a || a.net !== p.net || a.number !== p.number || a.layer !== p.layer || a.locked !== p.locked || !sameBox(a.bbox, transformBox(p.bbox, old, next))) issues.push({ code: 'PAD_READBACK_FAILED', id: p.id });
     }
-    const checked = geometry(placements, labels, live.pads); issues.push(...checked.issues);
+    let boardBounds = null;
+    try {
+      boardBounds = resolveBoardBounds(decodeBoard(live.outlines),cfg.boardBounds).bounds;
+      if (boardBounds ? !sameBox(boardBounds,plan.boardBounds,.001) : plan.boardBounds != null) issues.push({code:'PLAN_BOARD_BOUNDS_MISMATCH'});
+    } catch(error) { issues.push({code:error.code??'INVALID_BOARD_BOUNDS'}); }
+    const checked = geometry(placements, labels, live.pads,boardBounds); issues.push(...checked.issues);
     if (before.routing && JSON.stringify(live.routing) !== JSON.stringify(before.routing)) issues.push({ code: 'ROUTING_CHANGED' });
     if (before.regions && JSON.stringify(live.regions) !== JSON.stringify(before.regions)) issues.push({ code: 'REGIONS_CHANGED' });
     if (before.outlines && JSON.stringify(live.outlines) !== JSON.stringify(before.outlines)) issues.push({ code: 'OUTLINES_CHANGED' });

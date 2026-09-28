@@ -16,6 +16,7 @@ import { compileReferenceGeometry, compileReferenceScales, scoreReferenceMil } f
 import { compileEdgeDomains, decodeEdgePose } from './pcb-layout-edge-domain.mjs';
 import { parametersFromEdgePlan, candidateEdgeEnvelope, constructEdgeLayout, edgeAnchorOptions } from './pcb-layout-edge-construction.mjs';
 import { layoutRealization } from './pcb-layout-provider.mjs';
+import { resolveBoardBounds, boardContains, checkBoardBounds } from './pcb-layout-board.mjs';
 
 const shift = (b, dx, dy) => ({ minX: b.minX + dx, maxX: b.maxX + dx, minY: b.minY + dy, maxY: b.maxY + dy });
 const gapOf = (a, b) => Math.max(a.minX - b.maxX, b.minX - a.maxX, a.minY - b.maxY, b.minY - a.maxY);
@@ -27,7 +28,9 @@ export function compileModel(snapshot, contract, config, mechanical) {
   config = { ...config, scoringMode: config.scoringMode === undefined ? 'simple-v1' : config.scoringMode };
   if (config.scoringMode !== 'simple-v1') throw Error('INVALID_SCORING_MODE: only simple-v1 is supported; migrate explicit historical modes before solving');
   const realization = layoutRealization(snapshot, contract, config.provider, mechanical);
-  if (config.hard.boardBounds !== null) throw Error('This solver version requires boardBounds=null');
+  const board = resolveBoardBounds(realization.board ?? (snapshot.outlines?.length ? { status: 'unsupported' } : null), config.hard.boardBounds, mechanical.boardBounds);
+  config = { ...config, hard: { ...config.hard, boardBounds: board.bounds } };
+  mechanical = { ...mechanical, boardBounds: board.bounds };
   validateWeights(config.comparisonWeights, config.groups);
   const assemblyPolicy = compileAssemblyPolicy(snapshot, config.assemblyRules);
   const referenceGeometry = compileReferenceGeometry(snapshot, assemblyPolicy);
@@ -98,6 +101,7 @@ export function compileModel(snapshot, contract, config, mechanical) {
   for (const l of limits) if (!(Number.isFinite(l.maxMil) && l.maxMil >= 0)) throw Error('INVALID_PIN_DISTANCE_LIMIT');
   const model = { snapshot, contract, config, mechanical: { ...mechanical, ...(pairClearancesMil.length ? { pairClearancesMil } : {}), ...(assemblyPolicy ? { assemblyPolicy } : {}), lockedDesignators: [...fixed.keys()], initializeLabels: false }, components, pads, fixed, allowedRotations, edgeRules, blockRules: features.blockRules, spatialRules, geometryModel, couplingModel, spacingPolicy, assemblyPolicy, referenceGeometry, pairClearanceMap, links, connectivity, limits };
   model.realization = realization;
+  model.board = board;
   model.edgeDomains = edgeDomains;
   model.scoreReferences = compileReferenceScales(model);
   model.baselineMetrics = measure(model, snapshot.components);
@@ -253,7 +257,17 @@ export function validatePlan(model, plan) {
     const length = pairLength(l, positions).mil;
     if (length > l.maxMil) issues.push({ code: 'PIN_DISTANCE_LIMIT', id: l.id, mil: length, maxMil: l.maxMil });
   }
-  const edge = !issues.length ? checkEdges(model.edgeRules, plan.components) : { issues: [], details: [] };
+  const boardBounds = model.config.hard.boardBounds;
+  if (boardBounds && !sameBox(plan.boardBounds, boardBounds)) issues.push({ code: 'PLAN_BOARD_BOUNDS_MISMATCH' });
+  if (boardBounds && !issues.some(i => /INVALID|COUNT|IDS/.test(i.code))) {
+    const pads = model.pads.map(p => {
+      const old = p.owner ? model.components.get(p.owner) : p;
+      const next = p.owner ? positions.get(p.owner) : plan.testPads.find(t => t.id === p.id);
+      return { ...p, kind: 'pad', bbox: transformBox(p.bbox, { ...old, rotation: p.owner ? old.rotation : 0 }, { ...next, rotation: p.owner ? next.rotation : 0 }) };
+    });
+    issues.push(...checkBoardBounds(boardBounds, [...actualBundles.map(b => ({...b,kind:'placement'})), ...pads]));
+  }
+  const edge = !issues.length ? checkEdges(model.edgeRules, plan.components, boardBounds) : { issues: [], details: [], ...(boardBounds ? { envelope: boardBounds, boundarySource: 'board' } : {}) };
   const block = !issues.length ? checkBlocks(model.blockRules, plan.components) : { issues: [], details: [] };
   const geometry = !issues.length ? buildGeometryViews(model.geometryModel, plan.components, plan.labels, plan.testPads) : null;
   const spatial = geometry ? evaluateSpatial(model.spatialRules, plan.components, plan.bundles, geometry) : { issues: [] };
@@ -297,7 +311,7 @@ export function inspectCandidate(model) {
   const labels = model.snapshot.items.map(t => ({ ...t.original, id: t.id, owner: t.owner, parentId: t.parentId, type: t.type, text: t.text, fontSize: t.fontSize, lineWidth: t.lineWidth, changed: false }));
   const testPads = model.pads.filter(p => !p.owner).map(p => ({ ...p, dx: 0, dy: 0 }));
   const geometry = buildGeometryViews(model.geometryModel, components, labels, testPads);
-  const plan = { status: 'snapshot-inspection', sourceHash: model.snapshot.sourceHash, components, labels, testPads, bundles: geometry.placement.map(s => ({ ref: s.ref, bbox: s.bbox })), issues: [], counts: { moved: 0, rotated: 0, labelsChanged: 0, silkRelocated: 0, testPadsMoved: 0 }, maxMoveMil: 0 };
+  const plan = { status: 'snapshot-inspection', sourceHash: model.snapshot.sourceHash, boardBounds: model.config.hard.boardBounds, components, labels, testPads, bundles: geometry.placement.map(s => ({ ref: s.ref, bbox: s.bbox })), issues: [], counts: { moved: 0, rotated: 0, labelsChanged: 0, silkRelocated: 0, testPadsMoved: 0 }, maxMoveMil: 0 };
   const validation = validatePlan(model, plan), metrics = measure(model, components, labels, plan.bundles, testPads);
   return { name: 'baseline', label: '输入快照布局', plan, validation, metrics, comparisonScore: score(model, metrics), scores: scoreBreakdown(model, metrics), stats: null };
 }
@@ -307,7 +321,7 @@ export function buildEdgeCandidate(model, positions, previousPlan, preferredLabe
   for (let pass = 0; pass < 8; pass++) {
     // Repair may slide a constrained part along its selected edge, but cannot
     // search its normal coordinate independently and then repair it afterwards.
-    const edgeCheck = checkEdges(model.edgeRules, target.map(c => ({ ...c, body: transformBox(model.components.get(c.ref).bbox, model.components.get(c.ref), c) })));
+    const edgeCheck = checkEdges(model.edgeRules, target.map(c => ({ ...c, body: transformBox(model.components.get(c.ref).bbox, model.components.get(c.ref), c) })), model.config.hard.boardBounds);
     const axes = Object.fromEntries(edgeCheck.details.filter(e => e.side).map(e => [e.ref, model.fixed.has(e.ref) ? 'none' : ['left','right'].includes(preferredEdges[e.ref] ?? e.side) ? 'y' : 'x']));
     trial = buildCandidate(model, target, prior, preferredLabels, { ...repairOptions, relocationAxesByRef: { ...axes, ...(repairOptions.relocationAxesByRef ?? {}) } });
     if (trial.validation.valid || trial.validation.issues.some(i => !['EDGE_CONSTRAINT_UNSATISFIED', 'BLOCK_DISTANCE_EXCEEDED'].includes(i.code))) return trial;
@@ -320,6 +334,7 @@ export function buildEdgeCandidate(model, positions, previousPlan, preferredLabe
 
 function bodyFeasible(model, positions) {
   const bs = positions.map(c => transformBox(model.components.get(c.ref).bbox, model.components.get(c.ref), c));
+  if (bs.some(b => !boardContains(model.config.hard.boardBounds, b))) return false;
   for (let i = 0; i < bs.length; i++) for (let j = i + 1; j < bs.length; j++) if (gapOf(bs[i], bs[j]) < (model.pairClearanceMap.get(clearancePairKey(positions[i].ref, positions[j].ref)) ?? model.mechanical.clearanceMil) + .05 - .001) return false;
   return true;
 }

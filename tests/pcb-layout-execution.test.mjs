@@ -36,6 +36,40 @@ test('native inspect is generic, reports actual inventory and does not mutate', 
   assert.equal(f.snapshot.units, 'mil'); assert.equal(f.snapshot.coordinateSystem, 'eda-y-up'); assert.deepEqual(f.snapshot.capabilities.unsupported, []);
   assert.equal(f.control.saves, 0); assert.deepEqual(f.control.modifications, []);
 });
+test('native apply keeps a rectangular board and verifies contained geometry before saving', async t => {
+  const f=await fixture(t), boardBounds={minX:-100,minY:-100,maxX:550,maxY:200};
+  const polygon=[-100,-100,'L',-100,200,550,200,550,-100,-100,-100];
+  f.routing.Polyline.push(f.primitive({PrimitiveId:'board',Layer:11,Polygon:{getSource:()=>polygon}}));
+  const snapshot=await inspectLayout(f.options()), plan={...f.plan(snapshot),boardBounds};
+  const result=await applyLayout({...f.options(),plan,snapshot});
+  assert.equal(result.status,'verified',JSON.stringify(result));
+  assert.equal(result.saved,true);
+  assert.equal(f.control.saves,1);
+  assert.deepEqual((await inspectLayout(f.options())).outlines,snapshot.outlines);
+});
+
+test('native board mismatch and proposed overflow stop all component writes', async t => {
+  for(const mode of ['mismatch','overflow']) {
+    const f=await fixture(t), boardBounds={minX:-100,minY:-100,maxX:550,maxY:200};
+    f.routing.Polyline.push(f.primitive({PrimitiveId:'board',Layer:11,Polygon:{getSource:()=>[-100,-100,'L',-100,200,550,200,550,-100,-100,-100]}}));
+    const snapshot=await inspectLayout(f.options()), plan={...f.plan(snapshot,{firstDx:mode==='overflow'?600:100}),boardBounds};
+    if(mode==='mismatch') plan.boardBounds={...boardBounds,maxX:600};
+    const result=await applyLayout({...f.options(),plan,snapshot});
+    assert.notEqual(result.status,'verified');
+    assert.equal(f.control.saves,0);assert.deepEqual(f.control.modifications,[]);
+  }
+});
+
+test('a board changing after save remains a saved but failed verification', async t => {
+  const f=await fixture(t),boardBounds={minX:-100,minY:-100,maxX:550,maxY:200};
+  let polygon=[-100,-100,'L',-100,200,550,200,550,-100,-100,-100];
+  f.routing.Polyline.push(f.primitive({PrimitiveId:'board',Layer:11,Polygon:{getSource:()=>polygon}}));
+  const snapshot=await inspectLayout(f.options()),plan={...f.plan(snapshot),boardBounds};
+  f.control.afterSave=()=>{polygon=[-100,-100,'L',-100,200,560,200,560,-100,-100,-100];};
+  const result=await applyLayout({...f.options(),plan,snapshot});
+  assert.equal(result.status,'verify-after-save-failed');
+  assert.equal(result.saved,true);assert.equal(f.control.saves,1);
+});
 test('apply verifies independently, saves once and verifies after save', async t => {
   const f = await ready(t), result = await applyLayout({ ...f.options(), plan: f.proposed, snapshot: f.snapshot });
   assert.equal(result.status, 'verified'); assert.equal(result.saved, true); assert.equal(result.applyState, 'applied');

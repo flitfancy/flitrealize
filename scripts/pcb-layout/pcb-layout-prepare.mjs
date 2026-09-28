@@ -4,6 +4,7 @@ import { padOwner } from './pcb-layout-geometry.mjs';
 import { auditNativeNetlist } from './pcb-layout-netlist.mjs';
 import { nativeObservations } from './pcb-layout-observations.mjs';
 import { layoutRealization } from './pcb-layout-provider.mjs';
+import { resolveBoardBounds } from './pcb-layout-board.mjs';
 
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const text = value => typeof value === 'string' && value.trim().length > 0;
@@ -138,12 +139,11 @@ export function prepareLayoutInputs(input = {}) {
     if (realization.layers[label.id] !== 'top-silkscreen') issue('support', 'UNSUPPORTED_LABEL_LAYER', path, 'The current solver requires top silkscreen labels.');
   }
   for (const ref of native.keys()) if (designators.get(ref) !== 1) issue('support', 'DESIGNATOR_COVERAGE', 'snapshot.items', `${ref} requires exactly one visible native designator; hidden or absent labels are not reconstructed.`);
-  if (config.hard.boardBounds !== null) issue('support', 'UNSUPPORTED_BOARD_BOUNDS', 'config.hard.boardBounds', 'This solver requires an explicit null boardBounds; bounded-board search is not implemented.');
-  if (mechanical.boardBounds != null) issue('support', 'UNSUPPORTED_MECHANICAL_BOARD_BOUNDS', 'mechanical.boardBounds', 'The mechanical and layout board scope must agree.');
+  try { resolveBoardBounds(realization.board ?? (array(snapshot.outlines).length ? { status: 'unsupported' } : null), config.hard.boardBounds, mechanical.boardBounds); }
+  catch (error) { issue(error.code === 'BOARD_OUTLINE_UNSUPPORTED' ? 'support' : 'semantic', error.code ?? 'INVALID_BOARD_BOUNDS', 'board', error.message); }
   for (const key of ['traceCount', 'viaCount', 'pourCount', 'unmodeledObstacleCount']) if ((snapshot.support?.[key] ?? 0) > 0) issue('support', 'UNSUPPORTED_EXISTING_OBJECTS', `snapshot.support.${key}`, `${key} is outside the placement model.`);
   for (const [kind, count] of Object.entries(snapshot.routing ?? {})) if ((Array.isArray(count) ? count.length : count) > 0) issue('support', 'EXISTING_ROUTING_UNSUPPORTED', `snapshot.routing.${kind}`, 'Placement search cannot preserve existing routed copper.');
   if (array(snapshot.regions).length) issue('support', 'NATIVE_REGION_UNSUPPORTED', 'snapshot.regions', 'Native regions are not represented by this solver.');
-  if (array(snapshot.outlines).length) issue('support', 'NATIVE_BOARD_OUTLINE_UNSUPPORTED', 'snapshot.outlines', 'A native board outline cannot be enforced by the current unbounded solver.');
   for (const unsupported of array(snapshot.capabilities?.unsupported)) issue('support', 'PROVIDER_UNSUPPORTED_OBJECT', 'snapshot.capabilities.unsupported', JSON.stringify(unsupported));
   assessed.identity = true; assessed.support = true;
 

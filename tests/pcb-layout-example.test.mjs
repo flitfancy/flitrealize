@@ -45,6 +45,40 @@ test('minimal example declares synthetic provenance, complete logical pins and n
   for (const file of files) assert.match(await fs.readFile(path.join(example, file), 'utf8'), /illustrative-not-engineering-default/);
 });
 
+test('the full CLI prepares and solves a native rectangular example and draws its actual board', async () => {
+  const temporary=await fs.mkdtemp(path.join(tmpdir(),'layout-example-board-'));
+  try {
+    await fs.cp(example,temporary,{recursive:true});
+    const snapshot=await read(path.join(temporary,'snapshot.json'));
+    const all=[...snapshot.components.map(c=>c.bbox),...snapshot.items.map(l=>l.original.bbox),...snapshot.pads.map(p=>p.bbox)];
+    const board={minX:Math.min(...all.map(b=>b.minX))-200,minY:Math.min(...all.map(b=>b.minY))-200,maxX:Math.max(...all.map(b=>b.maxX))+200,maxY:Math.max(...all.map(b=>b.maxY))+200};
+    snapshot.outlines=[{id:'example-board',path:[board.minX,board.minY,'L',board.minX,board.maxY,board.maxX,board.maxY,board.maxX,board.minY,board.minX,board.minY]}];
+    await fs.writeFile(path.join(temporary,'snapshot.json'),JSON.stringify(snapshot));
+    const configFile=path.join(temporary,'design/PCB_LAYOUT_CONSTRAINTS.v1.json'),config=await read(configFile);
+    config.initialization.mode='fresh';
+    await fs.writeFile(configFile,JSON.stringify(config));
+    const prepared=await run(temporary,'prepare');
+    assert.equal(prepared.state.ready,true);
+    const receipt=await read(path.join(prepared.report,'layout-input.json'));
+    assert.deepEqual(receipt.board.bounds,board);
+    const solved=await run(temporary,'solve');
+    assert.equal(solved.status,'candidates-ready-not-applied');
+    const manifest=await read(path.join(solved.report,'manifest.json'));
+    for(const row of manifest.candidates.filter(c=>c.name!=='baseline')) {
+      const candidate=await read(path.join(solved.report,row.name+'.json'));
+      assert.equal(candidate.validation.valid,true);
+      assert.deepEqual(candidate.plan.boardBounds,board);
+    }
+    const html=await fs.readFile(path.join(solved.report,'comparison.html'),'utf8');
+    assert.match(html,/class="board-outline"/);
+    assert.match(html,/绿色实线为固定板框/);
+  } finally {
+    assert.equal(path.dirname(path.resolve(temporary)),path.resolve(tmpdir()));
+    assert.ok(path.basename(temporary).startsWith('layout-example-board-'));
+    await fs.rm(temporary,{recursive:true,force:true});
+  }
+});
+
 test('copied minimal project prepares and solves offline without modifying packaged assets', async () => {
   const originals = await Promise.all(files.map(file => fs.readFile(path.join(example, file), 'utf8')));
   const temporary = await fs.mkdtemp(path.join(tmpdir(), 'layout-example-'));

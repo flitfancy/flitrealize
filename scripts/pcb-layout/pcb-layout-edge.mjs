@@ -52,19 +52,19 @@ export function availableEdges(rule, rotation) {
   return sides.filter(side => { const p = edges[side][3]; return v.x === p[0] && v.y === p[1]; });
 }
 
-export function checkEdges(rules, components) {
-  if (!rules.length) return { issues: [], details: [] };
-  const envelope = { minX: Math.min(...components.map(c => c.body.minX)), maxX: Math.max(...components.map(c => c.body.maxX)), minY: Math.min(...components.map(c => c.body.minY)), maxY: Math.max(...components.map(c => c.body.maxY)) };
+export function checkEdges(rules, components, boardBounds = null) {
+  if (!rules.length) return { issues: [], details: [], ...(boardBounds ? {envelope:boardBounds,boundarySource:'board'} : {}) };
+  const envelope = boardBounds ?? { minX: Math.min(...components.map(c => c.body.minX)), maxX: Math.max(...components.map(c => c.body.maxX)), minY: Math.min(...components.map(c => c.body.minY)), maxY: Math.max(...components.map(c => c.body.maxY)) };
   const details = rules.map(rule => {
     const c = components.find(c => c.ref === rule.ref);
     const options = availableEdges(rule, c.rotation).map(side => {
       const [key, , sign] = edges[side];
-      return { side, coordinate: c.body[key], boundary: envelope[key], insetMil: Math.max(0, sign * (envelope[key] - c.body[key])) };
+      return { side, coordinate: c.body[key], boundary: envelope[key], insetMil: boardBounds ? sign * (envelope[key] - c.body[key]) : Math.max(0, sign * (envelope[key] - c.body[key])) };
     }).sort((a, b) => a.insetMil - b.insetMil);
     const chosen = options[0];
-    return { ref: rule.ref, maxInsetMil: rule.maxInsetMil, ...chosen, outwardLimited: !!rule.outwardAtRotation0, ...(rule.alignment ? { alignment: rule.alignment } : {}), satisfied: !!chosen && chosen.insetMil <= rule.maxInsetMil + .001 };
+    return { ref: rule.ref, maxInsetMil: rule.maxInsetMil, ...chosen, outwardLimited: !!rule.outwardAtRotation0, ...(rule.alignment ? { alignment: rule.alignment } : {}), satisfied: !!chosen && chosen.insetMil >= -.001 && chosen.insetMil <= rule.maxInsetMil + .001 };
   });
-  return { envelope, details, issues: details.filter(d => !d.satisfied).map(d => ({ code: 'EDGE_CONSTRAINT_UNSATISFIED', ...d })) };
+  return { envelope, boundarySource: boardBounds ? 'board' : 'component-envelope', details, issues: details.filter(d => !d.satisfied).map(d => ({ code: 'EDGE_CONSTRAINT_UNSATISFIED', ...d })) };
 }
 
 export function projectEdges(model, positions, preferredSides = {}) {
@@ -72,7 +72,8 @@ export function projectEdges(model, positions, preferredSides = {}) {
   if (!model.edgeRules.length) return out;
   // All placements use the same envelope, preventing order-driven expansion.
   const bodies = out.map(c => ({ ...c, body: transformBox(model.components.get(c.ref).bbox, model.components.get(c.ref), c) }));
-  const envelope = checkEdges(model.edgeRules, bodies).envelope;
+  const board = model.config?.hard?.boardBounds;
+  const envelope = checkEdges(model.edgeRules, bodies, board).envelope;
   for (const rule of model.edgeRules) {
     const c = out.find(c => c.ref === rule.ref);
     if (model.fixed.has(c.ref)) continue;
@@ -88,10 +89,16 @@ export function projectEdges(model, positions, preferredSides = {}) {
       const body = transformBox(old.bbox, old, { ...c, rotation });
       for (const side of availableEdges(rule, rotation)) {
         if (preferred && side !== preferred) continue;
-        const [key, axis, sign] = edges[side], delta = sign * Math.max(0, sign * (envelope[key] - body[key]) - rule.maxInsetMil);
+        const [key, axis, sign] = edges[side], inset = sign * (envelope[key] - body[key]);
+        const delta = board ? sign * (inset - Math.min(rule.maxInsetMil, Math.max(0, inset))) : sign * Math.max(0, inset - rule.maxInsetMil);
         const tangent = axis === 'x' ? 'y' : 'x', normal = c[axis] + delta;
         const remaining = block ? Math.max(0, block.maxDistanceMil - Math.abs(normal - center[axis])) : Infinity;
-        const tangential = block ? Math.min(center[tangent] + remaining, Math.max(center[tangent] - remaining, c[tangent])) : c[tangent];
+        let tangential = block ? Math.min(center[tangent] + remaining, Math.max(center[tangent] - remaining, c[tangent])) : c[tangent];
+        if (board) {
+          const lo = tangent === 'x' ? 'minX' : 'minY', hi = tangent === 'x' ? 'maxX' : 'maxY';
+          if (body[hi] - body[lo] > board[hi] - board[lo] + .001) continue;
+          tangential = Math.min(board[hi] - body[hi] + c[tangent], Math.max(board[lo] - body[lo] + c[tangent], tangential));
+        }
         const violation = block ? Math.max(0, Math.abs(normal - center[axis]) + Math.abs(tangential - center[tangent]) - block.maxDistanceMil) : 0;
         options.push({ side, axis, delta, tangent, tangential, violation, rotation, rotationCost: angle(rotation - c.rotation) ? 1 : 0 });
       }

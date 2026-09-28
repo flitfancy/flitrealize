@@ -57,16 +57,17 @@ export function prepareLayoutStarts(model, overrides = {}, providedPlan = undefi
   const budget = options.count * options.attemptsPerStart;
   for (let i = 0; i < budget && starts.length < options.count; i++) {
     const seed = (options.seed + (i + 1) * 104729) >>> 0;
-    const proposal = options.mode === 'existing' ? existingProposal(model, starts[0]?.plan ?? providedPlan ?? original, seed, options.explorationStrength) : generateInitialProposals(model, { seed: (options.seed + i * 104729) >>> 0, count: 1, explorationStrength: options.explorationStrength, packingGapMil: options.packingGapMil, gridMil: model.config.search.gridMil })[0];
-    // Keep the original snapshot authoritative. Only the explicit prior TP
-    // positions are substituted; labels are initialized from native identities.
-    const prior = { ...(options.mode === 'existing' ? starts[0]?.plan ?? providedPlan ?? original : original), testPads: proposal.testPads };
+    let proposal;
     try {
+      proposal = options.mode === 'existing' ? existingProposal(model, starts[0]?.plan ?? providedPlan ?? original, seed, options.explorationStrength) : generateInitialProposals(model, { seed: (options.seed + i * 104729) >>> 0, count: 1, explorationStrength: options.explorationStrength, packingGapMil: options.packingGapMil, gridMil: model.config.search.gridMil })[0];
+      // Keep the original snapshot authoritative. Only the explicit prior TP
+      // positions are substituted; labels are initialized from native identities.
+      const prior = { ...(options.mode === 'existing' ? starts[0]?.plan ?? providedPlan ?? original : original), testPads: proposal.testPads };
       const candidate = buildEdgeCandidate(model, proposal.components, prior, {}, proposal.preferredEdges,
         { maxRelocationMil: options.maxRepairMil, initializeLabels: proposal.metadata.mode === 'fresh' });
       keep(candidate, proposal.metadata, i + 1);
     } catch (error) {
-      attempts.push({ attempt: i + 1, ...proposal.metadata, valid: false, error: error.message });
+      attempts.push({ attempt: i + 1, ...(proposal?.metadata ?? {mode:options.mode,seed}), valid: false, error: error.message });
       onProgress({ attempted: attempts.length, accepted: starts.length, requested: options.count, error: error.message });
     }
   }

@@ -44,11 +44,13 @@ export function catalogModel(candidates, baseline, config, contract, snapshot, o
     });
     const testPads = (candidate.plan.testPads ?? []).map(pad => { const box = packBox(pad.bbox, pad.id); bounds.push(box); return [...box, String(pad.number ?? pad.id), String(pad.net ?? '')]; });
     const envelope = candidate.validation?.edge?.envelope ? packBox(candidate.validation.edge.envelope, 'envelope') : null;
+    const boardBounds = candidate.plan.boardBounds ? packBox(candidate.plan.boardBounds,'board') : null;
+    if (boardBounds) bounds.push(boardBounds);
     if (envelope) bounds.push(envelope);
     const groups = Object.entries(candidate.metrics?.groups ?? {}).map(([key, value]) => ({ key, label: value.label ?? key, mil: finite(value.mil, key), baselineMil: Number.isFinite(baselineGroups[key]?.mil) ? baselineGroups[key].mil : null }));
     const issues = (candidate.validation?.issues ?? []).map(issue => ({ code: issue.code ?? 'UNKNOWN', object: issue.ref ?? issue.id ?? issue.refs?.join(', ') ?? '' }));
     const policy = candidate.metrics?.spacingPolicy;
-    return { id, number: index + 1, label: String(candidate.label ?? id), initializationMetadata: candidate.initializationMetadata ?? null, score, components, labels, testPads, envelope, groups,
+    return { id, number: index + 1, label: String(candidate.label ?? id), initializationMetadata: candidate.initializationMetadata ?? null, score, components, labels, testPads, envelope, boardBounds, groups,
       valid: candidate.validation?.valid === true, issues,
       edgeDirections: (candidate.validation?.edge?.details ?? []).filter(e => e.alignment || e.outwardLimited).map(e => ({ ref: e.ref, side: e.side, alignment: e.alignment ?? null, outward: !!e.outwardLimited, satisfied: e.satisfied })),
       minGapMil: Number.isFinite(candidate.validation?.minimumGapMil) ? candidate.validation.minimumGapMil : null,
@@ -75,7 +77,8 @@ export function renderCatalogSvg(candidate, model, detailed = true) {
   const rectangle = (box, attributes) => '<rect x="' + number(box[0]) + '" y="' + number(-box[3]) + '" width="' + number(box[2] - box[0]) + '" height="' + number(box[3] - box[1]) + '" ' + attributes + '/>';
   const palette = ['#d9eafe', '#d7f0e7', '#f8e5d0', '#e4e0fb', '#f9e0eb'];
   let svg = '<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="' + esc((detailed ? '详细布局 ' : '布局缩略图 ') + candidate.number) + '，EDA 顶视图 Y 轴向上" viewBox="' + model.viewBox.map(number).join(' ') + '" preserveAspectRatio="xMidYMid meet">';
-  if (candidate.envelope) svg += rectangle(candidate.envelope, 'fill="none" stroke="#c08a40" stroke-dasharray="12 8" stroke-width="2"');
+  if (candidate.boardBounds) svg += rectangle(candidate.boardBounds, 'class="board-outline" fill="none" stroke="#16706c" stroke-width="3"');
+  else if (candidate.envelope) svg += rectangle(candidate.envelope, 'fill="none" stroke="#c08a40" stroke-dasharray="12 8" stroke-width="2"');
   for (const c of candidate.components) svg += '<g><title>' + esc(c[0]) + '</title>' + rectangle(c.slice(4, 8), 'fill="' + (c[8] < 0 ? '#e6ebf0' : palette[c[8] % palette.length]) + '" stroke="#718096" stroke-width="' + (detailed ? '1.7' : '3') + '"') + '</g>';
   if (detailed) {
     for (const c of candidate.components) {

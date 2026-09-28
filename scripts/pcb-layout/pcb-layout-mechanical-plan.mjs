@@ -2,10 +2,12 @@ import { padOwner } from './pcb-layout-geometry.mjs';
 import { labelTemplate } from './pcb-layout-label-policy.mjs';
 import { layoutLabelAlignment } from './pcb-layout-provider.mjs';
 import { assemblyRuntime } from './pcb-layout-assembly-policy.mjs';
+import { resolveBoardBounds, boardContains } from './pcb-layout-board.mjs';
 
 // Deterministic geometry only: preserve labels, repair local conflicts, then move bodies.
 export function makePlan(snapshot, rules) {
   const labelAlignment = layoutLabelAlignment(snapshot);
+  const boardBounds = resolveBoardBounds(null, rules.boardBounds).bounds;
   const gap = rules.clearanceMil ?? 8, eps = .001;
   const relocationLimit = rules.maxRelocationMil ?? 5000;
   if (!Number.isFinite(relocationLimit) || relocationLimit < 0) throw Error('INVALID_RELOCATION_LIMIT');
@@ -45,6 +47,10 @@ export function makePlan(snapshot, rules) {
   const boxOwners = new WeakMap(), assemblyBoxes = new WeakMap(), physicalBoxes = new WeakMap();
   const union = bs => ({ minX: Math.min(...bs.map(b => b.minX)), minY: Math.min(...bs.map(b => b.minY)), maxX: Math.max(...bs.map(b => b.maxX)), maxY: Math.max(...bs.map(b => b.maxY)) });
   const shift = (b, x, y) => ({ minX: b.minX + x, maxX: b.maxX + x, minY: b.minY + y, maxY: b.maxY + y });
+  const boardShapes = new Map(boardBounds ? [...origins].map(([ref, c]) => {
+    const pads = snapshot.components.some(p => p.ref === ref) ? snapshot.pads.filter(p => padOwner(p, snapshot.components)?.ref === ref) : [];
+    return [ref, shift(union([c.bbox, ...pads.map(p => p.bbox)]), -c.x, -c.y)];
+  }) : []);
   // Courtyards use only the current body/pad pose, never the selected label side.
   const assembly = rules.assemblyPolicy ? assemblyRuntime(rules.assemblyPolicy, snapshot.components, snapshot.pads) : null;
   const assemblyGeometryIssue = assembly?.issues.find(i => !['ASSEMBLY_COURTYARD_OVERLAP', 'ASSEMBLY_PHYSICAL_CLEARANCE', 'ASSEMBLY_DIRECTIONAL_CLEARANCE'].includes(i.code));
@@ -164,6 +170,7 @@ export function makePlan(snapshot, rules) {
   const area = e => Math.round((e.bbox.maxX - e.bbox.minX) * (e.bbox.maxY - e.bbox.minY) * 1e4) / 1e4;
   entries.sort((a, b) => Number(b.locked) - Number(a.locked) || Number(a.kind === 'testPad') - Number(b.kind === 'testPad') || area(b) - area(a) || a.ref.localeCompare(b.ref, undefined, { numeric: true }));
   const bbox = (e, option = e.selected, x = e.x, y = e.y) => owned(shift(e.options[option].bbox, x, y), e.ref, x, y);
+  const onBoard = (e, option = e.selected, x = e.x, y = e.y) => !boardBounds || boardContains(boardBounds, union([shift(boardShapes.get(e.ref), x, y), bbox(e, option, x, y)]));
   const conflicts = () => {
     const pairs = [];
     for (let i = 0; i < entries.length; i++) for (let j = i + 1; j < entries.length; j++) if (!apart(bbox(entries[i]), bbox(entries[j]))) pairs.push([i, j]);
@@ -187,7 +194,7 @@ export function makePlan(snapshot, rules) {
       }
     }
     const outside = entries.filter((_, i) => !cluster.includes(i)).map(e => bbox(e));
-    const domains = cluster.map(i => ({ i, opts: optionOrder(entries[i]).filter(o => outside.every(b => apart(bbox(entries[i], o), b))) }));
+    const domains = cluster.map(i => ({ i, opts: optionOrder(entries[i]).filter(o => onBoard(entries[i], o) && outside.every(b => apart(bbox(entries[i], o), b))) }));
     if (domains.some(d => !d.opts.length)) return false;
     domains.sort((a, b) => a.opts.length - b.opts.length || a.i - b.i);
     const assignments = [], occupied = [];
@@ -228,7 +235,8 @@ export function makePlan(snapshot, rules) {
     const axis = relocationAxes.get(e.ref);
     if (axis !== undefined) stats.axisRestrictedRelocationAttempts++;
     const others = entries.filter((_, i) => i !== index).map(e => bbox(e));
-    for (let radius = 0; radius <= (axis === 'none' ? 0 : relocationLimit); radius += 5) {
+    const radiusLimit = !boardBounds ? relocationLimit : Math.min(relocationLimit, Math.ceil(Math.max(Math.abs(e.x-boardBounds.minX),Math.abs(e.x-boardBounds.maxX),Math.abs(e.y-boardBounds.minY),Math.abs(e.y-boardBounds.maxY)) / 5) * 5);
+    for (let radius = 0; radius <= (axis === 'none' ? 0 : radiusLimit); radius += 5) {
       const offsets = radius ? [] : [[0, 0]];
       if (radius) {
         if (axis === 'x') offsets.push([-radius, 0], [radius, 0]);
@@ -246,6 +254,7 @@ export function makePlan(snapshot, rules) {
         for (const opt of optionOrder(e)) {
           const origin = origins.get(e.ref);
           if (Math.max(Math.abs(e.x + dx - origin.x), Math.abs(e.y + dy - origin.y)) > relocationLimit + eps) continue;
+          if (!onBoard(e, opt, e.x + dx, e.y + dy)) continue;
           if (!others.every(p => apart(bbox(e, opt, e.x + dx, e.y + dy), p))) continue;
           if (dx) e.x += dx;
           if (dy) e.y += dy;
@@ -256,6 +265,13 @@ export function makePlan(snapshot, rules) {
       }
     }
     return false;
+  }
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    if (onBoard(e)) continue;
+    const labelSide = optionOrder(e).find(opt => onBoard(e,opt) && entries.every((other,j) => i===j || apart(bbox(e,opt),bbox(other))));
+    if (labelSide !== undefined) e.selected = labelSide;
+    else relocate(i);
   }
   let progressed = true;
   while (progressed) {
@@ -288,9 +304,10 @@ export function makePlan(snapshot, rules) {
     else if (!physicalApart(...boxes)) found.push({ code: physicalIssueCode(...boxes), refs });
     return found;
   });
+  for (const e of entries) if (!onBoard(e)) issues.push({ code: 'BOARD_BOUNDARY_VIOLATION', ref: e.ref, kind: e.kind, boardBounds });
   return {
     status: issues.length ? 'planned-with-issues' : 'planned', sourceHash: snapshot.sourceHash, sourceBefore: snapshot.source,
-    boardBounds: null, clearanceMil: gap, initializeLabels: !!rules.initializeLabels, components, labels, testPads,
+    boardBounds, clearanceMil: gap, initializeLabels: !!rules.initializeLabels, components, labels, testPads,
     ...(pairClearances.size ? { pairClearancesMil: [...pairClearances.values()] } : {}),
     bundles: entries.map(e => ({ ref: e.ref, bbox: bbox(e) })), issues, search: stats,
     counts: { components: components.length, moved: components.filter(c => c.dx || c.dy).length, labels: labels.length, labelsChanged, labelSidesChanged: components.filter(c => c.side !== c.defaultSide).length, testPads: testPads.length, testPadsMoved: testPads.filter(p => p.dx || p.dy).length },

@@ -3,6 +3,7 @@
 import { angle, transformBox } from './pcb-layout-geometry.mjs';
 import { availableEdges } from './pcb-layout-edge.mjs';
 import { compileEdgeDomains, decodeEdgePose } from './pcb-layout-edge-domain.mjs';
+import { boardContains } from './pcb-layout-board.mjs';
 
 const ZERO = { x: 0, y: 0, rotation: 0 };
 const SIDES = ['left', 'right', 'top', 'bottom'];
@@ -88,7 +89,7 @@ function posedBox(shape, pose, kind = 'courtyard') {
   return box(transformBox(shape[kind], ZERO, pose));
 }
 
-function candidatesAround(shape, rotation, placed, target, grid, clearance) {
+function candidatesAround(shape, rotation, placed, target, grid, clearance, boardBounds = null) {
   const b = posedBox(shape, { ...ZERO, rotation }), snap = n => Math.round(n / grid) * grid;
   const result = [], keys = new Set();
   const add = (x, y) => {
@@ -96,6 +97,12 @@ function candidatesAround(shape, rotation, placed, target, grid, clearance) {
     if (!keys.has(k)) { keys.add(k); result.push(p); }
   };
   add(target.x - (b.minX + b.maxX) / 2, target.y - (b.minY + b.maxY) / 2);
+  if (boardBounds) {
+    const physical = posedBox(shape, {...ZERO,rotation}, 'physical');
+    const xs=[Math.ceil((boardBounds.minX-physical.minX)/grid)*grid,Math.floor((boardBounds.maxX-physical.maxX)/grid)*grid];
+    const ys=[Math.ceil((boardBounds.minY-physical.minY)/grid)*grid,Math.floor((boardBounds.maxY-physical.maxY)/grid)*grid];
+    for(const x of xs) for(const y of ys) add(x,y);
+  }
   for (const p of placed) {
     const other = p.box, c = center(other);
     // Grid rounding is covered by the extra grid unit, so contact candidates
@@ -120,6 +127,11 @@ function packBlock(refs, shapes, topo, random, options, blockIndex) {
   for (const p of pairs) { adjacency.get(p.a).push({ ref: p.b, weight: p.weight }); adjacency.get(p.b).push({ ref: p.a, weight: p.weight }); }
   const priorities = new Map(refs.map(ref => [ref, random()]));
   const remaining = new Set(refs), placed = [], positions = new Map();
+  for (const ref of refs) if (options.boardBounds && options.fixed?.has(ref)) {
+    const p={ref,...options.fixed.get(ref)}, shape=shapes.get(ref);
+    if(!boardContains(options.boardBounds,posedBox(shape,p,'physical'))) throw Error('INITIAL_FIXED_OUTSIDE_BOARD '+ref);
+    placed.push({...p,box:posedBox(shape,p)});positions.set(ref,p);remaining.delete(ref);
+  }
   while (remaining.size) {
     const ranked = [...remaining].map(ref => {
       const links = adjacency.get(ref), linked = links.reduce((sum, l) => sum + (positions.has(l.ref) ? l.weight : 0), 0);
@@ -128,11 +140,23 @@ function packBlock(refs, shapes, topo, random, options, blockIndex) {
     }).sort((a, b) => b.rank - a.rank || a.ref.localeCompare(b.ref));
     const ref = ranked[0].ref, shape = shapes.get(ref), linked = adjacency.get(ref).filter(l => positions.has(l.ref));
     const linkedTotal = linked.reduce((sum, l) => sum + l.weight, 0);
-    const target = linkedTotal ? linked.reduce((p, l) => ({ x: p.x + positions.get(l.ref).x * l.weight / linkedTotal, y: p.y + positions.get(l.ref).y * l.weight / linkedTotal }), { x: 0, y: 0 }) : { x: 0, y: 0 };
+    const target = linkedTotal ? linked.reduce((p, l) => ({ x: p.x + positions.get(l.ref).x * l.weight / linkedTotal, y: p.y + positions.get(l.ref).y * l.weight / linkedTotal }), { x: 0, y: 0 }) : options.boardBounds ? center(options.boardBounds) : { x: 0, y: 0 };
     const activeNets = nets.filter(n => n.refs.includes(ref));
     let best;
-    for (const rotation of shape.rotations) for (const pose of candidatesAround(shape, rotation, placed, target, grid, packingGap)) {
+    const domain=options.boardBounds && options.edgeDomains?.get(ref);
+    const proposals=[];
+    if(domain) {
+      for(const state of domain.states) {
+        const nearby=candidatesAround(shape,state.rotation,placed,target,grid,packingGap,options.boardBounds);
+        for(const p of [{...target},...nearby]) {
+          const decoded=decodeEdgePose(domain,state,options.boardBounds,{alongMil:p[state.tangentAxis]});
+          if(decoded) proposals.push({...decoded.pose,edgeSide:state.side});
+        }
+      }
+    } else for(const rotation of shape.rotations) proposals.push(...candidatesAround(shape,rotation,placed,target,grid,packingGap,options.boardBounds));
+    for (const pose of proposals) {
       const bbox = posedBox(shape, pose);
+      if (!boardContains(options.boardBounds, posedBox(shape,pose,'physical'))) continue;
       if (placed.some(p => gap(bbox, p.box) < packingGap - .001)) continue;
       const total = bounds([...placed.map(p => p.box), bbox]), width = total.maxX - total.minX, height = total.maxY - total.minY;
       let connection = linked.reduce((sum, l) => sum + l.weight * distance(pose, positions.get(l.ref)), 0) / Math.max(1, linkedTotal);
@@ -315,8 +339,9 @@ function placeTestPads(model, poses, shapes, topo, random, options) {
     const target = { x: anchors.reduce((sum, p) => sum + p.x, 0) / anchors.length, y: anchors.reduce((sum, p) => sum + p.y, 0) / anchors.length };
     const clearance = Math.max(options.grid, model.mechanical?.clearanceMil ?? 8);
     let best;
-    for (const p of candidatesAround(shape, 0, obstacles, target, options.grid, clearance)) {
+    for (const p of candidatesAround(shape, 0, obstacles, target, options.grid, clearance, options.boardBounds)) {
       const bbox = posedBox(shape, p);
+      if (!boardContains(options.boardBounds,bbox)) continue;
       if (obstacles.some(o => gap(bbox, o.box) < clearance - .001)) continue;
       const score = distance(p, target) + random() * options.strength * options.grid;
       if (!best || score < best.score) best = { ...p, bbox, score };
@@ -344,6 +369,15 @@ export function generateInitialProposals(model, options = {}) {
   const settings = { grid, packingGap, strength }, shapes = localGeometry(model), topo = topology(model), results = [];
   for (let index = 0; index < count; index++) {
     const proposalSeed = (seed + Math.imul(index, 104729)) >>> 0, random = seeded(proposalSeed);
+    if(model.config?.hard?.boardBounds) {
+      const bounded={...settings,boardBounds:model.config.hard.boardBounds,fixed:model.fixed,edgeDomains:model.edgeDomains};
+      const packed=packBlock(sorted(shapes.keys()),shapes,topo,random,bounded,0);
+      const preferredEdges=Object.fromEntries(packed.poses.filter(p=>p.edgeSide).map(p=>[p.ref,p.edgeSide]));
+      const components=packed.poses.map(({edgeSide,...p})=>p).sort((a,b)=>a.ref.localeCompare(b.ref,'en',{numeric:true}));
+      const testPads=placeTestPads(model,components,shapes,topo,random,bounded);
+      results.push({components,testPads,preferredEdges,metadata:{seed:proposalSeed,requestedSeed:seed,index,mode:'fresh',explorationStrength:strength,gridMil:grid,packingGapMil:packingGap,boardBounds:{...bounded.boardBounds},topologySource:'explicit-pairs-and-net-hyperedges',fixedRefs:sorted(model.fixed.keys()),preferredEdges,initializesLabels:false,requiresLabelInitialization:true,validated:false}});
+      continue;
+    }
     const blocks = new Map();
     for (const [id, refs] of topo.members) blocks.set(id, packBlock(refs, shapes, topo, random, settings, blocks.size));
     const chosen = chooseBlockArrangement(blocks, topo, random, settings);

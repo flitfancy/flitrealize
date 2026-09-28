@@ -48,13 +48,16 @@ AI 补充工程意图和缺项；脚本读取已有数据、转换单位、关�
 | 内容 | 输入位置 |
 | --- | --- |
 | 全局固定条件、引脚距离上限 | `hard.fixed`、`hard.pinDistanceLimits` |
+| 固定矩形板框 | 原生板框自动读取；也可填写 `hard.boardBounds: {minX, minY, maxX, maxY}`，单位 mil |
 | 器件与位号联合占位的最小间距 | 机械配置的 `clearanceMil` |
 | 物理装配间距与明确的成对要求 | `assemblyRules`、`spacingPolicy` |
 | 禁布区域及涉及的几何对象 | `spatial.zones`，`mode: "keepout"` |
 | 纳入连接跨度评价的网络与测试点 | `connectivity` |
 | 指标权重与搜索预算 | `comparisonWeights`、`search`、`initialization` |
 
-当前求解器使用 `hard.boardBounds: null`，贴边相对于器件包络；固定板框、已有布线及其他支持范围见 [3.4](providers/easyeda-pro/3.4-pcb-placement.md#输入准备与候选求解)。区域的 `preferEmpty`／`preferFilled` 和局部组紧凑度目前作为观察指标，不参与总分。
+已有原生矩形板框时自动作为固定边界；同时配置边界时必须与现场一致。`hard.boardBounds: null` 表示不额外指定边界，两处均无板框时使用无板框布局。机械配置中的 `boardBounds` 参与同一一致性检查。支持的原生轮廓见 [3.4](providers/easyeda-pro/3.4-pcb-placement.md#输入准备与候选求解)。
+
+有固定板框时，器件和焊盘占位、独立测试点及位号须位于板内，贴边相对于真实板边；装配余量用于器件间距，不自动成为板边退距。不支持器件越板悬伸。区域的 `preferEmpty`／`preferFilled` 和局部组紧凑度目前作为观察指标，不参与总分。
 
 ## 电气关系怎样填写
 

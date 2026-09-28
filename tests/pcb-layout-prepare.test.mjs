@@ -109,14 +109,13 @@ test('a standalone test pad must correspond to an included single-pin contract c
   assert.deepEqual(declared.receipt.preparation.scope.standalonePads, ['TP1']);
 });
 
-test('unsupported layers, hidden labels, source rotations, bounded boards and routed copper remain explicit', () => {
+test('unsupported layers, hidden labels, source rotations, outline shapes and routed copper remain explicit', () => {
   const cases = [
     [f => { f.snapshot.components[0].layer = 2; }, 'UNSUPPORTED_COMPONENT_LAYER'],
     [f => { f.snapshot.items.pop(); }, 'DESIGNATOR_COVERAGE'],
     [f => { f.snapshot.components[0].rotation = 45; }, 'UNSUPPORTED_COMPONENT_ROTATION'],
-    [f => { f.config.hard.boardBounds = { minX: 0, minY: 0, maxX: 500, maxY: 500 }; }, 'UNSUPPORTED_BOARD_BOUNDS'],
     [f => { f.snapshot.routing.Via = 1; }, 'EXISTING_ROUTING_UNSUPPORTED'],
-    [f => { f.snapshot.outlines.push({ id: 'outline' }); }, 'NATIVE_BOARD_OUTLINE_UNSUPPORTED'],
+    [f => { f.snapshot.outlines.push({ id: 'outline' }); }, 'BOARD_OUTLINE_UNSUPPORTED'],
     [f => { f.snapshot.regions.push({ id: 'region', layer: 1 }); }, 'NATIVE_REGION_UNSUPPORTED']
   ];
   for (const [change, code] of cases) {
