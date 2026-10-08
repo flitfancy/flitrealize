@@ -227,6 +227,13 @@ class StagedSecretScanTests(unittest.TestCase):
                 ["c" * 40, "d" * 40],
             )
 
+    def test_release_tag_scans_full_tree_without_needing_the_old_tag_object(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            event_path = Path(temporary) / "event.json"
+            event_path.write_text(json.dumps({"before": "a" * 40, "ref": "refs/tags/v2.0.0"}), encoding="utf-8")
+            environment = {"GITHUB_EVENT_NAME": "push", "GITHUB_EVENT_PATH": str(event_path), "GITHUB_SHA": "b" * 40}
+            self.assertEqual(scan_staged_secrets.github_revision_range(environment), [scan_staged_secrets.EMPTY_TREE, "b" * 40])
+
 
 class ReleaseNotesTests(unittest.TestCase):
     def test_extracts_only_requested_version_body(self) -> None:

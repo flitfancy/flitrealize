@@ -104,6 +104,10 @@ def github_revision_range(environment: Mapping[str, str]) -> list[str]:
         raise ValueError(f"unsupported GitHub event for committed-range scan: {event_name}")
     if not isinstance(base, str) or not base.strip():
         raise ValueError(f"GitHub {event_name} payload does not contain a base revision")
+    # Release tags audit the whole source tree. A replaced annotated tag may
+    # refer to an old tag object that a fresh checkout does not contain.
+    if event_name == "push" and str(payload.get("ref", "")).startswith("refs/tags/"):
+        return [EMPTY_TREE, head]
     return [base, head]
 
 
