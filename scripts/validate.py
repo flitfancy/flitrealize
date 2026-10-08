@@ -56,9 +56,9 @@ def markdown_link_failures(files: list[Path]) -> list[str]:
     return failures
 
 
-def reachable_reference_files(entrypoint: Path) -> set[Path]:
+def reachable_reference_files(entrypoint: Path, root: Path = ROOT) -> set[Path]:
     """Return source references reachable through local Markdown links."""
-    references_root = (ROOT / "references").resolve()
+    references_root = (root / "references").resolve()
     pattern = re.compile(r"\]\(([^)]+)\)")
     reachable: set[Path] = set()
     visited: set[Path] = set()
@@ -85,6 +85,45 @@ def reachable_reference_files(entrypoint: Path) -> set[Path]:
                 pending.append(resolved)
 
     return reachable
+
+
+def compatibility_reference_target(source: Path, references_root: Path) -> Path | None:
+    """Recognize a three-line Provider redirect to the same canonical basename."""
+    source = source.resolve()
+    references_root = references_root.resolve()
+    try:
+        relative = source.relative_to(references_root)
+    except ValueError:
+        return None
+    if len(relative.parts) < 2 or relative.parts[0] != "providers":
+        return None
+    lines = source.read_text(encoding="utf-8").splitlines()
+    if len(lines) != 3 or not re.fullmatch(r"# .+已迁移", lines[0]) or lines[1] != "":
+        return None
+    match = re.fullmatch(
+        r"请阅读并维护 \[通用说明\]\(([^)\s]+)\)。本路径仅保留兼容跳转。", lines[2]
+    )
+    if not match:
+        return None
+    target = (source.parent / unquote(match.group(1))).resolve()
+    expected = (references_root / source.name).resolve()
+    if target != expected or target.parent != references_root or not target.is_file():
+        return None
+    return target
+
+
+def reference_routing_failures(root: Path = ROOT) -> list[str]:
+    """Every source is reachable, or strictly redirects to a reachable canonical page."""
+    references_root = (root / "references").resolve()
+    reachable = reachable_reference_files(root / "SKILL.md", root)
+    failures = []
+    for source in sorted(references_root.rglob("*.md")):
+        if source.resolve() in reachable:
+            continue
+        target = compatibility_reference_target(source, references_root)
+        if target is None or target not in reachable:
+            failures.append(source.relative_to(references_root).as_posix())
+    return failures
 
 
 def parse_frontmatter(path: Path) -> dict[str, str]:
@@ -300,15 +339,11 @@ def main() -> int:
         "snapshot hashes match; Chinese edits do not require English synchronization" if not backup_failures else "; ".join(backup_failures),
     )
 
-    reachable_references = reachable_reference_files(ROOT / "SKILL.md")
-    undiscoverable = []
-    for source in sorted((ROOT / "references").rglob("*.md")):
-        if source.resolve() not in reachable_references:
-            undiscoverable.append(source.relative_to(ROOT / "references").as_posix())
+    undiscoverable = reference_routing_failures()
     checks.check(
         "reference routing",
         not undiscoverable,
-        "all references reachable from SKILL.md" if not undiscoverable else ", ".join(undiscoverable),
+        "all references reachable from SKILL.md or strict redirects to reachable canonical pages" if not undiscoverable else ", ".join(undiscoverable),
     )
 
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / "VERSION").is_file() else ""

@@ -4,10 +4,11 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { flitHome, statePathEnvironment } from './lib/state-paths.mjs';
+import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 
 const SCRIPT_ROOT = dirname(fileURLToPath(import.meta.url));
 const ACTION_ROOT = join(SCRIPT_ROOT, 'actions');
@@ -32,14 +33,7 @@ function fail(code, message) {
   throw error;
 }
 
-function stateRoot() {
-  if (process.env.FLITREALIZE_HOME) return resolve(process.env.FLITREALIZE_HOME);
-  if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
-    return join(process.env.LOCALAPPDATA, 'FlitRealize');
-  }
-  if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, 'flitrealize');
-  return join(homedir(), '.config', 'flitrealize');
-}
+const stateRoot = flitHome;
 
 function parseArguments(argv) {
   const values = {
@@ -329,6 +323,12 @@ export function summarizeExecution(response, descriptor, reportFile = null, skil
     'passed', 'conditional',
   ]);
   if (descriptor.mode === 'rollback') completedStatuses.add('rolled-back');
+  // API documentation queries use distinct completion states; keep them scoped
+  // to the matching query mode instead of accepting them for every Action.
+  if (descriptor.actionName === 'api-reference') {
+    if (descriptor.mode === 'search') completedStatuses.add('matched');
+    if (descriptor.mode === 'show') completedStatuses.add('found');
+  }
   const state = payload.state || {};
   const fingerprints = {};
   const fingerprintKeys = [
@@ -363,6 +363,7 @@ export function summarizeExecution(response, descriptor, reportFile = null, skil
     domain: descriptor.domain,
     runtime: descriptor.runtime,
     provider: descriptor.provider,
+    channel: descriptor.runtime === 'eda' ? response?.channel ?? 'bridge' : null,
     mode: descriptor.mode,
     mutates: descriptor.mutates,
     status: payload.status ?? response?.status ?? 'unknown',
@@ -537,6 +538,7 @@ async function executeEdaAction(arguments_, descriptor, inputFile) {
   const actionTimeout = edaActionTimeoutMs();
   const completed = spawnSync(process.execPath, childArguments, {
     cwd: SCRIPT_ROOT,
+    env: statePathEnvironment(),
     windowsHide: true,
     encoding: 'utf8',
     timeout: actionTimeout + 20_000,
@@ -645,20 +647,7 @@ export async function main(argv = process.argv.slice(2)) {
   fail('UNKNOWN_COMMAND', 'Unknown command: ' + arguments_.command);
 }
 
-function isDirectExecution() {
-  if (!process.argv[1]) return false;
-  const normalize = (value) => {
-    const absolute = resolve(value);
-    let realized = absolute;
-    try {
-      realized = realpathSync.native(absolute);
-    } catch { /* keep the resolved path for a missing or transient target */ }
-    return process.platform === 'win32' ? realized.toLowerCase() : realized;
-  };
-  return normalize(process.argv[1]) === normalize(fileURLToPath(import.meta.url));
-}
-
-if (isDirectExecution()) {
+if (isDirectExecution(import.meta.url)) {
   main().catch((error) => {
     process.stderr.write(JSON.stringify({
       status: 'error',

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { loadLayoutProject, layoutEngineIdentity, readJson, hash } from './pcb-layout/pcb-layout-project.mjs';
 import { prepareLayoutInputs } from './pcb-layout/pcb-layout-prepare.mjs';
 import { inspectCandidate, validatePlan } from './pcb-layout/pcb-layout-solver-core.mjs';
@@ -16,19 +16,24 @@ import { evaluateSpatial } from './pcb-layout/pcb-layout-spatial.mjs';
 import { evaluateBlockCoupling } from './pcb-layout/pcb-layout-block-coupling.mjs';
 import { evaluateSpacingPolicy } from './pcb-layout/pcb-layout-spacing-evaluation.mjs';
 import { auditNativeNetlist } from './pcb-layout/pcb-layout-netlist.mjs';
+import { runCpsatLayout } from './pcb-layout/pcb-layout-cpsat.mjs';
+import { convertSemanticInputs } from './pcb-layout/pcb-layout-semantic.mjs';
+import { resolvePcbPython } from './lib/pcb-python.mjs';
 
 const help = `PCB layout: prepare inputs, solve candidates, or apply an explicit candidate.
-node <skill>/scripts/pcb-layout.mjs --project-root <project> [--mode prepare|solve|apply]
+node <skill>/scripts/pcb-layout.mjs --project-root <project> [--mode prepare|semantic|solve|apply]
   --snapshot <json> | --window-id <confirmed-window> | --prepared <report-directory>
   --config <project-relative-json> --weights-file <json> --weight <key=value>
   solve: --start-mode fresh|existing|mixed --starts N --start-seed N --exploration 0..1
          --start-gap-mil N --iterations N --catalog-count N --initial-plan <json>
   apply: --window-id <window> --from <report-directory> --candidate <stable-id>
   save recovery: --mode apply --window-id <window> --resume-save <execution-result.json>
+  CP-SAT: --backend cpsat --python <executable> --seconds N --candidates N
+          --semantic-policy <project-json>; cold start, no old placement hints
 Default prepare reads and checks; it never searches or modifies EDA.`;
 
 function options(args) {
-  const values = new Set(['--project-root','--mode','--window-id','--snapshot','--prepared','--config','--weights-file','--weight','--start-mode','--starts','--start-seed','--exploration','--start-gap-mil','--iterations','--catalog-count','--initial-plan','--from','--candidate','--resume-save']);
+  const values = new Set(['--project-root','--mode','--window-id','--snapshot','--prepared','--config','--weights-file','--weight','--start-mode','--starts','--start-seed','--exploration','--start-gap-mil','--iterations','--catalog-count','--initial-plan','--from','--candidate','--resume-save','--backend','--python','--seconds','--candidates','--semantic-policy']);
   const out = { weight: [] };
   for (let i = 0; i < args.length; i++) {
     const key = args[i];
@@ -74,7 +79,14 @@ export async function main(args = process.argv.slice(2), { log = value => consol
   if (!o['--project-root']) throw Error('PROJECT_ROOT_REQUIRED');
   const root = await fs.realpath(o['--project-root']);
   const mode = o['--mode'] ?? 'prepare', windowId = o['--window-id'];
-  if (!['prepare','solve','apply'].includes(mode)) throw Error('INVALID_LAYOUT_MODE');
+  if (!['prepare','semantic','solve','apply'].includes(mode)) throw Error('INVALID_LAYOUT_MODE');
+  const backend=o['--backend']??'search';if(!['search','cpsat'].includes(backend))throw Error('INVALID_LAYOUT_BACKEND');
+  if(mode!=='solve'&&['--backend','--python','--seconds','--candidates'].some(f=>o[f]!==undefined))throw Error('BACKEND_OPTIONS_REQUIRE_SOLVE');
+  if(!['semantic','solve'].includes(mode)&&o['--semantic-policy'])throw Error('SEMANTIC_POLICY_REQUIRES_ANALYSIS_OR_SOLVE');
+  if(backend!=='cpsat'&&['--python','--seconds','--candidates'].some(f=>o[f]!==undefined))throw Error('CPSAT_OPTIONS_REQUIRE_CPSAT_BACKEND');
+  if(mode==='solve'&&o['--semantic-policy']&&backend!=='cpsat')throw Error('SEMANTIC_POLICY_REQUIRES_CPSAT_BACKEND');
+  if(backend==='cpsat'&&['--exploration','--start-gap-mil','--iterations'].some(f=>o[f]!==undefined))throw Error('SEARCH_BACKEND_OPTIONS_NOT_SUPPORTED_BY_CPSAT');
+  if(o['--candidates']&&o['--catalog-count'])throw Error('SELECT_ONE_CANDIDATE_COUNT_OPTION');
   const searchFlags = ['--start-mode','--starts','--start-seed','--exploration','--start-gap-mil','--iterations','--catalog-count','--initial-plan'];
   if (mode !== 'solve' && searchFlags.some(f => o[f] !== undefined)) throw Error('SEARCH_OPTIONS_REQUIRE_SOLVE_MODE');
   if (mode !== 'apply' && ['--from','--candidate','--resume-save'].some(f => o[f])) throw Error('WRITE_OPTIONS_REQUIRE_APPLY_MODE');
@@ -152,9 +164,14 @@ export async function main(args = process.argv.slice(2), { log = value => consol
   const {model,contract,config,mechanical}=prepared,baseline=inspectCandidate(model);
   // New solves use the formal ownership contract. Historical snapshots remain
   // inspectable, but do not feed a second live-placement implementation.
-  if (mode !== 'prepare' && snapshot.sourceKind !== 'synthetic-example' && snapshot.padOwnership?.status !== 'verified') throw Error('REFRESH_NATIVE_OWNERSHIP: prepare a new snapshot from the current PCB before solving or applying');
+  if (['solve','apply'].includes(mode) && snapshot.sourceKind !== 'synthetic-example' && snapshot.padOwnership?.status !== 'verified') throw Error('REFRESH_NATIVE_OWNERSHIP: prepare a new snapshot from the current PCB before solving or applying');
   await write('baseline.json',baseline);await write('effective-config.json',config);
   await write('effective-weights.json',{schemaVersion:1,weights:config.comparisonWeights,labels:config.weightLabels});
+  const semanticPolicy=o['--semantic-policy']?await readJson(path.resolve(root,o['--semantic-policy'])):config.semanticPolicy;
+  if(mode==='semantic'){
+    const semantic=convertSemanticInputs(model,semanticPolicy);await write('semantic-conversion.json',semantic);
+    const result={status:'semantic-ready',mode,groups:semantic.groups.length,unresolved:semantic.unresolvedRoles,nativeWrites:0,report:dir};await write('summary.json',result);log(result);return result;
+  }
   if (mode === 'prepare') {
     const result={status:'inputs-ready',applied:false,nativeWrites:0,source:sourceKind,state:prepared.state,nativeChecks:nativeCheckSummary(prepared.receipt),currentLayout:{valid:baseline.validation.valid,issues:baseline.validation.issues},counts:{components:snapshot.components.length,standalonePads:model.pads.filter(p=>!p.owner).length,blocks:contract.blocks.length},coverage:coverageSummary(prepared.coverage),report:dir};
     await fs.writeFile(path.join(dir,'comparison.html'),comparisonReport([baseline],baseline,{...config,reportMode:'model-inspection',reportSource:sourceKind},contract,snapshot,prepared.receipt));
@@ -181,12 +198,24 @@ export async function main(args = process.argv.slice(2), { log = value => consol
   if(o['--initial-plan']&&startOverrides.mode===undefined)startOverrides.mode='existing';
   const common={model,snapshot,contract,config,mechanical,root,projectRoot:root,dir,fingerprints:loaded.fingerprints,engine,inputReceipt:prepared.receipt,initialPlanFile:o['--initial-plan'],iterations,startOverrides,sourceKind,log};
   let result;
-  if(o['--catalog-count']){const count=Number(o['--catalog-count']);if(!Number.isInteger(count)||count<1||count>500)throw Error('INVALID_CATALOG_COUNT');result=await runCatalog({...common,count});}
+  if(backend==='cpsat'){
+    if(o['--initial-plan']||o['--start-mode']&&o['--start-mode']!=='fresh')throw Error('CPSAT_COLD_START_NO_EXISTING_HINTS');
+    const candidateCount=Number(o['--candidates']??o['--catalog-count']??1),seconds=Number(o['--seconds']??30),maxRuns=Number(o['--starts']??candidateCount);
+    if(!Number.isInteger(candidateCount)||candidateCount<1||candidateCount>100||!Number.isFinite(seconds)||seconds<=0||seconds>600)throw Error('INVALID_CPSAT_BUDGET');
+    const parameters={candidateCount,maxRuns,timeLimitSeconds:seconds,seed:Number(o['--start-seed']??0),semanticPolicy};await write('cpsat-parameters.json',parameters);
+    const solved=await runCpsatLayout(model,{timeLimitSeconds:seconds,seed:parameters.seed},{candidateCount,maxRuns,coldSeconds:seconds,semanticPolicy,runtime:{pythonPath:resolvePcbPython({python:o['--python']})},onProgress:log});
+    await write('cpsat-problem.json',solved.problem);await write('semantic-conversion.json',solved.semantic);await write('cpsat-runs.json',solved.runs);
+    const records=[];for(const candidate of solved.candidates){const raw=JSON.stringify(candidate);await fs.writeFile(path.join(dir,candidate.name+'.json'),raw);records.push({name:candidate.name,sha256:hash(raw),score:candidate.comparisonScore,valid:candidate.validation.valid});}
+    await fs.writeFile(path.join(dir,'comparison.html'),comparisonReport(solved.candidates,baseline,{...config,reportMode:'cpsat-candidates',reportSource:sourceKind},contract,snapshot,prepared.receipt));
+    await write('manifest.json',{...manifestBase,backend:'cpsat',parameters,candidates:records});
+    result={status:solved.status,backend:'cpsat',candidateCount:records.length,candidates:records,scope:solved.scope,nativeWrites:0,report:dir};await write('summary.json',result);log(result);if(solved.status==='no-candidate')process.exitCode=1;return result;
+  }
+  else if(o['--catalog-count']){const count=Number(o['--catalog-count']);if(!Number.isInteger(count)||count<1||count>500)throw Error('INVALID_CATALOG_COUNT');result=await runCatalog({...common,count});}
   else result=await runLayoutSearch(common);
   const manifest=await readJson(path.join(dir,'manifest.json'));await write('manifest.json',{...manifest,synthetic,inputsHash:hash(bundle)});
   return result;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   main().catch(error=>{console.error(JSON.stringify({status:'failed',error:error.message}));process.exitCode=1;});
 }

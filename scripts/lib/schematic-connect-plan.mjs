@@ -69,6 +69,8 @@ export async function planConnections(input, snapshot, { phase = 'plan' } = {}) 
   if (!contract || contract.kind !== 'flitrealize.schematic-contract' || contract.schemaVersion !== 1 || !Array.isArray(contract.components) || !Array.isArray(contract.nets)) issue('INVALID_CONTRACT', 'A SchematicContract v1 with components and nets is required.');
   if (!snapshot || snapshot.kind !== 'flitrealize.schematic-snapshot' || snapshot.schemaVersion !== 1 || snapshot.provider !== 'easyeda-pro' || !Array.isArray(snapshot.components)) issue('INVALID_SNAPSHOT', 'A live EasyEDA SchematicSnapshot v1 is required.');
   if (!Number.isFinite(stubLength) || stubLength <= 0 || stubLength > 1000 || !Number.isFinite(grid) || grid <= 0 || grid > 100 || !Number.isFinite(tolerance) || tolerance < 0 || tolerance > 10) issue('INVALID_GEOMETRY_OPTIONS', 'Invalid stubLength, grid, or connectionTolerance.');
+  if (input.maxExistingStubLength !== undefined && (!Number.isFinite(input.maxExistingStubLength) || input.maxExistingStubLength <= 0 || input.maxExistingStubLength > 1000)) issue('INVALID_GEOMETRY_OPTIONS', 'maxExistingStubLength must be positive and at most 1000.');
+  if (input.allowGroundElbows !== undefined && typeof input.allowGroundElbows !== 'boolean') issue('INVALID_GEOMETRY_OPTIONS', 'allowGroundElbows must be Boolean.');
   if (diagnostics.length) return result();
   if (!text(input.expectedDocumentUuid) || !text(input.expectedProjectUuid)) issue('TARGET_IDENTITY_REQUIRED', 'expectedDocumentUuid and expectedProjectUuid are required.');
   if (snapshot.document?.nativeId !== input.expectedDocumentUuid || snapshot.project?.nativeId !== input.expectedProjectUuid) issue('TARGET_MISMATCH', 'The live document or project differs from the requested target.');
@@ -212,28 +214,46 @@ export async function planConnections(input, snapshot, { phase = 'plan' } = {}) 
     const component = liveByRef.get(expected.designator), pin = component?.pins?.find(p => String(p.number) === expected.pin);
     if (!point(pin?.position)) continue;
     const matching = liveWires.filter(wire => wire.net === expected.net && touches(pin.position, wire.points, tolerance));
-    const planned = wirePlan?.wires.find(wire => wire.endpoint.component === expected.designator && wire.endpoint.providerPin === expected.pin);
+    const planned = wirePlan?.wires.find(wire => wire.endpoint.component === expected.designator && wire.endpoint.providerPin === expected.pin)
+      ?? wirePlan?.wires.find(wire => wire.endpoint.component === expected.designator && wire.net === expected.net && distance(wire.points[0], pin.position) <= 1e-6);
     const wire = matching.length === 1 ? matching[0] : matching.length === 0 ? planned : null;
     if (!wire) continue;
-    const path = wire.points, pinAtStart = path.length === 2 && distance(path[0], pin.position) <= tolerance;
-    const pinAtEnd = path.length === 2 && distance(path[1], pin.position) <= tolerance;
-    const outer = pinAtStart ? path[1] : pinAtEnd ? path[0] : null;
+    const path = wire.points, pinAtStart = path.length >= 2 && distance(path[0], pin.position) <= tolerance;
+    const pinAtEnd = path.length >= 2 && distance(path.at(-1), pin.position) <= tolerance;
+    const outer = pinAtStart ? path.at(-1) : pinAtEnd ? path[0] : null;
+    const ordered = pinAtStart ? path : pinAtEnd ? path.slice().reverse() : [];
+    const elbow = input.allowGroundElbows !== false && netByName.get(expected.net)?.kind === 'ground' && ordered.length === 3
+      && Math.abs(ordered[0].y - ordered[1].y) <= tolerance && Math.abs(ordered[1].x - ordered[2].x) <= tolerance
+      && ordered[2].y < ordered[1].y - tolerance;
+    const firstOuter = ordered[1];
+    const pathLength = path.slice(1).reduce((sum, p, i) => sum + distance(p, path[i]), 0);
     const orthogonal = outer && (Math.abs(outer.x - pin.position.x) <= tolerance || Math.abs(outer.y - pin.position.y) <= tolerance);
-    const outward = outer && point(component.position) && ((outer.x - pin.position.x) * (pin.position.x - component.position.x) + (outer.y - pin.position.y) * (pin.position.y - component.position.y) > 0);
-    if (!outer || !orthogonal || !outward || distance(outer, pin.position) <= tolerance || distance(outer, pin.position) > stubLength + grid + tolerance) {
-      issue('EXISTING_TOPOLOGY_UNSUPPORTED', 'Only a short, straight, outward stub with the pin at its endpoint is supported.', { designator: expected.designator, pin: expected.pin, wireId: wire.primitiveId ?? null }); continue;
+    const rotation = pin.extensions?.easyedaPro?.rotation;
+    const direction = Number.isFinite(rotation) && Math.abs(rotation / 90 - Math.round(rotation / 90)) < 0.0001
+      ? { x: Math.round(Math.cos(rotation * Math.PI / 180)), y: Math.round(Math.sin(rotation * Math.PI / 180)) }
+      : point(component.position) ? { x: pin.position.x - component.position.x, y: pin.position.y - component.position.y } : null;
+    const outward = firstOuter && direction && ((firstOuter.x - pin.position.x) * direction.x + (firstOuter.y - pin.position.y) * direction.y > 0);
+    if (!outer || !(path.length === 2 && orthogonal || elbow) || !outward || distance(outer, pin.position) <= tolerance || pathLength > (elbow ? Math.max(input.maxExistingStubLength ?? stubLength, 130) : input.maxExistingStubLength ?? stubLength) + grid + tolerance) {
+      issue('EXISTING_TOPOLOGY_UNSUPPORTED', 'Expected a bounded outward stub, or an explicitly enabled horizontal-then-downward ground elbow, with the pin at its endpoint.', { designator: expected.designator, pin: expected.pin, wireId: wire.primitiveId ?? null }); continue;
     }
     if (wire.primitiveId && (wire.netVisible !== true || wire.netAttrCount !== 1)) issue('WIRE_LABEL_INVALID', 'An existing stub needs exactly one visible NET attribute.', { wireId: wire.primitiveId });
-    for (const other of allPins) if (!(other.designator === expected.designator && other.pin === expected.pin) && touches(other.position, path, tolerance)) issue('STUB_TOUCHES_OTHER_PIN', 'A stub contacts another physical pin; the isolated-endpoint strategy cannot own it safely.', { designator: expected.designator, pin: expected.pin, otherPin: keyFor(other.designator, other.pin) });
+    for (const other of allPins) if (!(other.designator === expected.designator && other.pin === expected.pin)
+      && !(other.designator === expected.designator && distance(other.position, pin.position) <= tolerance
+        && expectedPins.get(keyFor(other.designator, other.pin))?.net === expected.net
+        && !expectedPins.get(keyFor(other.designator, other.pin))?.noConnect)
+      && touches(other.position, path, tolerance)) issue('STUB_TOUCHES_OTHER_PIN', 'A stub contacts another physical pin; the isolated-endpoint strategy cannot own it safely.', { designator: expected.designator, pin: expected.pin, otherPin: keyFor(other.designator, other.pin) });
     const samePlace = markers.filter(marker => point(marker) && distance(marker, outer) <= tolerance);
     if (samePlace.some(marker => marker.net !== expected.net)) issue('MARKER_NET_MISMATCH', 'A different network marker occupies the intended stub endpoint.', { designator: expected.designator, pin: expected.pin, net: expected.net });
     const matchingMarkers = samePlace.filter(marker => marker.net === expected.net);
     if (matchingMarkers.length > 1) issue('DUPLICATE_MARKER', 'More than one marker occupies the same endpoint.', { designator: expected.designator, pin: expected.pin, net: expected.net });
     const net = netByName.get(expected.net);
     const flag = { ...(net?.kind === 'ground' ? { kind: 'netFlag', identification: 'Ground' } : net?.kind === 'power' ? { kind: 'netFlag', identification: 'Power' } : { kind: 'netPort', direction: 'BI' }),
-      net: expected.net, x: outer.x, y: outer.y, rotation: 0, mirror: false, showName: false };
-    flagItems.push(flag);
-    if (!matchingMarkers.length) missingFlagItems.push(flag);
+      net: expected.net, x: outer.x, y: outer.y,
+      rotation: ['ground', 'power'].includes(net?.kind) ? 0 : (Math.round(Math.atan2(outer.y - pin.position.y, outer.x - pin.position.x) * 180 / Math.PI) + 360) % 360,
+      mirror: false, showName: false };
+    const sameFlag=item=>item.net===flag.net&&item.kind===flag.kind&&distance(item,flag)<=1e-6;
+    if(!flagItems.some(sameFlag))flagItems.push(flag);
+    if (!matchingMarkers.length&&!missingFlagItems.some(sameFlag)) missingFlagItems.push(flag);
     for (const marker of matchingMarkers) {
       if (marker.nameVisible !== false || marker.nameAttrCount !== 1) issue('MARKER_LABEL_INVALID', 'A network marker needs exactly one hidden Name; wire NET is the sole visible label.', { markerId: marker.primitiveId });
       if (marker.componentType !== (flag.kind === 'netFlag' ? 'netflag' : 'netport')) issue('MARKER_TYPE_MISMATCH', 'Existing marker type differs from Contract net semantics.', { markerId: marker.primitiveId, net: expected.net });
@@ -246,7 +266,12 @@ export async function planConnections(input, snapshot, { phase = 'plan' } = {}) 
   for (let i = 0; i < candidateWires.length; i += 1) {
     const wire = candidateWires[i];
     for (const other of liveWires) if (wire.primitiveId !== other.primitiveId && pathsTouch(wire.points, other.points, tolerance)) issue('STUB_TOUCHES_OTHER_WIRE', 'A stub touches other wiring; this entry cannot safely infer or rearrange that topology.', { endpoint: wire.owner, otherWireId: other.primitiveId });
-    for (let j = i + 1; j < candidateWires.length; j += 1) if (!wire.primitiveId && !candidateWires[j].primitiveId && pathsTouch(wire.points, candidateWires[j].points, tolerance)) issue('PLANNED_STUB_COLLISION', 'Planned endpoint stubs intersect; revise the initial placement or geometry options.', { endpoint: wire.owner, otherEndpoint: candidateWires[j].owner });
+    for (let j = i + 1; j < candidateWires.length; j += 1){
+      const other=candidateWires[j];
+      const sharedContact=wire.net===other.net&&wire.endpoint?.component===other.endpoint?.component&&
+        wire.points.length===other.points.length&&wire.points.every((p,k)=>distance(p,other.points[k])<=1e-6);
+      if (!wire.primitiveId && !other.primitiveId && !sharedContact && pathsTouch(wire.points, other.points, tolerance)) issue('PLANNED_STUB_COLLISION', 'Planned endpoint stubs intersect; revise the initial placement or geometry options.', { endpoint: wire.owner, otherEndpoint: other.owner });
+    }
   }
   if (scope.fullDocument) {
     const ownedWireIds = new Set(endpointEvidence.map(endpoint => endpoint.wireId).filter(Boolean));

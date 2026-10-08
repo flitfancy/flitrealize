@@ -10,19 +10,26 @@
  *   "expectedProjectUuid": "...", "expectedDocumentUuid": "...",
  *   "phase": "initial",
  *   "blocks": [{"name":"input","members":["J1","R1"],"columns":1}],
- *   "layout": {"unit":"easyeda-schematic","componentSpacing":72,
+ *   "layout": {"unit":"easyeda-schematic","gridStep":5,"componentSpacing":72,
  *     "blockSpacing":210,"attachmentSpacing":140,"mainFlow":["input"],
  *     "attachments":[]}
  * }
  *
  * initial: unconnected components, after the existing component-create workflow.
- * complete: existing straight pin stubs, one net flag per stub, local text + reflow.
+ * complete: existing straight stubs / ground elbows, then markers, text and reflow.
  * Attachments: {block, targets: [main-flow block names], preferredSide}.
  * Default: read-only plan. --apply plans, backs up source, applies and verifies.
- * Complete mode does not create/delete primitives or redesign the circuit.
+ * Complete keeps components and networks; ground elbows may add a LINE segment.
  * Both passes use one ownership/geometry model. text.bodyMargin applies to both;
  * text options use native schematic units, independent of layout.unit.
- * Bounds estimate symbol extent from pins/anchor and text from character widths.
+ * Native getPrimitivesBBox measures symbols and text; pins belong to their component.
+ * Electrical anchors move together on gridStep (default 5 schematic units / 50mil).
+ * complete uses one marker rule for every component, before placing text:
+ * signal/power markers face outward; horizontal ground leaves horizontally,
+ * then drops 10 schematic units. Try runs 20/40/60/80/100/120 in order.
+ * If none fit, preserve that wire/marker and report groundElbows.kept.
+ * Set layout.groundElbows=false to preserve ground routes. No designator whitelist.
+ * Pin-owned NO_CONNECT coordinates move with the component and are checked after save.
  * Free-standing notes/graphics are preserved, but are not layout obstacles.
  */
 import { readFile, writeFile, mkdir } from 'node:fs/promises';

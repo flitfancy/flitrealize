@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "units": "mil",
+  "routing": {
+    "layerIds": [1, 2],
+    "bottomWeight": 1.08,
+    "viaCostMil": 118.11023622047244,
+    "maxVisited": 4000000,
+    "maxSeconds": 30,
+    "maxLaunchOptions": 220,
+    "powerGoalThresholdMil": 30,
+    "maskWireGuardMil": 0.12,
+    "escapeMaxOutsideMil": 40,
+    "escapeSearchOutsideMil": 37,
+    "launchLengthsMil": [12, 24, 36, 48, 60],
+    "escapeStemsMil": [12, 24, 32],
+    "escapeTotalsMil": [36, 48, 60],
+    "escapeShiftsMil": [-16, -8, 8, 16]
+  },
+  "via": {
+    "diameterMil": 24,
+    "holeMil": 12,
+    "drillCenterSpacingMil": 18,
+    "viaCenterSpacingMil": 30
+  },
+  "viaFromInput": {
+    "drillPadClearanceMil": "clearanceMil"
+  }
+}

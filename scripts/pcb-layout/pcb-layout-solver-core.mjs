@@ -66,7 +66,14 @@ export function compileModel(snapshot, contract, config, mechanical) {
   }
   const pairClearancesMil = [...pairClearanceMap].map(([key, hardMinMil]) => { const [a, b] = JSON.parse(key); return { a, b, hardMinMil }; });
   const fixed = new Map((config.hard.fixed ?? []).map(f => [f.ref, f]));
+  // Retain independent lock sources before lockedDesignators is normalized to
+  // every fixed ref. Search still consumes the same merged fixed poses.
+  const lockProvenance = new Map([...fixed.keys()].map(ref => [ref, ['hard.fixed']]));
   for (const c of snapshot.components) if (c.locked || mechanical.lockedDesignators?.includes(c.ref)) {
+    const sources = lockProvenance.get(c.ref) ?? [];
+    if (mechanical.lockedDesignators?.includes(c.ref)) sources.push('mechanical.lockedDesignators');
+    if (c.locked) sources.push('snapshot.locked');
+    lockProvenance.set(c.ref, sources);
     if (!fixed.has(c.ref)) fixed.set(c.ref, { ref: c.ref, x: c.x, y: c.y, rotation: c.rotation });
   }
   for (const f of fixed.values()) {
@@ -99,7 +106,7 @@ export function compileModel(snapshot, contract, config, mechanical) {
   })).filter(n => new Set(n.pads.map(p => p.ref)).size > 1);
   const limits = (config.hard.pinDistanceLimits ?? []).map(l => ({ ...l, left: pick(l.a, l.net, l.aPin), right: pick(l.b, l.net, l.bPin) }));
   for (const l of limits) if (!(Number.isFinite(l.maxMil) && l.maxMil >= 0)) throw Error('INVALID_PIN_DISTANCE_LIMIT');
-  const model = { snapshot, contract, config, mechanical: { ...mechanical, ...(pairClearancesMil.length ? { pairClearancesMil } : {}), ...(assemblyPolicy ? { assemblyPolicy } : {}), lockedDesignators: [...fixed.keys()], initializeLabels: false }, components, pads, fixed, allowedRotations, edgeRules, blockRules: features.blockRules, spatialRules, geometryModel, couplingModel, spacingPolicy, assemblyPolicy, referenceGeometry, pairClearanceMap, links, connectivity, limits };
+  const model = { snapshot, contract, config, mechanical: { ...mechanical, ...(pairClearancesMil.length ? { pairClearancesMil } : {}), ...(assemblyPolicy ? { assemblyPolicy } : {}), lockedDesignators: [...fixed.keys()], initializeLabels: false }, components, pads, fixed, lockProvenance, allowedRotations, edgeRules, blockRules: features.blockRules, spatialRules, geometryModel, couplingModel, spacingPolicy, assemblyPolicy, referenceGeometry, pairClearanceMap, links, connectivity, limits };
   model.realization = realization;
   model.board = board;
   model.edgeDomains = edgeDomains;

@@ -1,0 +1,18 @@
+{
+  "mode": "open",
+  "spec": {
+    "refs": ["U_LOAD", "C_BYP"],
+    "gaugeRef": "U_LOAD",
+    "criticalPairs": [
+      {
+        "id": "supply",
+        "net": "SUPPLY",
+        "weight": 1,
+        "left": [{"ref": "U_LOAD", "id": "example-load.pad-1"}],
+        "right": [{"ref": "C_BYP", "id": "example-bypass.pad-1"}]
+      }
+    ]
+  },
+  "settings": {"timeLimitSeconds": 5, "workers": 1},
+  "options": {"candidateCount": 1, "maxRuns": 1}
+}

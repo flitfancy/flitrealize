@@ -1,0 +1,30 @@
+{
+  "mode": "prepare",
+  "scope": "Synthetic two-pad example; dimensions are sample values, not manufacturing defaults.",
+  "board": {
+    "units": "mil",
+    "boardMil": [150, 80],
+    "pads": [
+      {"id": "source", "owner": "P_SOURCE", "number": "1", "net": "SIGNAL", "x": 20, "y": 40, "layers": ["top-copper"]},
+      {"id": "load", "owner": "P_LOAD", "number": "1", "net": "SIGNAL", "x": 120, "y": 40, "layers": ["top-copper"]}
+    ],
+    "copper": [
+      {"id": "source", "owner": "P_SOURCE", "net": "SIGNAL", "type": "pad", "shape": {"kind": "polygon", "points": [[15,35],[25,35],[25,45],[15,45]], "layers": ["top-copper"]}},
+      {"id": "load", "owner": "P_LOAD", "net": "SIGNAL", "type": "pad", "shape": {"kind": "polygon", "points": [[115,35],[125,35],[125,45],[115,45]], "layers": ["top-copper"]}}
+    ],
+    "parts": [],
+    "keepouts": []
+  },
+  "policy": {
+    "units": "mil",
+    "layers": [{"id": 11, "purpose": "top-copper"}, {"id": 22, "purpose": "bottom-copper"}],
+    "clearances": {"ordinaryCopperMil": 6},
+    "nets": [{"net": "SIGNAL", "defaultWireWidthMil": 6, "roles": [{"name": "ordinary_signal"}], "preroute": {"sourcePadIds": ["source"], "allowedLayers": [11,22]}}]
+  },
+  "options": {
+    "gridMil": 2,
+    "copperEdgeMil": 10,
+    "via": {"diameterMil": 24, "holeMil": 12, "drillPadClearanceMil": 6, "drillCenterSpacingMil": 18, "viaCenterSpacingMil": 30},
+    "routing": {"maxSeconds": 2, "maxVisited": 10000}
+  }
+}

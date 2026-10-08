@@ -1,0 +1,3 @@
+# Tested numerical backend for PCB layout and pre-routing (Python >=3.12).
+numpy==2.5.3
+ortools==9.15.6755

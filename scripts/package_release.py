@@ -38,8 +38,10 @@ def runtime_files() -> list[Path]:
     return [
         ROOT / "LICENSE",
         ROOT / "VERSION",
+        ROOT / "requirements-pcb.txt",
         ROOT / "SKILL.md",
         ROOT / "agents/openai.yaml",
+        ROOT / "docs/first-run.md",
         ROOT / "scripts/action-runner.mjs",
         ROOT / "scripts/api-reference.mjs",
         ROOT / "scripts/schematic-reflow.mjs",
@@ -49,6 +51,9 @@ def runtime_files() -> list[Path]:
         ROOT / "scripts/pcb-layout.mjs",
         ROOT / "scripts/pcb-fine-layout.mjs",
         ROOT / "scripts/pcb-fine-review.mjs",
+        ROOT / "scripts/pcb-route.mjs",
+        ROOT / "scripts/pcb-preroute.mjs",
+        ROOT / "scripts/pcb-block-layout.mjs",
         ROOT / "scripts/handoff-check.mjs",
         ROOT / "scripts/handoff-sync.mjs",
         ROOT / "scripts/eda-host.mjs",
@@ -56,9 +61,11 @@ def runtime_files() -> list[Path]:
         *sorted((ROOT / "scripts/actions").rglob("*.js")),
         *sorted((ROOT / "scripts/parts").rglob("*.mjs")),
         *sorted((ROOT / "scripts/lib").rglob("*.mjs")),
+        *sorted(path for path in (ROOT / "scripts/pcb-routing").rglob("*")
+                if path.is_file() and path.suffix in {".mjs", ".py", ".json"}),
         *sorted(
             path for path in (ROOT / "scripts/pcb-layout").rglob("*")
-            if path.is_file() and path.suffix in {".mjs", ".js"}
+            if path.is_file() and path.suffix in {".mjs", ".js", ".py"}
             and "node_modules" not in path.parts
         ),
         *sorted(path for path in (ROOT / "scripts/providers").rglob("*")
@@ -66,7 +73,7 @@ def runtime_files() -> list[Path]:
         *adapter_runtime_files(),
         *sorted((ROOT / "adapters/easyeda-pro/api-reference").glob("*.json")),
         *sorted((ROOT / "schemas").glob("*.json")),
-        *sorted((ROOT / "assets/pcb-layout").rglob("*.json")),
+        *sorted((ROOT / "assets").rglob("*.json")),
         *sorted((ROOT / "references").rglob("*.md")),
         ROOT / "development/action-system.md",
         ROOT / "view-state/README.md",

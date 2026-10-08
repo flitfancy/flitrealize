@@ -30,12 +30,12 @@ export async function loadLayoutProject(projectRoot, options = {}) {
 
 // Candidates bind to the implementation as well as their design inputs.
 export async function layoutEngineIdentity() {
-  const files = ['scripts/pcb-layout.mjs', 'scripts/eda-host.mjs', 'schemas/pcb-layout-intent.v1.schema.json'];
+  const files = ['scripts/pcb-layout.mjs', 'scripts/eda-host.mjs', 'scripts/lib/pcb-python.mjs', 'schemas/pcb-layout-intent.v1.schema.json'];
   const collect = async dir => {
     for (const entry of await fs.readdir(path.join(skillDirectory, dir), { withFileTypes: true })) {
       const relative = dir + '/' + entry.name;
       if (entry.isDirectory()) await collect(relative);
-      else if (/\.(mjs|js)$/.test(entry.name)) files.push(relative);
+      else if (/\.(mjs|js|py)$/.test(entry.name)) files.push(relative);
     }
   };
   await collect('scripts/pcb-layout');

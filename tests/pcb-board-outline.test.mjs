@@ -26,9 +26,9 @@ function createMockEda({ existing = [] } = {}) {
       },
     },
     pcb_PrimitivePolyline: {
-      async getAll(layer) {
-        if (layer !== 11) return [];
-        return outlines.map((item) => item.object);
+      async getAll(net, layer) {
+        return outlines.filter((item) => (net === undefined || item.net === net)
+          && (layer === undefined || item.layer === layer)).map((item) => item.object);
       },
       async create(net, layer, polygon, width, locked) {
         const source = polygon.getSource();

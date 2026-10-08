@@ -1,68 +1,56 @@
 # 首次使用
 
-先安装 Skill、指定独立项目目录，再按任务决定是否连接 EDA。需求、选型和 Contract 可离线开展；脚本与 View State 需要 Node.js 22+。仓库开发、校验和打包另需 Python 3.10+。
+安装 Skill、指定独立项目目录，再按任务准备运行环境。需求、选型和 Contract 可离线开展；普通续接不重复阅读本页。
 
-## 安装
+## 安装与项目
 
-通过宿主的 Skill 安装器安装本仓库，或将仓库放到宿主的 Skill 目录。常见位置为 `$HOME/.agents/skills/flitrealize`，具体以宿主设置为准。
-
-`flitrealize/` 下应直接包含 `SKILL.md`、`references/` 和 `scripts/`，不要多套一层同名目录。安装后新开任务，用 `$flitrealize` 调用。
-
-项目文件放在独立目录；Skill 中保存通用工具和规则，项目中保存设计、现场文件与证据。
-
-## 第一次项目任务
-
-例如：
+通过宿主安装器安装，或将仓库放到宿主的 Skill 目录。`flitrealize/` 下直接包含 `SKILL.md`、`references/` 和 `scripts/`，不要再套一层同名目录；安装后新开任务，用 `$flitrealize` 调用。
 
 ```text
-$flitrealize 在 <PROJECT_ROOT> 开始一个硬件项目。
-这次完成需求、架构和器件候选。
+$flitrealize 在 <PROJECT_ROOT> 开始一个硬件项目，这次完成需求、架构和器件候选。
+$flitrealize 继续 <PROJECT_ROOT> 的项目，处理当前 PCB 布局问题。
 ```
 
-应在项目中形成一份 `CURRENT_HANDOFF.md`：顶部是当前目标和下一步，正文保留设计依据和已确认结果。已有项目则继续读写同一份主文稿：
+项目设计和证据保存于独立项目目录。文稿格式与面板见 [0.1](../references/0.1-continuation.md) 和 [View State](../view-state/README.md#由-skill-拉起面板)；能力查找、普通续接顺序和授权范围见 [主 Skill](../SKILL.md)。跨阶段或整体设计时才查 [阶段导航](../references/0.0-overview.md)。
 
-```text
-$flitrealize 继续 <PROJECT_ROOT> 的项目，先读取当前交接，再处理其中的 PCB 布局问题。
-```
+## 数值与路由环境
 
-新建项目或首次接管时，Skill 会自动打开 View State；明确表示不需要即可跳过。面板只读展示主文稿，启动失败不影响其他工作。[面板启动与端口](../view-state/README.md)。
-
-## 找到可用操作
-
-下列查询只读本地文件，不连接 EDA：
-
-```text
-node <skill>/scripts/action-runner.mjs list --domain schematic --query "放件"
-node <skill>/scripts/action-runner.mjs list --domain pcb --query "布局"
-```
-
-按查询结果的入口和专项说明执行。布局求解先整理上游设计与 PCB 现场，再生成候选；运行和支持范围见 [3.4 布局](../references/providers/easyeda-pro/3.4-pcb-placement.md)，配置输入时再读[布局输入](../references/pcb-layout-inputs.md)。
-
-开发原生调用或核查接口时，可以定向查询随 Skill 附带的历史 API 文档：
-
-```text
-node <skill>/scripts/api-reference.mjs search --query "焊盘" --kind method --limit 8
-node <skill>/scripts/api-reference.mjs show --id "PCB_PrimitiveComponent#getAllPinsByPrimitiveId"
-```
-
-文档查询不执行示例。新调用仍需核对官方资料和实际编辑器支持，不能把历史签名当成现场验证。
-
-## 连接 EasyEDA Pro
-
-目前只有 EasyEDA Pro 的现场实现。仓库包含连接通道源码，不包含 EDA 客户端和 API Gateway 扩展。
-
-需要读取或修改真实 EDA 文档时，按 [0.4 环境与连接](../references/providers/easyeda-pro/0.4-environment.md)安装通道依赖、注册并确认目标窗口。已可用的连接继续复用。首次批量操作先核对代表对象，结果分别说明回读、保存和检查范围。
-
-其他 EDA 须接入相应 Provider 的数据转换与执行能力；更换软件名称不会自动获得支持。开发边界见 [Action 与 Provider](../development/action-system.md)。
-
-## 遇到问题
-
-| 现象 | 下一步 |
+| 本次功能 | 运行依赖 |
 | --- | --- |
-| 宿主找不到 Skill | 检查安装目录是否直接包含 `SKILL.md`，然后新开任务 |
-| `node` 不存在或版本过旧 | 安装 Node.js 22+；纯文档设计仍可继续 |
-| 能列出操作，但 EDA 调用失败 | 按 [0.4](../references/providers/easyeda-pro/0.4-environment.md)核对客户端、网关、通道和窗口 |
-| 写入超时或结果未知 | 读取原请求记录并核对现场，不直接重发；见 [Provider 恢复](../references/0.3-easyeda-pro.md#失败与恢复) |
-| 布局输入有缺项或冲突 | 查看该次 `summary.json` 与 `diagnostics.json`，修正拥有该事实的上游数据或项目规则 |
+| 本地 Action、业务 CLI、View State | Node.js 22+ |
+| CP-SAT 布局/模板、路径组合选择 | Python 3.12+ 数值环境与 OR-Tools；铜通道快筛另需 NumPy |
+| 两层 A*、潜在地空间 | Python 3.12+ 与 NumPy；地连接优化启用时需 OR-Tools |
+| FR 寻路 | FR 2.4.1 与 Java 25+，由 [自动布线入口](../references/providers/easyeda-pro/3.8-autorouting.md#fr-运行环境)按需管理 |
+| 仓库开发、校验、打包 | Python 3.10+，仅开发任务需要 |
 
-首跑以后，从 [阶段地图](../references/0.0-overview.md)进入当前工作，不必重复通读安装说明。
+数值依赖固定在 [requirements-pcb.txt](../requirements-pcb.txt)：NumPy 2.5.3、OR-Tools 9.15.6755，需要 Python 3.12+。已有宿主缓存 `runtimes/cpsat` 满足这些版本时直接复用；首次需要时在宿主目录建立独立环境：
+
+```text
+python -m venv <HOST_NUMERIC_RUNTIME>
+<该环境的python> -m pip install --only-binary=:all: -r <skill>/requirements-pcb.txt
+```
+
+第一行选择已安装的 Python 3.12+。Windows 环境解释器位于 `Scripts/python.exe`，其他平台通常为 `bin/python`。公开入口用 `--python <解释器>` 或 `FLITREALIZE_PCB_PYTHON`；布局后端模块也可用 `FLITREALIZE_CPSAT_PYTHON`。源码数值测试另读取 `FLITREALIZE_CPSAT_PYTHON` 与 `PCB_PREROUTE_PYTHON`。文档任务不安装数值环境。
+
+依赖保存在宿主运行目录，不写入项目 Contract，不把某台机器的路径、JRE、JAR 或虚拟环境打进 Skill。查到可执行文件或模块不等于本次算法与工程检查已通过。
+
+首次使用数值入口时，可按需跑 [open最小示例](../references/3.4-block-layout.md#最小运行示例) 或 [预走线最小示例](../references/3.8-prerouting.md#最小运行示例)；普通续接不重跑样例。
+
+## 现场执行通道
+
+目前现场 Provider 为 EasyEDA Pro。桌面客户端有可用 CLI 时先 `doctor`，然后复用会话；通道由原宿主的 `--channel cli|bridge`、`--cli-executable PATH` 或相应环境配置选择，见 [0.3 通道与共同执行规则](../references/0.3-easyeda-pro.md#选择执行通道)。高层业务 CLI 使用原参数，不直接加上述宿主选项。
+
+网页版或明确使用 API Gateway + Node Bridge 时，按 [0.4 网页 Bridge](../references/providers/easyeda-pro/0.4-environment.md)准备与复用连接；它不是客户端 CLI 的固定前置。仓库不包含 EDA 客户端或 Gateway 扩展。CLI doctor/会话探测不能替代原生写入、保存和 DRC 验证。
+
+## 出现问题时
+
+| 现象 | 按需入口 |
+| --- | --- |
+| 宿主找不到 Skill | 核对目录直接包含 `SKILL.md`，再新开任务 |
+| Node 或数值依赖缺失 | 按上表只准备本次功能需要的环境 |
+| CLI doctor/会话失败 | 查看原宿主状态与客户端错误，先修复对应通道 |
+| Bridge/网关不可用 | [0.4](../references/providers/easyeda-pro/0.4-environment.md) |
+| 写入终态或保存状态未明 | [0.3 恢复规则](../references/0.3-easyeda-pro.md#失败与恢复) |
+| 布局输入缺项或冲突 | 本次 `summary.json`、`diagnostics.json`；修改拥有事实的上游数据或项目规则 |
+
+补充原生 API 调用时再读 [0.3 API 说明](../references/0.3-easyeda-pro.md#api-与完成范围)，开发工具时再读 [Action 与 Provider](../development/action-system.md)。

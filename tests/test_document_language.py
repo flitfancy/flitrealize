@@ -81,7 +81,8 @@ class DocumentLanguageTests(unittest.TestCase):
         packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
         self.assertIn("SKILL.md", packaged)
         self.assertIn("references/3.1-pcb-review.md", packaged)
-        self.assertFalse(any(path.startswith("docs/") for path in packaged))
+        self.assertIn("docs/first-run.md", packaged)
+        self.assertFalse(any(path.startswith(("docs/en-backup/", "docs/zh-CN/")) for path in packaged))
 
     def test_runtime_document_links_are_packaged(self) -> None:
         packaged = {path.resolve() for path in runtime_files()}

@@ -4,10 +4,10 @@
 import { closeSync, existsSync, openSync } from 'node:fs';
 import { mkdir, open, readFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
-import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { bridgeStateDir } from '../../../scripts/lib/state-paths.mjs';
 
 const SERVICE_ID = 'easyeda-bridge';
 const ADAPTER_ID = 'easyeda-pro';
@@ -17,21 +17,11 @@ const DEFAULT_PORT_END = 49629;
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ADAPTER_ROOT = resolve(SCRIPT_DIR, '..');
 const SERVER_SCRIPT = join(SCRIPT_DIR, 'bridge-server.mjs');
-const STATE_DIR = process.env.FLITREALIZE_BRIDGE_STATE_DIR || defaultStateDir();
+const STATE_DIR = bridgeStateDir();
 const SESSION_FILE = join(STATE_DIR, 'session.json');
 const LOG_FILE = join(STATE_DIR, 'bridge.log');
 const PORT_START = readPort('EASYEDA_BRIDGE_PORT_START', DEFAULT_PORT_START);
 const PORT_END = readPort('EASYEDA_BRIDGE_PORT_END', DEFAULT_PORT_END);
-
-function defaultStateDir() {
-  if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
-    return join(process.env.LOCALAPPDATA, 'FlitRealize', 'bridge', ADAPTER_ID);
-  }
-  if (process.env.XDG_RUNTIME_DIR) {
-    return join(process.env.XDG_RUNTIME_DIR, 'flitrealize', 'bridge', ADAPTER_ID);
-  }
-  return join(homedir(), '.local', 'state', 'flitrealize', 'bridge', ADAPTER_ID);
-}
 
 function readPort(name, fallback) {
   const raw = process.env[name];

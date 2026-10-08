@@ -5,15 +5,19 @@ import {extname,resolve,relative,isAbsolute,sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {DEFAULT_PORT,LISTEN_HOST} from './config.mjs';
 import {readProject,readDocument} from './lib/project.mjs';
-import {flitHome,readBridge} from './lib/bridge.mjs';
+import {readBridge} from './lib/bridge.mjs';
 
 const PUBLIC = fileURLToPath(new URL('./public/',import.meta.url));
 const MIME = {'.html':'text/html','.css':'text/css','.js':'text/javascript','.mjs':'text/javascript'};
-const args = {port:DEFAULT_PORT,home:flitHome(),projectRoot:null};
+const args = {port:DEFAULT_PORT,home:undefined,projectRoot:null};
 for(let i=2;i<process.argv.length;i++) {
   const flag=process.argv[i];
   if(flag==='--port') args.port=Number(process.argv[++i]);
-  else if(flag==='--home') args.home=process.argv[++i];
+  else if(flag==='--home') {
+    const home=process.argv[++i];
+    if(!home?.trim() || home.startsWith('--')) throw new Error('--home requires a path');
+    args.home=resolve(home);
+  }
   else if(flag==='--project-root') args.projectRoot=process.argv[++i];
   else if(flag==='--help') { console.log('node server.mjs [--project-root PATH] [--port 49700] [--home PATH]'); process.exit(0); }
   else throw new Error('Unknown argument: '+flag);

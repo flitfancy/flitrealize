@@ -9,11 +9,11 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createServer, get as httpGet } from 'node:http';
 import { createConnection } from 'node:net';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { WebSocketServer } from 'ws';
 import { isUuid, RequestStore } from './request-store.mjs';
+import { bridgeStateDir } from '../../../scripts/lib/state-paths.mjs';
 
 const DEFAULT_PORT_START = 49620;
 const DEFAULT_PORT_END = 49629;
@@ -34,7 +34,7 @@ if (PORT_END < PORT_START) {
 const SESSION_ID = randomUUID();
 const AUTH_TOKEN = randomBytes(32).toString('base64url');
 const STARTED_AT = new Date().toISOString();
-const STATE_DIR = process.env.FLITREALIZE_BRIDGE_STATE_DIR || defaultStateDir();
+const STATE_DIR = bridgeStateDir();
 const SESSION_FILE = join(STATE_DIR, 'session.json');
 const requestStore = new RequestStore(STATE_DIR);
 
@@ -66,16 +66,6 @@ function readTimeoutMs(name, fallback) {
     throw new Error(`${name} must be an integer between 1000 and 600000`);
   }
   return value;
-}
-
-function defaultStateDir() {
-  if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
-    return join(process.env.LOCALAPPDATA, 'FlitRealize', 'bridge', ADAPTER_ID);
-  }
-  if (process.env.XDG_RUNTIME_DIR) {
-    return join(process.env.XDG_RUNTIME_DIR, 'flitrealize', 'bridge', ADAPTER_ID);
-  }
-  return join(homedir(), '.local', 'state', 'flitrealize', 'bridge', ADAPTER_ID);
 }
 
 function safeEqual(left, right) {

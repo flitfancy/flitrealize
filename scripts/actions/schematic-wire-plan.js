@@ -122,6 +122,7 @@ return await (async () => {
                 ? pin.extensions.easyedaPro.rotation
                 : null,
               noConnect: pin.noConnect === true,
+              rotation: pin.extensions?.easyedaPro?.rotation ?? null,
             }))
             .sort((left, right) => left.number.localeCompare(right.number)),
         }))
@@ -130,7 +131,11 @@ return await (async () => {
     };
   }
 
-  function outwardVector(componentPosition, pinPosition) {
+  function outwardVector(componentPosition, pinPosition, rotation = null) {
+    if (Number.isFinite(rotation) && Math.abs(rotation / 90 - Math.round(rotation / 90)) < 0.0001) {
+      const radians = rotation * Math.PI / 180;
+      return { x: Math.round(Math.cos(radians)), y: Math.round(Math.sin(radians)) };
+    }
     const dx = pinPosition.x - componentPosition.x;
     const dy = pinPosition.y - componentPosition.y;
     if (dx === 0 && dy === 0) return null;
@@ -305,7 +310,7 @@ return await (async () => {
             });
             continue;
           }
-          const direction = outwardVector(componentPosition, pinPosition);
+          const direction = outwardVector(componentPosition, pinPosition, pin.extensions?.easyedaPro?.rotation);
           if (!direction) {
             unresolved.push({ code: 'PIN_DIRECTION_UNRESOLVED', message: `${componentName}.${contractPin} is coincident with the component anchor.`, component: componentName, pin: contractPin, providerPin, net: net.name });
             continue;
@@ -328,6 +333,14 @@ return await (async () => {
       }
     }
 
+    // A symbol may expose multiple pin numbers for one coincident contact.
+    // Keep all Contract endpoints, but create only one identical same-net stub
+    // for that contact on the same component.
+    for(let i=wires.length-1;i>=0;i--){
+      const w=wires[i];
+      if(wires.slice(0,i).some(other=>other.net===w.net&&other.endpoint.component===w.endpoint.component&&
+        other.points.length===w.points.length&&other.points.every((p,j)=>pointDistance(p,w.points[j])<=1e-6)))wires.splice(i,1);
+    }
     const contractFingerprint = hashText(stableStringify(contract));
     const geometryFingerprint = hashText(stableStringify(geometryEvidence(snapshot)));
     const source = {
@@ -373,9 +386,9 @@ return await (async () => {
       fingerprints: { plan: planFingerprint },
       extensions: {
         generation: {
-          directionBasis: 'component-to-pin-dominant-axis',
+          directionBasis: 'native-pin-rotation-with-dominant-axis-fallback',
           contactBasis: 'point-to-polyline-distance',
-          creates: 'one orthogonal stub per unresolved physical endpoint',
+          creates: 'one orthogonal stub per distinct unresolved physical contact',
           existingEndpointCount: existingEndpoints.length,
           existingEndpoints,
         },

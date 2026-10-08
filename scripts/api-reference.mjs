@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
+import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { loadCorpus, searchReference, showReference } from './lib/api-reference.mjs';
 
 const help = `Offline EasyEDA API reference lookup (historical snapshot; no EDA calls).
@@ -32,6 +31,6 @@ export async function main(args = process.argv.slice(2), { output = value => con
   return result;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   main().catch(error => { console.error(JSON.stringify({ status: 'error', readOnly: true, error: { code: error.code ?? 'REFERENCE_FAILED', message: error.message } })); process.exitCode = 1; });
 }

@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, unlink, realpath } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { planConnections } from './lib/schematic-connect-plan.mjs';
 
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
@@ -207,7 +208,7 @@ export async function runSchematicConnect(options) {
   return summary;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   const options = {};
   try {
     for (let i = 2; i < process.argv.length; i += 1) {

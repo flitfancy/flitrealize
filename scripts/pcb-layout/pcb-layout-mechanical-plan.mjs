@@ -116,49 +116,7 @@ export function makePlan(snapshot, rules) {
   const stats = { labelRepairAttempts: 0, labelRepairSuccesses: 0, searchNodes: 0, searchLimitHits: 0, componentFallbacks: 0, testPadFallbacks: 0 };
   if (relocationAxes.size) Object.assign(stats, { axisRestrictedRelocationAttempts: 0, axisRestrictedOffsetsTried: 0 });
 
-  function variants(c) {
-    const texts = snapshot.items.filter(t => t.owner === c.ref).sort((a, b) => a.type.localeCompare(b.type));
-    if (!texts.some(t => t.type === 'attribute')) throw Error('Missing native designator ' + c.ref);
-    const body = shift(c.bbox, -c.x, -c.y), pp = snapshot.pads.filter(p => padOwner(p, snapshot.components)?.id === c.id);
-    if (!pp.length) throw Error('Missing pad geometry ' + c.ref);
-    const pad = shift(union(pp.map(p => p.bbox)), -c.x, -c.y);
-    const width = Math.max(...texts.map(t => t.width)), height = texts.reduce((n, t) => n + t.height, 0) + (texts.length - 1) * gap;
-    const template = labelTemplate(c, rules);
-    const border = template.anchor === 'pads' ? pad : union([body, pad]), ownGap = Math.max(gap, template.minGapMil);
-    const vertical = body.maxY - body.minY > (body.maxX - body.minX) * 1.2;
-    const sides = vertical ? ['left', 'right', 'bottom', 'top'] : ['bottom', 'top', 'right', 'left'];
-    const metadata = t => ({ id: t.id, type: t.type, owner: c.ref, parentId: t.parentId, text: t.text, fontSize: t.fontSize, lineWidth: t.lineWidth });
-    const canonical = sides.map(side => {
-      const rot = side === 'left' || side === 'right' ? 90 : 0, w = rot ? height : width, h = rot ? width : height;
-      let x = (body.minX + body.maxX - w) / 2, y = (body.minY + body.maxY - h) / 2;
-      if (side === 'bottom') y = Math.ceil((border.maxY + ownGap - .02) / 5) * 5;
-      if (side === 'top') y = Math.floor((border.minY - ownGap - h + .02) / 5) * 5;
-      if (side === 'right') x = Math.ceil((border.maxX + ownGap - .02) / 5) * 5;
-      if (side === 'left') x = Math.floor((border.minX - ownGap - w + .02) / 5) * 5;
-      let offset = 0;
-      const labels = texts.map(t => {
-        const bx = (width - t.width) / 2, b = { minX: bx, maxX: bx + t.width, minY: offset, maxY: offset + t.height };
-        offset += t.height + gap;
-        const tb = rot ? shift(rotated(b), x + height, y) : shift(b, x, y);
-        return { ...metadata(t), rotation: rot, alignMode: labelAlignment.bottomLeft, x: rot ? tb.maxX : tb.minX, y: tb.minY, bbox: tb };
-      });
-      return { side, body, labels, bbox: union([body, ...labels.map(l => l.bbox)]) };
-    });
-    if (rules.initializeLabels) return canonical;
-
-    // Preserve exact existing anchors and alignment; template only the other sides.
-    const labels = texts.map(t => ({ ...metadata(t), ...t.original, x: t.original.x - c.x, y: t.original.y - c.y, bbox: shift(t.original.bbox, -c.x, -c.y) }));
-    const textBox = union(labels.map(l => l.bbox));
-    const distance = opt => {
-      const b = union(opt.labels.map(l => l.bbox));
-      return (b.minX + b.maxX - textBox.minX - textBox.maxX) ** 2 + (b.minY + b.maxY - textBox.minY - textBox.maxY) ** 2;
-    };
-    const side = [...canonical].sort((a, b) => distance(a) - distance(b))[0].side;
-    const options = [{ side, body, labels, bbox: union([body, textBox]) }, ...canonical.filter(o => o.side !== side)];
-    const preferred = rules.preferredLabelSides?.[c.ref];
-    if (preferred !== undefined && !sides.includes(preferred)) throw Error('INVALID_LABEL_SIDE ' + c.ref);
-    return preferred === undefined ? options : [options.find(o => o.side === preferred), ...options.filter(o => o.side !== preferred)];
-  }
+  const variants = c => labelVariants(snapshot, c, rules);
 
   // Include every body and test pad before allowing labels to claim space.
   const entries = snapshot.components.map(c => ({ ...c, kind: 'component', locked: c.locked || locked.has(c.ref), options: variants(c), selected: 0 }));
@@ -313,4 +271,53 @@ export function makePlan(snapshot, rules) {
     counts: { components: components.length, moved: components.filter(c => c.dx || c.dy).length, labels: labels.length, labelsChanged, labelSidesChanged: components.filter(c => c.side !== c.defaultSide).length, testPads: testPads.length, testPadsMoved: testPads.filter(p => p.dx || p.dy).length },
     maxMoveMil: Math.max(0, ...components.map(c => Math.hypot(c.dx, c.dy)))
   };
+}
+
+// Shared native label templates used by every placement backend.
+export function labelVariants(snapshot, c, rules) {
+  const gap = rules.clearanceMil ?? 8, labelAlignment = layoutLabelAlignment(snapshot);
+  const shift = (b, x, y) => ({ minX: b.minX + x, maxX: b.maxX + x, minY: b.minY + y, maxY: b.maxY + y });
+  const union = bs => ({ minX: Math.min(...bs.map(b => b.minX)), maxX: Math.max(...bs.map(b => b.maxX)), minY: Math.min(...bs.map(b => b.minY)), maxY: Math.max(...bs.map(b => b.maxY)) });
+  const rotated = b => ({ minX: -b.maxY, maxX: -b.minY, minY: b.minX, maxY: b.maxX });
+  const texts = snapshot.items.filter(t => t.owner === c.ref).sort((a, b) => a.type.localeCompare(b.type));
+  if (!texts.some(t => t.type === 'attribute')) throw Error('Missing native designator ' + c.ref);
+  const body = shift(c.bbox, -c.x, -c.y), pp = snapshot.pads.filter(p => padOwner(p, snapshot.components)?.id === c.id);
+  if (!pp.length) throw Error('Missing pad geometry ' + c.ref);
+  const pad = shift(union(pp.map(p => p.bbox)), -c.x, -c.y);
+  const width = Math.max(...texts.map(t => t.width)), height = texts.reduce((n, t) => n + t.height, 0) + (texts.length - 1) * gap;
+  const template = labelTemplate(c, rules);
+  const border = template.anchor === 'pads' ? pad : union([body, pad]), ownGap = Math.max(gap, template.minGapMil);
+  const vertical = body.maxY - body.minY > (body.maxX - body.minX) * 1.2;
+  const sides = vertical ? ['left', 'right', 'bottom', 'top'] : ['bottom', 'top', 'right', 'left'];
+  const metadata = t => ({ id: t.id, type: t.type, owner: c.ref, parentId: t.parentId, text: t.text, fontSize: t.fontSize, lineWidth: t.lineWidth });
+  const canonical = sides.map(side => {
+    const rot = side === 'left' || side === 'right' ? 90 : 0, w = rot ? height : width, h = rot ? width : height;
+    let x = (body.minX + body.maxX - w) / 2, y = (body.minY + body.maxY - h) / 2;
+    if (side === 'bottom') y = Math.ceil((border.maxY + ownGap - .02) / 5) * 5;
+    if (side === 'top') y = Math.floor((border.minY - ownGap - h + .02) / 5) * 5;
+    if (side === 'right') x = Math.ceil((border.maxX + ownGap - .02) / 5) * 5;
+    if (side === 'left') x = Math.floor((border.minX - ownGap - w + .02) / 5) * 5;
+    let offset = 0;
+    const labels = texts.map(t => {
+      const bx = (width - t.width) / 2, b = { minX: bx, maxX: bx + t.width, minY: offset, maxY: offset + t.height };
+      offset += t.height + gap;
+      const tb = rot ? shift(rotated(b), x + height, y) : shift(b, x, y);
+      return { ...metadata(t), rotation: rot, alignMode: labelAlignment.bottomLeft, x: rot ? tb.maxX : tb.minX, y: tb.minY, bbox: tb };
+    });
+    return { side, body, labels, bbox: union([body, ...labels.map(l => l.bbox)]) };
+  });
+  if (rules.initializeLabels) return canonical;
+
+  // Preserve exact existing anchors and alignment; template only the other sides.
+  const labels = texts.map(t => ({ ...metadata(t), ...t.original, x: t.original.x - c.x, y: t.original.y - c.y, bbox: shift(t.original.bbox, -c.x, -c.y) }));
+  const textBox = union(labels.map(l => l.bbox));
+  const distance = opt => {
+    const b = union(opt.labels.map(l => l.bbox));
+    return (b.minX + b.maxX - textBox.minX - textBox.maxX) ** 2 + (b.minY + b.maxY - textBox.minY - textBox.maxY) ** 2;
+  };
+  const side = [...canonical].sort((a, b) => distance(a) - distance(b))[0].side;
+  const options = [{ side, body, labels, bbox: union([body, textBox]) }, ...canonical.filter(o => o.side !== side)];
+  const preferred = rules.preferredLabelSides?.[c.ref];
+  if (preferred !== undefined && !sides.includes(preferred)) throw Error('INVALID_LABEL_SIDE ' + c.ref);
+  return preferred === undefined ? options : [options.find(o => o.side === preferred), ...options.filter(o => o.side !== preferred)];
 }

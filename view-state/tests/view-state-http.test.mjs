@@ -12,7 +12,7 @@ test('read-only API reads only current handoff, reflects edits, rejects invalid 
   await mkdir(home);await mkdir(project);
   const handoff=join(project,'CURRENT_HANDOFF.md');
   const serverRoot=process.env.FLITREALIZE_TEST_VIEW_STATE_ROOT || fileURLToPath(new URL('..',import.meta.url));
-  const child=spawn(process.execPath,['server.mjs','--port','0','--home',home],{cwd:serverRoot,windowsHide:true,stdio:['ignore','pipe','pipe']});
+  const child=spawn(process.execPath,['server.mjs','--port','0','--home',home],{cwd:serverRoot,env:{...process.env,FLITREALIZE_EDA_CHANNEL:'bridge'},windowsHide:true,stdio:['ignore','pipe','pipe']});
   t.after(async()=>{
     await new Promise(resolve=>{if(child.exitCode!==null)return resolve();child.once('exit',resolve);child.kill();});
     await rm(root,{recursive:true,force:true});

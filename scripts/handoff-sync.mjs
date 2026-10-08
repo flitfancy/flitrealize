@@ -3,7 +3,7 @@
 import { readFile, realpath, lstat, writeFile, rename, unlink } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { resolve, relative, isAbsolute, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 
 const START = '<!-- flitrealize:facts:start -->';
 const END = '<!-- flitrealize:facts:end -->';
@@ -218,7 +218,7 @@ export async function runHandoffSync({ projectRoot, contractFile, snapshotFile, 
   return { ...result, status: 'updated', written: true, readOnly: false };
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (isDirectExecution(import.meta.url)) {
   try {
     const options = {}; let print = false;
     for (let i = 2; i < process.argv.length; i += 1) {

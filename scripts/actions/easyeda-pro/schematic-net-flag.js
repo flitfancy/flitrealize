@@ -103,14 +103,17 @@ return await (async () => {
     };
   }
 
+  // Native serialization may trim floating tails or normalize 270 degrees to -90.
+  const sameCoordinate=(a,b)=>Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=1e-9;
+  const rotation=a=>Number.isFinite(a)?((a%360)+360)%360:a;
   function flagMatches(actual, expected) {
     return actual
       && actual.primitiveId === expected.primitiveId
       && actual.net === expected.net
       && actual.componentType === expected.componentType
-      && actual.x === expected.x
-      && actual.y === expected.y
-      && actual.rotation === expected.rotation
+      && sameCoordinate(actual.x,expected.x)
+      && sameCoordinate(actual.y,expected.y)
+      && rotation(actual.rotation) === rotation(expected.rotation)
       && actual.mirror === expected.mirror
       && (expected.showName !== false || actual.nameVisible === false);
   }
@@ -231,32 +234,37 @@ return await (async () => {
   }
 
   async function applyNameVisibility(created, document) {
-    const hidden = created.filter((item) => item.showName === false);
-    if (!hidden.length) return;
+    if (!created.length) return;
     await assertTarget(document.uuid, document.parentProjectUuid);
-    const source = await eda.sys_FileManager?.getDocumentSource?.();
-    if (typeof source !== 'string' || !source.trim()) fail('SOURCE_UNAVAILABLE', 'Cannot set network-marker name visibility without schematic source access.');
-    const targetIds = new Set(hidden.map((item) => item.primitiveId));
-    const records = parseSourceRecords(source);
-    const counts = new Map([...targetIds].map((id) => [id, 0]));
+    const source = await eda.sys_FileManager.getDocumentSource();
+    if (typeof source !== 'string' || !source.trim()) fail('SOURCE_UNAVAILABLE', 'Cannot read network-marker source.');
+    const byId = new Map(created.map(item => [item.primitiveId, item]));
+    const hidden = new Set(created.filter(item => item.showName === false).map(item => item.primitiveId));
+    const counts = new Map([...hidden].map(id => [id, 0]));
     const replacements = new Map();
-    for (const record of records) {
-      if (record.head.type !== 'ATTR' || record.payload.key !== 'Name' || !targetIds.has(record.payload.parentId)) continue;
-      counts.set(record.payload.parentId, counts.get(record.payload.parentId) + 1);
-      record.payload = { ...record.payload, valueVisible: false, keyVisible: false };
-      replacements.set(record.index, serializeRecord(record));
+    for (const record of parseSourceRecords(source)) {
+      if (record.head.type === 'COMPONENT' && byId.has(record.head.id)) {
+        const desired = rotation(byId.get(record.head.id).rotation);
+        // The native NetPort constructor can serialize requested 270 as 90.
+        if (record.payload.rotation !== desired) {
+          record.payload = { ...record.payload, rotation: desired };
+          replacements.set(record.index, serializeRecord(record));
+        }
+      }
+      if (record.head.type === 'ATTR' && record.payload.key === 'Name' && hidden.has(record.payload.parentId)) {
+        counts.set(record.payload.parentId, counts.get(record.payload.parentId) + 1);
+        record.payload = { ...record.payload, valueVisible: false, keyVisible: false };
+        replacements.set(record.index, serializeRecord(record));
+      }
     }
-    const malformed = [...counts].filter(([, count]) => count !== 1);
-    if (malformed.length) fail('MARKER_NAME_ATTR_UNEXPECTED', `Expected one Name attribute for ${malformed.length} created marker(s).`);
+    if ([...counts].some(([, count]) => count !== 1)) fail('MARKER_NAME_ATTR_UNEXPECTED', 'Expected one Name attribute per hidden marker.');
     const output = source.split(/\r?\n/).map((line, index) => replacements.get(index) ?? line).join('\n');
     if (output !== source) {
-      if (!await eda.sys_FileManager.setDocumentSource(output)) fail('SOURCE_IMPORT_REJECTED', 'EasyEDA rejected marker display settings.');
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      if (!await eda.sys_FileManager.setDocumentSource(output)) fail('SOURCE_IMPORT_REJECTED', 'Marker display settings were rejected.');
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
-    const readback = await eda.sys_FileManager.getDocumentSource();
-    const readbackVisibility = nameVisibilityByParent(readback);
-    const stillVisible = [...targetIds].filter((id) => readbackVisibility.get(id) !== false);
-    if (stillVisible.length) fail('SOURCE_READBACK_MISMATCH', `Name visibility did not persist for ${stillVisible.length} marker(s).`);
+    const visibility = nameVisibilityByParent(await eda.sys_FileManager.getDocumentSource());
+    if ([...hidden].some(id => visibility.get(id) !== false)) fail('SOURCE_READBACK_MISMATCH', 'Name visibility did not persist.');
     await assertTarget(document.uuid, document.parentProjectUuid);
   }
 
@@ -299,7 +307,7 @@ return await (async () => {
       const beforeIds = new Set(before.components.map((component) => component.primitiveId));
       const collateralMissing = [...beforeIds].filter((id) => !afterById.has(id));
       if (missingOrChanged.length || collateralMissing.length) {
-        fail('POST_APPLY_INVARIANT_FAILED', JSON.stringify({ missingOrChanged: missingOrChanged.length, collateralMissing: collateralMissing.length }));
+        fail('POST_APPLY_INVARIANT_FAILED', JSON.stringify({ missingOrChanged: missingOrChanged.length, collateralMissing: collateralMissing.length, differences: missingOrChanged.map(item => ({ expected: item, actual: afterById.get(item.primitiveId) })) }));
       }
       return {
         schemaVersion: 2,

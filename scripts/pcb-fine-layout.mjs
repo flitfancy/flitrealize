@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { readFile,writeFile,mkdir } from 'node:fs/promises';
-import { existsSync,realpathSync } from 'node:fs';
 import { resolve,dirname,join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { loadLayoutProject } from './pcb-layout/pcb-layout-project.mjs';
 import { packFineLayout } from './pcb-layout/pcb-gravity-pack.mjs';
 import { gravityReport,gravitySvg } from './pcb-layout/pcb-gravity-report.mjs';
@@ -34,4 +33,4 @@ export async function main(args=process.argv.slice(2),{log=v=>console.log(JSON.s
  log({status:result.status,algorithmName:result.algorithmName,nativeWrites:0,report:dir,units:result.unitCount,shapes:result.shapeVariantCount,selectedRun:result.selectedRun,placed:result.candidate?.placedObjectCount,total:result.objectCount,complete:result.candidate?.complete});
  return result;
 }
-if(process.argv[1]&&existsSync(process.argv[1])&&realpathSync(process.argv[1])===realpathSync(fileURLToPath(import.meta.url)))main().catch(error=>{console.error(JSON.stringify({status:'failed',error:error.message}));process.exitCode=1;});
+if(isDirectExecution(import.meta.url))main().catch(error=>{console.error(JSON.stringify({status:'failed',error:error.message}));process.exitCode=1;});

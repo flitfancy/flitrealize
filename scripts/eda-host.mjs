@@ -4,9 +4,10 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { flitHome, statePathEnvironment } from './lib/state-paths.mjs';
 
 const SCHEMA_VERSION = 1;
 const actionManifest = JSON.parse(await readFile(new URL('./actions/manifest.json', import.meta.url), 'utf8'));
@@ -15,7 +16,7 @@ const SUPPORTED_EDAS = new Set(
     .filter(([, provider]) => provider?.kind === 'eda')
     .map(([providerId]) => providerId),
 );
-const STATE_ROOT = stateRoot();
+const STATE_ROOT = flitHome();
 const PROFILE_FILE = join(STATE_ROOT, 'host.json');
 
 function edaActionTimeoutMs() {
@@ -26,15 +27,6 @@ function edaActionTimeoutMs() {
     throw new Error('FLITREALIZE_EDA_ACTION_TIMEOUT_MS must be an integer between 1000 and 600000');
   }
   return value;
-}
-
-function stateRoot() {
-  if (process.env.FLITREALIZE_HOME) return resolve(process.env.FLITREALIZE_HOME);
-  if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
-    return join(process.env.LOCALAPPDATA, 'FlitRealize');
-  }
-  if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, 'flitrealize');
-  return join(homedir(), '.config', 'flitrealize');
 }
 
 function utcNow() {
@@ -56,9 +48,12 @@ function parseArguments(argv) {
     else if (argument === '--input-file') values.inputFile = argumentValue(argv[++index], argument);
     else if (argument === '--request-id') values.requestId = argumentValue(argv[++index], argument);
     else if (argument === '--session-id') values.sessionId = argumentValue(argv[++index], argument);
+    else if (argument === '--channel') values.channel = argumentValue(argv[++index], argument);
+    else if (argument === '--cli-executable') values.cliExecutable = argumentValue(argv[++index], argument);
     else throw new Error(`Unknown argument: ${argument}`);
   }
   if (!values.eda) throw new Error('--eda is required');
+  if (values.channel && !['cli', 'bridge'].includes(values.channel)) throw new Error('--channel must be cli or bridge');
   if (values.sessionId && values.command !== 'request') throw new Error('--session-id is only supported by request; execute freezes the current Bridge session');
   return values;
 }
@@ -106,8 +101,16 @@ async function saveProfile(profile) {
   await rename(temporary, PROFILE_FILE);
 }
 
-async function registerAdapter(eda, adapterRoot) {
+async function registerAdapter(eda, adapterRoot, options = {}) {
   validateEda(eda);
+  const channel = options.channel || process.env.FLITREALIZE_EDA_CHANNEL || 'bridge';
+  if (channel === 'cli') {
+    const { resolveOfficialCli } = await cliChannel(eda);
+    const profile = await loadProfile(true);
+    profile.adapters[eda] = { ...profile.adapters[eda], channel, cliExecutable: resolveOfficialCli(options.cliExecutable), registeredAt: utcNow() };
+    await saveProfile(profile);
+    return { status: 'registered', hostId: profile.hostId, edaId: eda, channel, cliExecutable: profile.adapters[eda].cliExecutable, profile: PROFILE_FILE };
+  }
   if (!adapterRoot) throw new Error('--adapter-root is required');
   const root = resolve(adapterRoot);
   const control = join(root, 'scripts', 'bridge-control.mjs');
@@ -116,10 +119,12 @@ async function registerAdapter(eda, adapterRoot) {
   const packageData = await readJson(packageFile);
   const profile = await loadProfile(true);
   profile.adapters[eda] = {
+    ...profile.adapters[eda],
     root,
     control: relative(root, control).split('\\').join('/'),
     package: packageData.name || null,
     version: packageData.version || null,
+    channel: 'bridge',
     registeredAt: utcNow(),
   };
   await saveProfile(profile);
@@ -166,6 +171,10 @@ function parseControlOutput(completed) {
 
 async function runControl(arguments_) {
   const { profile, adapter } = await adapterRecord(arguments_.eda);
+  const channel = arguments_.channel || process.env.FLITREALIZE_EDA_CHANNEL || adapter.channel || 'bridge';
+  if (!['cli', 'bridge'].includes(channel)) throw new Error('EDA channel must be cli or bridge');
+  if (channel === 'cli') return runCliControl(arguments_, profile, adapter);
+  if (arguments_.cliExecutable) throw new Error('--cli-executable requires the cli channel');
   const root = resolve(adapter.root);
   const control = resolve(root, adapter.control);
   if (!existsSync(control)) throw new Error(`Registered adapter control script is missing: ${control}`);
@@ -199,7 +208,7 @@ async function runControl(arguments_) {
     if (arguments_.sessionId) childArguments.push('--session-id', arguments_.sessionId);
     const actionTimeout = edaActionTimeoutMs();
     const childEnvironment = {
-      ...process.env,
+      ...statePathEnvironment(),
       EASYEDA_BRIDGE_REQUEST_TIMEOUT_MS: process.env.EASYEDA_BRIDGE_REQUEST_TIMEOUT_MS || String(actionTimeout),
     };
     const completed = spawnSync(process.execPath, childArguments, {
@@ -240,6 +249,7 @@ async function runControl(arguments_) {
       throw error;
     }
     result.hostId = profile.hostId;
+    result.channel = 'bridge';
     if (binding) result.projectBinding = binding;
     return result;
   } finally {
@@ -247,14 +257,42 @@ async function runControl(arguments_) {
   }
 }
 
+async function cliChannel(eda) {
+  const module = new URL(`./providers/${eda}/cli-channel.mjs`, import.meta.url);
+  if (!/^[a-z0-9-]+$/.test(eda) || !existsSync(fileURLToPath(module))) throw new Error(`Official CLI channel is not implemented for provider ${eda}`);
+  return import(module.href);
+}
+
+async function runCliControl(arguments_, profile, adapter) {
+  const { officialCliControl, resolveOfficialCli } = await cliChannel(arguments_.eda);
+  const binding = await checkProjectBinding(arguments_.projectRoot, arguments_.eda);
+  let effectiveCodeFile = arguments_.codeFile ? resolve(arguments_.codeFile) : null;
+  let temporaryCodeFile;
+  if (arguments_.inputFile) {
+    if (!effectiveCodeFile) throw new Error('--input-file requires --code-file');
+    const input = await readJson(resolve(arguments_.inputFile)), code = await readFile(effectiveCodeFile, 'utf8');
+    await mkdir(STATE_ROOT, { recursive: true, mode: 0o700 });
+    temporaryCodeFile = join(STATE_ROOT, `cli-execute-${process.pid}-${randomUUID()}.js`);
+    await writeFile(temporaryCodeFile, `const flitrealizeInput = JSON.parse(${JSON.stringify(JSON.stringify(input))});\n${code}`, { mode: 0o600 });
+    effectiveCodeFile = temporaryCodeFile;
+  }
+  try {
+    const result = await officialCliControl({ ...arguments_, codeFile: effectiveCodeFile }, { executable: resolveOfficialCli(arguments_.cliExecutable || process.env.FLITREALIZE_EASYEDA_CLI || adapter.cliExecutable), home: STATE_ROOT, selectedWindowId: adapter.selectedWindowId, timeoutMs: edaActionTimeoutMs() });
+    if (arguments_.command === 'select') { adapter.selectedWindowId = result.selectedWindowId; await saveProfile(profile); }
+    result.hostId = profile.hostId;
+    if (binding) result.projectBinding = binding;
+    return result;
+  } finally { if (temporaryCodeFile) await unlink(temporaryCodeFile).catch(() => {}); }
+}
+
 async function main() {
   const arguments_ = parseArguments(process.argv.slice(2));
   let result;
   if (['--help', 'help'].includes(arguments_.command)) {
-    process.stdout.write('eda-host: register | status | ensure | windows | select | execute --code-file FILE [--request-id UUID] | request --request-id UUID --session-id ORIGINAL_UUID; use --eda PROVIDER.\nRequest only reads the Bridge record. Reconcile EDA state before continuing a workflow after an unknown result.\n');
+    process.stdout.write('eda-host: register | status | ensure | windows | select | execute --code-file FILE [--request-id UUID] | request --request-id UUID --session-id ORIGINAL_SESSION; use --eda PROVIDER.\nSelect --channel cli|bridge; official desktop CLI accepts --cli-executable PATH.\nRequest reads the original execution receipt. Reconcile EDA state after an unknown result; channel selection never retries a write.\n');
     return;
   }
-  if (arguments_.command === 'register') result = await registerAdapter(arguments_.eda, arguments_.adapterRoot);
+  if (arguments_.command === 'register') result = await registerAdapter(arguments_.eda, arguments_.adapterRoot, arguments_);
   else if (['status', 'ensure', 'windows', 'select', 'execute', 'request'].includes(arguments_.command)) {
     if (arguments_.command === 'select' && !arguments_.windowId) throw new Error('--window-id is required');
     if (arguments_.command === 'execute' && !arguments_.codeFile) throw new Error('--code-file is required');

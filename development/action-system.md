@@ -1,17 +1,17 @@
 # Action 与 Provider 开发
 
-修改工具、发现入口或 Provider 时读取。操作说明分别放在 `references/`，连接方法见 [0.4 环境与连接](../references/providers/easyeda-pro/0.4-environment.md)。
+修改工具、发现入口或 Provider 时读取，不作为日常执行前置。操作说明放在 `references/`；共同执行与宿主通道见 [0.3](../references/0.3-easyeda-pro.md)，网页 Bridge 才读 [0.4](../references/providers/easyeda-pro/0.4-environment.md)。
 
 ## 四部分职责
 
 | 部分 | 负责内容 |
 | --- | --- |
-| `SKILL.md` | 共同规则、阶段选择与按需加载 |
+| `SKILL.md` | 当前范围、项目续接、能力查找与必要原则 |
 | 专项参考 | 工程意图、输入归属、操作方式与支持范围 |
 | CLI／manifest | 查找能力、解析输入、衔接执行、保留结果 |
 | 实现脚本 | 确定性计算、检查和 Provider 原生操作 |
 
-Contract 保存设计意图，EDA 文件保存实际实现。plan、snapshot、输入包和 report 是派生产物；稳定结果更新到拥有该事实的制品，再同步 `CURRENT_HANDOFF.md`，不另建项目数据库。
+事实归属与文稿更新约定只在 [0.1](../references/0.1-continuation.md#信息归属与更新)维护；plan、snapshot、输入包和 report 是派生产物，不新增项目数据库。
 
 项目参数和器件例外留在项目。通用模块不包含某块板的位号、数量、UUID 或安装路径。
 
@@ -22,9 +22,20 @@ Contract 保存设计意图，EDA 文件保存实际实现。plan、snapshot、�
 - `schematic-components.mjs`：冻结放件输入，分批执行，按实际对象 ID 续接。
 - `schematic-connect.mjs`：由 Contract 和现场计算短线、标识、NC 缺项，衔接重排、保存和 DRC。
 - `pcb-edit.mjs`：明确移动、线宽和配色。
-- `pcb-layout.mjs`：输入准备、候选求解及选定候选写入。
+- `pcb-layout.mjs`：输入准备、原搜索或 CP-SAT 候选及完整候选写入。
+- `pcb-block-layout.mjs`：开放块和刚性带铜模板的离线候选。
+- `pcb-preroute.mjs`：离线出口、路径、局部回退与潜在地空间。
+- `pcb-route.mjs`：FR 任务与原生布线执行链。
+
+以上只解释实现职责；能力清单和支持模式仍由 manifest 查询。通用算法说明位于 `references/3.4-block-layout.md`、`3.8-prerouting.md`、`3.3-ground-space.md`；Provider 操作页只维护原生转换、目标绑定、写入及能力特有边界。
 
 内部 Action 可从默认发现结果隐藏，仍保留准确名称、输入输出和测试。`list --full` 从 manifest 展开内部项，不维护第二份能力目录。
+
+### CLI 启动与模块导入
+
+同时作为命令行入口和可导入模块的 Node 脚本，使用 `scripts/lib/cli-entrypoint.mjs` 的 `isDirectExecution(import.meta.url)` 控制主程序启动。入口与模块都按真实文件路径比较，支持符号链接、Windows Junction 和大小写差异；被其他模块导入时不执行命令。纯启动脚本或服务没有模块导入接口时，无需增加这层判断。
+
+`tests/cli-entrypoints.test.mjs` 自动发现 `scripts/` 中带 Node shebang 且具有顶层 `export` 的 `.mjs` 入口，实际验证直接启动、链接目录启动及导入行为；新增同类入口自动纳入测试。共享模块由现有 `scripts/lib/` 打包规则分发。
 
 ### 发现信息
 
@@ -56,7 +67,7 @@ Provider 转换原生身份、引脚映射、层、坐标和网表，并承担�
 
 公共算法使用转换结果，原生格式由 Provider 解释。实现及其原生文件纳入发布清单和实现指纹。
 
-当前 EasyEDA 通过 `eda-host.mjs` 调用本机 Adapter。复用该宿主时，Adapter 根目录须包含 `package.json` 和 `scripts/bridge-control.mjs`，实现相应的 status／ensure／execute／request 命令。其他 Provider 可以使用自己的执行通道，不要求模仿 EasyEDA Bridge。
+当前 EasyEDA 仍经 `eda-host.mjs` 调度本机客户端 CLI 或 Bridge，通道参数只属于宿主层。高层业务入口通过注册配置使用通道，不复制客户端初始化/会话逻辑；CLI 先 doctor 并复用会话，Bridge 接口和状态目录见 Adapter 说明。其他 Provider 可使用自己的通道，不要求模仿 EasyEDA Bridge；接入代码和会话探测不证明真实写入已验证。
 
 ### 布局数据接口
 
@@ -66,7 +77,7 @@ Provider 将坐标、角度和边界转换到统一约定。转换结果由 `lay
 | --- | --- |
 | `schemaVersion`、`provider` | 版本为 1，软件标识与快照来源一致 |
 | `units`、`coordinateSystem` | `mil`、`cartesian-y-up`，对应实际几何数值 |
-| `layers` | 对象 ID 到层用途的映射；当前求解使用 `top-copper`、`all-copper`、`top-silkscreen` |
+| `layers` | 对象 ID 到 Provider 已归一层用途的映射，如 `top-copper`、`all-copper`、`top-silkscreen`；后端不猜原生数值层号 |
 | `board` | `status: "none"` 表示没有原生板框；`"rectangle"` 提供 `bounds: {minX,minY,maxX,maxY}`；其他轮廓为 `"unsupported"` 并附原因。原生图元解析由 Provider 完成 |
 | `pinMaps` | 位号 → 逻辑引脚 → 物理焊盘编号数组 |
 | `labelAlignment.bottomLeft` | Provider 定义的局部底左角文字锚点编码 |
@@ -86,17 +97,15 @@ Provider 将坐标、角度和边界转换到统一约定。转换结果由 `lay
 
 几何观察的状态为 `ok`、`unavailable`、`error`；成功返回的 null 保留原义。网表核对区分 `matched`、`partial`、`mismatch`、`unavailable`、`unsupported`、`error`。明确矛盾作为错误，缺失或不支持的观察保留未覆盖状态。额外空网焊盘的用途保持未定，有网络却未声明的焊盘报告不一致。
 
-求解几何使用包围盒。形状与孔信息作为读取时的原始观察保存，移动后由新的回读取得，不作为已经变换的几何传给求解器。
+公共布局使用由原生观察派生的包围盒/装配视图；实际铜接触使用走线模型的导电形状，分别记录近似范围。形状与孔的原始观察对应读取时位姿，移动后由新回读取得，不冒充已经变换的事实。
+
+共享 `scopeLayoutModel()` 负责局部范围、位号/独立焊盘选项及明确 board/open 模式，保留各锁来源。`createRigidBlockAtlas()` 从公共 model 派生布局规则及真实焊盘铜，再回到 `validatePlan()` 验收；输入声明与派生事实矛盾时拒绝。后端IR不成为第二套权威模型。
 
 ## 结果与恢复
 
-通信成功和业务成功分别判断。新增结果状态时，同步入口认可的完成状态及行为测试；被阻止、验证失败或未知写入不能报告成功。没有对象的步骤可以记录不适用。
+新增算法状态由薄入口映射到 Action 完成合同，并保留原 `operationStatus`；同步完成状态与行为测试。状态、证据及未知结果的业务规则只在 [0.3](../references/0.3-easyeda-pro.md#现场边界与验证)维护。
 
-写入前确认目标及输入仍匹配；写入后核对增量和原有内容，保存另留证据。不能实际恢复的操作不声明 rollback。保存已成功而后续验证失败时，保留已保存事实。
-
-超时不等于未执行。保留请求句柄和未决记录，先取得原执行终态并对照现场，再继续；不重放未知写入。只恢复保存时使用同一执行链的成功 apply 回执，不重做修改。
-
-`eda-host.mjs request` 只读查询原请求；迟到结果作为补充证据，不自动改写旧报告或释放工作流占用。执行期间仍须避免其他写入者，保存占用记录不是整张板的事务锁。
+实现层保存输入、原请求/会话、对象归属及分步回执，使 0.3 的恢复规则可以核对。只支持保存恢复的入口须接受同一执行链的 apply 回执；占用记录只保护其流程，不宣称整板事务锁。不能实际完成的恢复方式不注册为能力。
 
 ## 源码与证据
 

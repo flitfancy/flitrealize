@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
-import { existsSync, realpathSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { reviewFineLayout } from './pcb-layout/pcb-layout-fine-review.mjs';
 
 const help = `Compare local PCB placement proposals against an observed board (no EDA writes).
@@ -61,6 +60,6 @@ export async function main(args = process.argv.slice(2), { log = value => consol
   log({status:result.status,nativeWrites:0,report:dir,candidates:result.candidates.map(c=>({name:c.name,changed:c.changes.length,issues:c.issues.length,executionIssues:c.executionIssues.length,livePlanAvailable:!!c.placementPlanRequest}))});
   return result;
 }
-if (process.argv[1] && existsSync(process.argv[1]) && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+if (isDirectExecution(import.meta.url)) {
   main().catch(error=>{console.error(JSON.stringify({status:'failed',error:error.message}));process.exitCode=1;});
 }

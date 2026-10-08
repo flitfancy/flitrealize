@@ -141,7 +141,7 @@ test('member boundaries ignore Markdown headings inside examples', async () => t
 
 test('isolated lookup needs only its scripts and corpus and creates no application state', async () => temporaryTask(async directory => {
   const installed = join(directory, 'installed');
-  for (const relative of ['scripts/api-reference.mjs', 'scripts/lib/api-reference.mjs', 'adapters/easyeda-pro/api-reference/corpus.json']) {
+  for (const relative of ['scripts/api-reference.mjs', 'scripts/lib/api-reference.mjs', 'scripts/lib/cli-entrypoint.mjs', 'adapters/easyeda-pro/api-reference/corpus.json']) {
     const target = join(installed, relative);
     await mkdir(dirname(target), { recursive: true });
     await copyFile(join(root, relative), target);

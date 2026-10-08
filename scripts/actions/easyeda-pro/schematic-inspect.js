@@ -1,3 +1,28 @@
+function normalizeNativeWirePoints(value) {
+  if(!Array.isArray(value)||!value.length)throw new Error('Invalid native wire coordinates');
+  if(value.every(p=>p&&typeof p==='object'&&!Array.isArray(p)&&Number.isFinite(p.x)&&Number.isFinite(p.y)))return value.map(p=>({x:p.x,y:p.y}));
+  if(value.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)))return value.map(([x,y])=>({x,y}));
+  const segments=[];
+  const add=line=>{
+    if(!Array.isArray(line)||line.some(n=>!Number.isFinite(n))||line.length<4||line.length%2)throw new Error('Invalid native wire coordinates');
+    if(line.length%4===0){for(let i=0;i<line.length;i+=4)segments.push([{x:line[i],y:line[i+1]},{x:line[i+2],y:line[i+3]}]);}
+    else for(let i=0;i+3<line.length;i+=2)segments.push([{x:line[i],y:line[i+1]},{x:line[i+2],y:line[i+3]}]);
+  };
+  if(value.every(Number.isFinite))add(value);else for(const line of value)add(line);
+  if(segments.length===1)return segments[0];
+  const key=p=>Math.round(p.x*1e6)+','+Math.round(p.y*1e6),vertices=new Map(),adjacency=new Map();
+  for(const [i,edge]of segments.entries())for(let side=0;side<2;side++){
+    const p=edge[side],k=key(p);if(!vertices.has(k))vertices.set(k,p);if(!adjacency.has(k))adjacency.set(k,[]);adjacency.get(k).push({index:i,other:key(edge[1-side])});
+  }
+  const ends=[...vertices.keys()].filter(k=>adjacency.get(k).length===1);
+  if(ends.length!==2||[...adjacency.values()].some(a=>a.length>2))throw new Error('Only a connected wire chain is supported');
+  ends.sort((a,b)=>vertices.get(a).x-vertices.get(b).x||vertices.get(a).y-vertices.get(b).y);
+  const used=new Set(),points=[];let current=ends[0];
+  for(;;){points.push(vertices.get(current));const edge=adjacency.get(current).find(e=>!used.has(e.index));if(!edge)break;used.add(edge.index);current=edge.other;}
+  if(used.size!==segments.length)throw new Error('Disconnected native wire chain');
+  return points;
+}
+
 return await (async () => {
   const request = typeof flitrealizeInput === 'undefined' ? { mode: 'inspect' } : flitrealizeInput;
 
@@ -93,21 +118,7 @@ return await (async () => {
     return { ...result, ...captured, scope: { ...result.scope, sourceBeforeFingerprint: before, sourceAfterFingerprint: after, sourceUnchanged: true } };
   }
 
-  function normalizePoints(value) {
-    if (!Array.isArray(value)) return [];
-    if (value.every((entry) => Number.isFinite(Number(entry)))) {
-      const points = [];
-      for (let index = 0; index + 1 < value.length; index += 2) {
-        points.push({ x: Number(value[index]), y: Number(value[index + 1]) });
-      }
-      return points;
-    }
-    return value.map((entry) => {
-      if (Array.isArray(entry) && entry.length >= 2) return { x: finiteOrNull(entry[0]), y: finiteOrNull(entry[1]) };
-      if (entry && typeof entry === 'object') return { x: finiteOrNull(entry.x), y: finiteOrNull(entry.y) };
-      return null;
-    }).filter((entry) => entry && entry.x !== null && entry.y !== null);
-  }
+  function normalizePoints(value) { return normalizeNativeWirePoints(value); }
 
   function componentBinding(component) {
     const state = callGetter(component, 'getState_Component', {}) || {};
@@ -360,8 +371,8 @@ return await (async () => {
     const sourceBefore = nativeNetlistAvailable ? await optionalCall('sys_FileManager', 'getDocumentSource') : null;
     const componentsProbe = await optionalCall('sch_PrimitiveComponent', 'getAll');
     const componentValues = Array.isArray(componentsProbe.value) ? componentsProbe.value : [];
-    const physicalValues = componentValues.filter(component => !['netflag', 'netport'].includes(callGetter(component, 'getState_ComponentType')));
-    const ignoredNetMarkerCount = componentValues.length - physicalValues.length;
+    const physicalValues = componentValues.filter(component => !['netflag', 'netport', 'sheet'].includes(callGetter(component, 'getState_ComponentType')));
+    const ignoredNetMarkerCount = componentValues.filter(c => ['netflag','netport'].includes(callGetter(c,'getState_ComponentType'))).length;
     const componentSummaries = await Promise.all(physicalValues.map((component) => summarizeComponent(component, documentUuid)));
     const components = componentSummaries.filter(Boolean);
     const omittedComponents = componentSummaries.length - components.length;
@@ -372,7 +383,7 @@ return await (async () => {
     if (request.includeConnectionEvidence || request.includeSource) {
       if (!Array.isArray(componentsProbe.value) || !Array.isArray(wiresProbe.value)) fail('STATE_READ_FAILED', 'Connection audit needs complete component and wire reads.');
       if (request.includeConnectionEvidence && componentValues.some(component =>
-        !['netflag', 'netport'].includes(callGetter(component, 'getState_ComponentType'))
+        !['netflag', 'netport', 'sheet'].includes(callGetter(component, 'getState_ComponentType'))
         && (!textOrNull(callGetter(component, 'getState_PrimitiveId')) || !textOrNull(callGetter(component, 'getState_Designator'))))) {
         fail('COMPONENT_IDENTITY_INCOMPLETE', 'A physical component has no primitive ID or designator; it cannot be omitted from connection audit.');
       }

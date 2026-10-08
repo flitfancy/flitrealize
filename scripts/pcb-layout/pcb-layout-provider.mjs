@@ -88,3 +88,13 @@ export function layoutLabelAlignment(snapshot) {
   }
   return getLayoutProvider(snapshot?.provider).labelAlignment;
 }
+
+// Backends consume copper purposes, never provider-native layer numbers.
+// Native decoding already happened in layoutRealization; this expands the
+// public all-copper purpose against the explicitly supported copper stack.
+export function layoutCopperLayers(realization, item, { layers, copperLayers = ['top-copper', 'bottom-copper'] } = {}) {
+  if (!Array.isArray(copperLayers) || !copperLayers.length || copperLayers.some(role => typeof role !== 'string' || role === 'all-copper' || !role.endsWith('-copper'))) throw Error('INVALID_PUBLIC_COPPER_STACK');
+  const declared = layers ?? (realization?.layers?.[item.id] ? [realization.layers[item.id]] : null);
+  if (!Array.isArray(declared) || !declared.length || declared.some(role => typeof role !== 'string' || role !== 'all-copper' && !copperLayers.includes(role))) throw Error('PCB_PUBLIC_COPPER_LAYERS_REQUIRED ' + item.id);
+  return { layers: [...new Set(declared.flatMap(role => role === 'all-copper' ? copperLayers : [role]))], source: layers ? 'explicit public copper purposes' : 'Provider layout realization.layers', provider: realization?.provider ?? null };
+}

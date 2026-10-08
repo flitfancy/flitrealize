@@ -18,7 +18,7 @@ import {
   resolve,
   sep,
 } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from '../lib/cli-entrypoint.mjs';
 
 const MAX_PDF_BYTES = 50 * 1024 * 1024;
 const MAX_PAGE_BYTES = 5 * 1024 * 1024;
@@ -447,7 +447,7 @@ async function main() {
   }, null, 2) + '\n');
 }
 
-if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {
+if (isDirectExecution(import.meta.url)) {
   main().catch((error) => {
     process.stderr.write(error.message + '\n');
     process.exitCode = 1;

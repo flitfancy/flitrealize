@@ -151,6 +151,43 @@
         "apply": [{ "action": "schematic-save-verify", "mode": "apply" }],
         "verify": [{ "action": "schematic-save-verify", "mode": "verify" }]
       }
+    },
+    "easyeda-pcb-route": {
+      "description": "以单一FR后端连续执行分层布线任务，接续同网支路，机器验收后按批写入、保存与回读。",
+      "domain": "pcb",
+      "provider": "easyeda-pro",
+      "discovery": {
+        "keywords": [
+          "自动布线",
+          "分层布线",
+          "走线",
+          "freerouting",
+          "autorouting",
+          "支路接续"
+        ],
+        "reference": "references/providers/easyeda-pro/3.8-autorouting.md",
+        "entrypoint": "scripts/pcb-route.mjs",
+        "limitations": [
+          "默认只准备或生成离线候选；用户授权写入时使用--apply。",
+          "直线铜、圆形/多边形焊盘及普通通孔；铜弧、铜折线与铺铜由对应工具处理。",
+          "显式重布限单角色网络；未知写入不得重发。",
+          "通用原生写入已做隔离模拟，新目标仍需代表对象真实验收。"
+        ]
+      },
+      "phases": {
+        "prepare": [
+          {
+            "action": "pcb-route-data",
+            "mode": "generate"
+          }
+        ],
+        "verify": [
+          {
+            "action": "pcb-route-data",
+            "mode": "verify"
+          }
+        ]
+      }
     }
   },
   "actions": {
@@ -813,6 +850,162 @@
         "all": ["document.current", "sch.component.list", "sch.wire.list"],
         "apply": ["sch.document.save"],
         "drc": ["sch.drc.check"]
+      }
+    },
+    "pcb-route-data": {
+      "file": "pcb-route-data.js",
+      "description": "从已有规则编译分层布线角色任务，或验证离线候选的实际连接与规则。",
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "host",
+      "providers": [],
+      "defaultMode": "generate",
+      "internal": true,
+      "modes": {
+        "generate": {
+          "mutates": false
+        },
+        "verify": {
+          "mutates": false
+        }
+      }
+    },
+    "pcb-functional-layout": {
+      "file": "pcb-layout-functional.js",
+      "description": "语义转换、功能块CP-SAT冷启动与多候选布局，复用统一布局输入和精确验收。",
+      "discovery": {
+        "keywords": [
+          "功能块布局",
+          "语义布局",
+          "CP-SAT",
+          "冷启动",
+          "cpsat layout"
+        ],
+        "reference": "references/3.4-block-layout.md",
+        "entrypoint": "scripts/pcb-layout.mjs",
+        "limitations": [
+          "离线候选/几何诊断；不写EDA，不代表真实地回流、载流或原生DRC通过。"
+        ]
+      },
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "host",
+      "providers": [],
+      "defaultMode": "semantic",
+      "modes": {
+        "semantic": {
+          "mutates": false
+        },
+        "solve": {
+          "mutates": false
+        }
+      }
+    },
+    "pcb-block-layout": {
+      "file": "pcb-block-layout.js",
+      "description": "开放块内重排、带铜刚性模板整板装入、铜通道快筛与精确冲突反馈。",
+      "discovery": {
+        "keywords": [
+          "块内重排",
+          "整板装入",
+          "带铜模板",
+          "铜通道",
+          "block packing"
+        ],
+        "reference": "references/3.4-block-layout.md",
+        "entrypoint": "scripts/pcb-block-layout.mjs",
+        "limitations": [
+          "离线候选/几何诊断；不写EDA，不代表真实地回流、载流或原生DRC通过。"
+        ]
+      },
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "host",
+      "providers": [],
+      "defaultMode": "pack",
+      "modes": {
+        "open": {
+          "mutates": false
+        },
+        "pack": {
+          "mutates": false
+        },
+        "verify": {
+          "mutates": false
+        },
+        "channels": {
+          "mutates": false
+        }
+      }
+    },
+    "pcb-preroute": {
+      "file": "pcb-preroute.js",
+      "description": "预走线、孔位扫描、联合扇出、角色过渡、铜路径、局部回退、清理及潜在地空间诊断。",
+      "discovery": {
+        "keywords": [
+          "预走线",
+          "联合扇出",
+          "出口扫描",
+          "铜路径",
+          "局部回退",
+          "压孔",
+          "地空间",
+          "preroute"
+        ],
+        "reference": "references/3.8-prerouting.md",
+        "entrypoint": "scripts/pcb-preroute.mjs",
+        "limitations": [
+          "离线候选/几何诊断；不写EDA，不代表真实地回流、载流或原生DRC通过。"
+        ]
+      },
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "host",
+      "providers": [],
+      "defaultMode": "prepare",
+      "modes": {
+        "prepare": {
+          "mutates": false
+        },
+        "fanout": {
+          "mutates": false
+        },
+        "route": {
+          "mutates": false
+        },
+        "verify": {
+          "mutates": false
+        },
+        "diagnose": {
+          "mutates": false
+        },
+        "ground": {
+          "mutates": false
+        },
+        "scan": {
+          "mutates": false
+        },
+        "joint-fanout": {
+          "mutates": false
+        },
+        "paths": {
+          "mutates": false
+        },
+        "repair-plan": {
+          "mutates": false
+        },
+        "transition-plan": {
+          "mutates": false
+        },
+        "prune": {
+          "mutates": false
+        },
+        "shortcut": {
+          "mutates": false
+        },
+        "compose": {
+          "mutates": false
+        }
       }
     }
   }

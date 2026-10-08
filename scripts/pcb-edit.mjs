@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import { mkdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { promisify } from 'node:util';
 
 const SCRIPT_ROOT = dirname(fileURLToPath(import.meta.url));
@@ -315,6 +316,6 @@ export async function main(argv = process.argv.slice(2)) {
   if (!result.ok) process.exitCode = 1;
 }
 
-if (process.argv[1] && await realpath(resolve(process.argv[1])) === await realpath(fileURLToPath(import.meta.url))) {
+if (isDirectExecution(import.meta.url)) {
   main().catch(error => { process.stderr.write(JSON.stringify({ ok: false, error: { code: error.code || 'PCB_EDIT_FAILED', message: error.message } }) + '\n'); process.exitCode = 1; });
 }

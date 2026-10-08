@@ -85,7 +85,7 @@ return await (async () => {
 
   async function listOutlines() {
     if (typeof eda.pcb_PrimitivePolyline?.getAll !== 'function') fail('CAPABILITY_MISSING', 'pcb_PrimitivePolyline.getAll is required.');
-    const items = await eda.pcb_PrimitivePolyline.getAll(BOARD_OUTLINE_LAYER);
+    const items = await eda.pcb_PrimitivePolyline.getAll(undefined, BOARD_OUTLINE_LAYER);
     if (!Array.isArray(items)) fail('OUTLINE_READ_FAILED', 'Outline polyline list was not an array.');
     return items.map((item) => ({
       primitiveId: getter(item, 'getState_PrimitiveId'),

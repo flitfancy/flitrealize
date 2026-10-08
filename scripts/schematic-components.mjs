@@ -2,7 +2,8 @@
 /** Bounded component-placement orchestration; all EDA operations use registered Actions. */
 import { readFile, writeFile, mkdir, realpath, stat, rename, open, unlink } from 'node:fs/promises';
 import { dirname, join, resolve, relative, isAbsolute, sep } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -413,6 +414,6 @@ async function main(argv) {
     onProgress: progress => process.stderr.write(JSON.stringify({ status: 'batch-verified', ...progress }) + '\n') });
   console.log(JSON.stringify(result));
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (isDirectExecution(import.meta.url)) {
   main(process.argv.slice(2)).catch(error => { console.error(JSON.stringify({ ok: false, status: 'needs-reconciliation', error: { code: error.code || 'BATCH_FAILED', message: error.message }, runDir: error.runDir })); process.exitCode = 1; });
 }

@@ -56,23 +56,29 @@ return await (async () => {
   }
 
   function normalizePoints(value) {
-    if (!Array.isArray(value)) return [];
-    if (value.every((entry) => Number.isFinite(Number(entry)))) {
-      const points = [];
-      for (let index = 0; index + 1 < value.length; index += 2) {
-        points.push({ x: Number(value[index]), y: Number(value[index + 1]) });
-      }
-      return points;
+    if(!Array.isArray(value)||!value.length)return [];
+    if(value.every(p=>p&&typeof p==='object'&&!Array.isArray(p)&&Number.isFinite(p.x)&&Number.isFinite(p.y)))return value.map(p=>({x:p.x,y:p.y}));
+    if(value.every(p=>Array.isArray(p)&&p.length===2&&p.every(Number.isFinite)))return value.map(([x,y])=>({x,y}));
+    const segments=[];
+    const add=line=>{
+      if(!Array.isArray(line)||line.some(n=>!Number.isFinite(n))||line.length<4||line.length%2)throw new Error('Invalid native wire coordinates');
+      if(line.length%4===0){for(let i=0;i<line.length;i+=4)segments.push([{x:line[i],y:line[i+1]},{x:line[i+2],y:line[i+3]}]);}
+      else for(let i=0;i+3<line.length;i+=2)segments.push([{x:line[i],y:line[i+1]},{x:line[i+2],y:line[i+3]}]);
+    };
+    if(value.every(Number.isFinite))add(value);else for(const line of value)add(line);
+    if(segments.length===1)return segments[0];
+    const key=p=>Math.round(p.x*1e6)+','+Math.round(p.y*1e6),vertices=new Map(),adjacency=new Map();
+    for(const [i,edge]of segments.entries())for(let side=0;side<2;side++){
+      const p=edge[side],k=key(p);if(!vertices.has(k))vertices.set(k,p);if(!adjacency.has(k))adjacency.set(k,[]);adjacency.get(k).push({index:i,other:key(edge[1-side])});
     }
-    return value.map((entry) => {
-      if (Array.isArray(entry) && entry.length >= 2 && Number.isFinite(Number(entry[0])) && Number.isFinite(Number(entry[1]))) {
-        return { x: Number(entry[0]), y: Number(entry[1]) };
-      }
-      if (entry && Number.isFinite(entry.x) && Number.isFinite(entry.y)) return { x: Number(entry.x), y: Number(entry.y) };
-      return null;
-    }).filter(Boolean);
+    const ends=[...vertices.keys()].filter(k=>adjacency.get(k).length===1);
+    if(ends.length!==2||[...adjacency.values()].some(a=>a.length>2))throw new Error('Only a connected wire chain is supported');
+    ends.sort((a,b)=>vertices.get(a).x-vertices.get(b).x||vertices.get(a).y-vertices.get(b).y);
+    const used=new Set(),points=[];let current=ends[0];
+    for(;;){points.push(vertices.get(current));const edge=adjacency.get(current).find(e=>!used.has(e.index));if(!edge)break;used.add(edge.index);current=edge.other;}
+    if(used.size!==segments.length)throw new Error('Disconnected native wire chain');
+    return points;
   }
-
   function pointsEqual(left, right) {
     const a = normalizePoints(left);
     const b = normalizePoints(right);
