@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
+      FLITREALIZE_PYTHON: python
       FLITREALIZE_CPSAT_PYTHON: python
       PCB_PREROUTE_PYTHON: python
     steps:

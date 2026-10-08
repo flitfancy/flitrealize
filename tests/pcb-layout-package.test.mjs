@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { fixture as liveFixture } from './helpers/pcb-layout-execution-fixture.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const python = [...new Set([process.env.PYTHON, 'python3', 'python'].filter(Boolean))]
+const python = [...new Set([process.env.FLITREALIZE_PYTHON, process.env.PYTHON, 'python3', 'python'].filter(Boolean))]
   .find(command => spawnSync(command, ['--version'], { encoding: 'utf8', windowsHide: true }).status === 0);
 
 async function filesUnder(directory) {
@@ -21,7 +21,7 @@ async function filesUnder(directory) {
   return result;
 }
 
-test('runtime packaging includes the complete layout engine and runs from an isolated copy', { skip: !python && 'Python is required to query the release inventory; set PYTHON to its executable.' }, async t => {
+test('runtime packaging includes the complete layout engine and runs from an isolated copy', { skip: !python && 'Set FLITREALIZE_PYTHON to a Python executable to query the release inventory.' }, async t => {
   const inventory = spawnSync(python, ['-c', [
     'import importlib.util, json, sys',
     'spec = importlib.util.spec_from_file_location("package_release", sys.argv[1])',
@@ -33,14 +33,16 @@ test('runtime packaging includes the complete layout engine and runs from an iso
   const entries = JSON.parse(inventory.stdout);
   const packaged = new Set(entries);
   assert.equal(packaged.size, entries.length, 'runtime inventory contains no duplicate entries');
-  for (const file of [...await filesUnder(join(root, 'scripts/pcb-layout')), ...await filesUnder(join(root, 'scripts/providers'))]) {
-    if (/\.(mjs|js)$/.test(file)) assert.ok(packaged.has(relative(root, file).replaceAll('\\', '/')), file);
+  for (const file of [...await filesUnder(join(root, 'scripts/pcb-layout')), ...await filesUnder(join(root, 'scripts/providers')), ...await filesUnder(join(root,'scripts/pcb-routing'))]) {
+    if (/\.(mjs|js|py|json)$/.test(file)) assert.ok(packaged.has(relative(root, file).replaceAll('\\', '/')), file);
   }
   for (const file of ['scripts/pcb-layout.mjs', 'scripts/actions/pcb-layout-prepare.js', 'schemas/pcb-layout-intent.v1.schema.json', 'references/pcb-layout-inputs.md', 'scripts/api-reference.mjs', 'scripts/actions/api-reference.js', 'adapters/easyeda-pro/api-reference/corpus.json', 'adapters/easyeda-pro/api-reference/provenance.json']) {
     assert.ok(packaged.has(file), file);
   }
   assert.ok(!entries.some(file => /(^|\/)(tests|evidence|node_modules)(\/|$)/.test(file) || file.startsWith('design/')), 'project data, test fixtures and dependencies are not runtime assets');
-  for (const file of entries.filter(file => file.startsWith('assets/pcb-layout/'))) assert.ok(file.startsWith('assets/pcb-layout/minimal-project/'), 'only the explicit synthetic example is packaged');
+  const examples=new Set(['assets/pcb-layout/block-open-request.json','assets/pcb-routing/preroute-request.json']);
+  for (const file of entries.filter(file => file.startsWith('assets/'))) assert.ok(file.startsWith('assets/pcb-layout/minimal-project/')||examples.has(file), 'only declared synthetic examples are packaged');
+  for(const file of [...examples,'requirements-pcb.txt'])assert.ok(packaged.has(file),file);
   assert.ok(packaged.has('assets/pcb-layout/minimal-project/snapshot.json'));
 
   const temporary = await mkdtemp(join(tmpdir(), 'flitrealize-layout-package-'));
@@ -57,7 +59,7 @@ test('runtime packaging includes the complete layout engine and runs from an iso
     });
     const help = execute('scripts/pcb-layout.mjs', ['--help']);
     assert.equal(help.status, 0, help.stderr);
-    assert.match(help.stdout, /prepare\|solve\|apply/);
+    assert.match(help.stdout, /prepare\|semantic\|solve\|apply/);
     assert.match(help.stdout, /--project-root/);
     const lookup = execute('scripts/api-reference.mjs', ['show', '--id', 'SCH_Netlist#getNetlist']);
     assert.equal(lookup.status, 0, lookup.stderr);
