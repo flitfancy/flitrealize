@@ -60,7 +60,8 @@ jobs:
         # Bridge integration tests exercise the real local server.
         run: npm ci --prefix adapters/easyeda-pro --ignore-scripts
       - name: Install numerical test dependencies
-        run: python -m pip install --only-binary=:all: -r requirements-pcb.txt
+        run: |
+          python -m pip install --only-binary=:all: -r requirements-pcb.txt
       - name: Run Node tests
         run: node scripts/run-tests.mjs
       - name: Run release-tool tests
