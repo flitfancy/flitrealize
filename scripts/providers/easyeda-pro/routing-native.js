@@ -19,12 +19,13 @@ return await (async()=>{
   for(const [kind,rows]of Object.entries(before.objects)){const now=new Map(after.objects[kind].map(r=>[r.PrimitiveId,r]));for(const row of rows)if((!mutable.has(row.Net)||row.PrimitiveLock||!['lines','vias'].includes(kind))&&!same(row,now.get(row.PrimitiveId)))throw Error('PROTECTED_PRIMITIVE_CHANGED');}
  };
  if(mode==='capture'){
-  const result=await read();const physical=await eda.pcb_Drc.check(true,false,true);if(!Array.isArray(physical))throw Error('DRC_RESULT_UNAVAILABLE');
+  const result=await read();const drc=await eda.pcb_Drc.check(true,false,true),drcSummary=summarizeNativeDrc(drc);
   const dsn=await eda.pcb_ManufactureData.getDsnFile('FlitRealize-routing.dsn');if(!dsn)throw Error('DSN_EXPORT_UNAVAILABLE');
   const pads=(await eda.pcb_PrimitivePad.getAll()).map(o=>({id:o.getState_PrimitiveId(),net:String(o.getState_Net?.()??''),layer:o.getState_Layer(),x:o.getState_X(),y:o.getState_Y(),hole:o.getState_Hole?.()??null,metallization:o.getState_Metallization?.()??null}));
-  return{status:'captured',readOnly:true,...result,pads,dsnText:await dsn.text(),physicalDrcCount:physical.length,activeTransaction:globalThis[key]?{status:globalThis[key].status,saved:globalThis[key].saved}:null};
+  const compatibility=probeRoutingCompatibility(globalThis,result.target),current=compatibility.findings.find(f=>f.key===key);
+  return{status:'captured',readOnly:true,...result,pads,dsnText:await dsn.text(),drc,drcSummary,physicalDrcCount:drcSummary.physicalErrorCount,activeTransaction:current?.present?{status:current.status,saved:current.saved}:null,compatibility};
  }
- if(mode==='inspect')return{status:'inspected',readOnly:true,...await read(),transaction:globalThis[key]?{status:globalThis[key].status,saved:globalThis[key].saved}:null};
+ if(mode==='inspect'){const result=await read(),compatibility=probeRoutingCompatibility(globalThis,result.target),current=compatibility.findings.find(f=>f.key===key);return{status:'inspected',readOnly:true,...result,transaction:current?.present?{status:current.status,saved:current.saved}:null,compatibility};}
  if(mode==='save'){
   const state=globalThis[key];if(!state||state.runId!==input.runId||state.status!=='applied-verified-unsaved')throw Error('SAVE_STATE_INVALID');
   const now=await read();if(!same(now.objects,state.after.objects)||now.sourceInvariantHash!==state.after.sourceInvariantHash||now.footprintHash!==state.after.footprintHash)throw Error('POST_APPLY_DESIGN_CHANGED');
@@ -32,14 +33,18 @@ return await (async()=>{
   const after=await read();if(!same(after.objects,now.objects)||after.sourceInvariantHash!==now.sourceInvariantHash)throw Error('POST_SAVE_CHANGED');return{status:'saved',saved:true,...after};
  }
  if(mode!=='apply')throw Error('INVALID_ROUTING_NATIVE_MODE');
- if(globalThis[key]&&!globalThis[key].saved&&globalThis[key].status!=='rolled-back')throw Error('UNRESOLVED_ROUTING_TRANSACTION');
- if(globalThis.__natureCraftSesImport&&!globalThis.__natureCraftSesImport.saved)throw Error('OTHER_IMPORT_PENDING');
- if(globalThis.__natureCraftAutorouteTask?.status==='running'||globalThis.__flitrealizeBst2AutoRouteTrial?.status==='running')throw Error('OTHER_ROUTER_PENDING');
- const before=await read();if(!input.before||before.sourceInvariantHash!==input.before.sourceInvariantHash||before.footprintHash!==input.before.footprintHash||!same(before.objects,input.before.objects))throw Error('PCB_BASELINE_CHANGED');
- const mutable=new Set(input.mutableNets??[]),scope=new Set(input.selectedNets),baselineIds=new Set(Object.values(before.objects).flat().map(r=>r.PrimitiveId));
- if([...before.objects.lines,...before.objects.vias].some(r=>mutable.has(r.Net)&&r.PrimitiveLock))throw Error('LOCKED_REWORK_NET');
- if(input.expected.segments.some(s=>!scope.has(s.net)||!input.layerIds.includes(s.layer)||s.layer===15||!Number.isFinite(s.width)||s.width<=0)||input.expected.vias.some(v=>!scope.has(v.net)||v.hole<=0||v.diameter<=v.hole))throw Error('INVALID_ROUTING_WRITE_SCOPE');
- const state={runId:input.runId,status:'applying',saved:false,before,created:{lines:[],vias:[]},removed:{lines:[],vias:[]},uncertain:false};globalThis[key]=state;
+ const compatibility=probeRoutingCompatibility(globalThis,input.target);assertRoutingCompatibility(compatibility);
+ // Reserve the current journal before the first await so a second apply cannot
+ // pass the guard while this request is reading its baseline. Keep the journal.
+ const state={runId:input.runId,status:'preparing',saved:false,target:compatibility.requestedTarget.value,writeStarted:false,created:{lines:[],vias:[]},removed:{lines:[],vias:[]},uncertain:false};globalThis[key]=state;
+ let before,mutable,scope,baselineIds;
+ try{
+  before=await read();if(!input.before||before.sourceInvariantHash!==input.before.sourceInvariantHash||before.footprintHash!==input.before.footprintHash||!same(before.objects,input.before.objects))throw Error('PCB_BASELINE_CHANGED');
+  mutable=new Set(input.mutableNets??[]);scope=new Set(input.selectedNets);baselineIds=new Set(Object.values(before.objects).flat().map(r=>r.PrimitiveId));
+  if([...before.objects.lines,...before.objects.vias].some(r=>mutable.has(r.Net)&&r.PrimitiveLock))throw Error('LOCKED_REWORK_NET');
+  if(input.expected.segments.some(s=>!scope.has(s.net)||!input.layerIds.includes(s.layer)||s.layer===15||!Number.isFinite(s.width)||s.width<=0)||input.expected.vias.some(v=>!scope.has(v.net)||v.hole<=0||v.diameter<=v.hole))throw Error('INVALID_ROUTING_WRITE_SCOPE');
+ }catch(error){state.status='preflight-rejected';state.error=error.message;throw error;}
+ state.before=before;state.status='applying';state.writeStarted=true;
  const createLine=async s=>{await assertTarget();state.uncertain=true;const o=await eda.pcb_PrimitiveLine.create(s.net,s.layer,s.x1,s.y1,s.x2,s.y2,s.width,false);if(!o)throw Error('LINE_CREATE_UNCONFIRMED');const row=snap(o);state.created.lines.push(row.PrimitiveId);state.uncertain=false;if(baselineIds.has(row.PrimitiveId))throw Error('CREATE_ID_IS_ORIGINAL');};
  const createVia=async v=>{await assertTarget();state.uncertain=true;const o=await eda.pcb_PrimitiveVia.create(v.net,v.x,v.y,v.hole,v.diameter);if(!o)throw Error('VIA_CREATE_UNCONFIRMED');const row=snap(o);state.created.vias.push(row.PrimitiveId);state.uncertain=false;if(baselineIds.has(row.PrimitiveId))throw Error('CREATE_ID_IS_ORIGINAL');};
  const rebuild=async()=>{for(const pour of await eda.pcb_PrimitivePour.getAll()){await assertTarget();if(!await pour.rebuildCopperRegion())throw Error('POUR_REBUILD_FAILED');}};
@@ -51,8 +56,9 @@ return await (async()=>{
   const realization=verifyRealization({expected:wanted,actual:geometry(after.objects),pads:input.pads,layers:input.layerIds});if(!realization.passed)throw Error('COPPER_REALIZATION_MISMATCH');
   const actualGeometry=geometry(after.objects);
   for(const task of input.tasks??[]){const pads=input.pads.filter(p=>task.requiredPadIds.includes(p.id)),connected=checkConnectivity(task.net,pads,actualGeometry.segments,actualGeometry.vias,{layers:input.layerIds});if(connected.disconnected.some(o=>o.role==='pad'))throw Error('TASK_ENDPOINTS_NOT_CONNECTED');}
-  const drc=await eda.pcb_Drc.check(true,false,true);if(!Array.isArray(drc)||drc.length){state.drc=drc?.slice(0,10);throw Error('NATIVE_DRC_FAILED');}
-  state.status='applied-verified-unsaved';state.after=after;return{status:state.status,saved:false,...after,realization,physicalDrcCount:0};
+  const drc=await eda.pcb_Drc.check(true,false,true),drcSummary=summarizeNativeDrc(drc);state.drcSummary=drcSummary;
+  if(drcSummary.physicalErrorCount){state.drc=drc.slice(0,10);throw Error('NATIVE_DRC_FAILED');}
+  state.status='applied-verified-unsaved';state.after=after;return{status:state.status,saved:false,...after,realization,drcSummary,physicalDrcCount:0};
  }catch(error){
   state.error=error.message;
   if(state.uncertain||/TARGET_|PROTECTED_|UNCONFIRMED|ORIGINAL/.test(error.message)){state.status='needs-attention';return{status:state.status,saved:false,error:state.error,created:state.created};}
@@ -69,8 +75,8 @@ return await (async()=>{
    // Non-destructive joins can split an old line. Restore only if all original
    // copper remains represented; otherwise stop rather than guessing deletion.
    const restored=await read();if(!verifyRealization({expected:geometry(before.objects),actual:geometry(restored.objects),pads:input.pads,layers:input.layerIds}).passed)throw Error('ROLLBACK_NOT_PROVEN');
-   await rebuild();const drc=await eda.pcb_Drc.check(true,false,true);if(!Array.isArray(drc)||drc.length)throw Error('ROLLBACK_DRC_FAILED');
-   state.status='rolled-back';return{status:state.status,saved:false,error:state.error,drc:state.drc??null,...await read()};
+   await rebuild();const drc=await eda.pcb_Drc.check(true,false,true),drcSummary=summarizeNativeDrc(drc);if(drcSummary.physicalErrorCount)throw Error('ROLLBACK_DRC_FAILED');
+   state.status='rolled-back';return{status:state.status,saved:false,error:state.error,drc:state.drc??null,drcSummary,...await read()};
   }catch(recovery){state.status='needs-attention';state.recoveryError=recovery.message;return{status:state.status,saved:false,error:state.error,recoveryError:state.recoveryError,created:state.created};}
  }
 })();

@@ -74,6 +74,30 @@ test('CP-SAT decoder rejects another source and out-of-domain variants', () => {
   assert.throws(() => decodeCpSatCandidate(model, problem, { status: 'FEASIBLE', sourceHash: model.snapshot.sourceHash, placements }), /RESULT_POSE/);
 });
 
+test('semantic body-only board study keeps requested poses and native locks without changing source labels', async () => {
+  const full = prepared(fixture => { fixture.snapshot.components.find(c => c.ref === 'C1').locked = true; });
+  const before = structuredClone(full.snapshot);
+  assert.throws(() => compileSemanticCpSatProblem(full, {}, { includeLabels: false }), /LABEL_SCOPE_MISMATCH/);
+  const pose = { ref: 'U1', x: 180, y: 100, rotation: 0 };
+  const scoped = scopeLayoutModel(full, { includeLabels: false, contextPlacements: [pose] });
+  const { problem } = compileSemanticCpSatProblem(scoped, { timeLimitSeconds: 3, workers: 1, resolutionMil: .5 }, { includeLabels: false });
+  assert.deepEqual(problem.board, full.config.hard.boardBounds);
+  assert.equal(problem.coverage.scope.includeLabels, false);
+  assert.ok(problem.entities.every(e => e.variants.every(v => v.labels.length === 0)));
+  assert.deepEqual(problem.entities.find(e => e.ref === 'U1').base, { x: 180, y: 100 });
+  assert.equal(problem.entities.find(e => e.ref === 'C1').fixed, true);
+  if (runtime.pythonPath) {
+    const result = await executeCpSat(problem, runtime);
+    const candidate = decodeCpSatCandidate(scoped, problem, result);
+    assert.equal(candidate.validation.valid, true);
+    const actual = candidate.plan.components.find(c => c.ref === 'U1');
+    assert.deepEqual({ ref: actual.ref, x: actual.x, y: actual.y, rotation: actual.rotation }, pose);
+    assert.equal(candidate.plan.components.find(c => c.ref === 'C1').x, 150);
+  }
+  assert.deepEqual(full.snapshot, before);
+  assert.ok(compileSemanticCpSatProblem(full).problem.entities.some(e => e.variants.some(v => v.labels.length > 0)));
+});
+
 test('open block study uses a local gauge and keeps its explicit internal limits', () => {
   const model = prepared(); model.limits.push({ id: 'local-cap', left: [model.pads[0]], right: [model.pads[1]], maxMil: 100 });
   const before = structuredClone(model.config.hard), result = compileOpenBlockProblem(model, { refs: ['U1', 'C1'], gaugeRef: 'U1', computationalCoordinateMil: 500 });

@@ -13,7 +13,7 @@ node scripts/handoff-check.mjs inspect --project-root <绝对项目路径>
 node scripts/handoff-check.mjs fingerprint --project-root <绝对项目路径> --file <项目相对文件>
 node scripts/handoff-check.mjs fingerprint --project-root <绝对项目路径> --root skill --file scripts/<入口>
 退出码：0 本地引用一致或指纹读取成功；1 引用缺失/变化；2 旧格式、缺少交接或输入无效。
-0 不表示板级验证、保存或阶段验收通过。格式与续接方法见 references/0.1-continuation.md。`;
+0 不表示板级验证、保存或阶段验收通过。格式与工具参数见 references/0.5-handoff-record.md。`;
 
 function fail(code, message) { throw Object.assign(new Error(message), { code }); }
 function requireValue(condition, message) { if (!condition) fail('INVALID_CHECKPOINT', message); }

@@ -14,6 +14,11 @@ const json = async path => JSON.parse(await readFile(path, 'utf8'));
 const fail = (code, message) => { throw Object.assign(new Error(message), { code }); };
 const chunks = (items, size = 30) => Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, (i + 1) * size));
 const inside = (root, path) => { const rel = relative(root, path); return rel !== '..' && !rel.startsWith('..\\') && !rel.startsWith('../') && !isAbsolute(rel); };
+async function projectInputFile(root, value) {
+  const file = await realpath(resolve(root, value));
+  if (!inside(root, file)) fail('INPUT_OUTSIDE_PROJECT', 'Project path mode requires input and Contract files inside the project: ' + value);
+  return file;
+}
 const unknown = response => !response || response.executionOutcome === 'unknown' || ['unknown', 'in-flight'].includes(response.status)
   || /TIMEOUT|TIMEDOUT|ENOBUFS|TRANSPORT|EDA_HOST_ERROR|ADAPTER_ERROR|ECONN|EPIPE/.test(response.error?.code || '');
 
@@ -32,11 +37,16 @@ async function invokeRunner(action, input, context) {
 export async function runSchematicConnect(options) {
   if (!options.projectRoot || !options.inputFile) fail('INPUT_REQUIRED', '--project-root and --input-file are required.');
   if (options.apply && options.check) fail('INVALID_MODE', '--apply and --check are mutually exclusive.');
+  const pathBase = options.pathBase ?? 'legacy';
+  if (!['project', 'legacy'].includes(pathBase)) fail('INVALID_PATH_BASE', '--path-base must be project or legacy.');
   const projectRoot = await realpath(resolve(options.projectRoot));
-  const input = await json(resolve(options.inputFile));
+  const inputFile = pathBase === 'project' ? await projectInputFile(projectRoot, options.inputFile) : resolve(options.inputFile);
+  const input = await json(inputFile);
+  let contractFile = null;
   if (input.contractFile) {
     if (input.contract) fail('DUPLICATE_CONTRACT_INPUT', 'Choose contractFile or embedded contract.');
-    input.contract = await json(resolve(dirname(resolve(options.inputFile)), input.contractFile));
+    contractFile = pathBase === 'project' ? await projectInputFile(projectRoot, input.contractFile) : resolve(dirname(inputFile), input.contractFile);
+    input.contract = await json(contractFile);
   }
   const target = { expectedDocumentUuid: input.expectedDocumentUuid, expectedProjectUuid: input.expectedProjectUuid };
   if (Object.values(target).some(value => typeof value !== 'string' || !value.trim())) fail('TARGET_REQUIRED', 'Explicit schematic and project UUIDs are required.');
@@ -50,6 +60,7 @@ export async function runSchematicConnect(options) {
   await mkdir(runDir);
   const reportFile = join(runDir, 'result.json');
   const summary = { schemaVersion: 1, kind: 'flitrealize.schematic-connect', projectRoot, target, runDir, reportFile,
+    inputPaths: { pathBase, inputFile, contractFile },
     status: 'started', ok: false, readOnly: true, saved: null, checks: {}, steps: [] };
   const lockFile = join(base, createHash('sha256').update(JSON.stringify(target)).digest('hex') + '.active.json');
   const invoke = options.invoke || invokeRunner;
@@ -214,11 +225,11 @@ if (isDirectExecution(import.meta.url)) {
     for (let i = 2; i < process.argv.length; i += 1) {
       const arg = process.argv[i];
       if (arg === '--help') {
-        console.log('node scripts/schematic-connect.mjs --project-root PROJECT --input-file INPUT [--window-id WINDOW] [--apply | --check]\nDefault: plan only. --apply connects, audits, optionally reflows, saves and runs strict DRC. --check verifies without writes. See references/providers/easyeda-pro/2.4-schematic-connect.md.');
+        console.log('node scripts/schematic-connect.mjs --project-root PROJECT --input-file INPUT [--path-base project|legacy] [--window-id WINDOW] [--apply | --check]\nPaths: project resolves input and Contract from PROJECT; legacy (default) keeps cwd-relative input and input-directory-relative Contract.\nDefault: plan only. --apply connects, audits, optionally reflows, saves and runs strict DRC. --check verifies without writes. See references/providers/easyeda-pro/2.4-schematic-connect.md.');
         process.exit(0);
       }
       if (arg === '--apply' || arg === '--check') { options[arg.slice(2)] = true; continue; }
-      const key = { '--project-root': 'projectRoot', '--input-file': 'inputFile', '--window-id': 'windowId' }[arg];
+      const key = { '--project-root': 'projectRoot', '--input-file': 'inputFile', '--path-base': 'pathBase', '--window-id': 'windowId' }[arg];
       if (!key || !process.argv[i + 1]) fail('INVALID_ARGUMENT', `Unknown or incomplete argument ${arg}`);
       options[key] = process.argv[++i];
     }

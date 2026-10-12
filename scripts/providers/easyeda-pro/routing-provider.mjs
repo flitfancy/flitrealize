@@ -12,25 +12,41 @@ export const digest = value => createHash('sha256').update(typeof value === 'str
 export async function prepareNativeSource(directory) {
   const geometry = (await fs.readFile(path.join(scripts, 'pcb-routing/geometry.mjs'), 'utf8')).replace(/\bexport\s+/g, '');
   const source = (await fs.readFile(new URL('./source-invariant.mjs', import.meta.url), 'utf8')).replace(/\bexport\s+/g, '');
+  const drc = (await fs.readFile(new URL('./drc-summary.mjs', import.meta.url), 'utf8')).replace(/\bexport\s+/g, '');
+  const compatibility = (await fs.readFile(new URL('./routing-compatibility.mjs', import.meta.url), 'utf8')).replace(/\bexport\s+/g, '');
   const controller = await fs.readFile(path.join(scripts, 'providers/easyeda-pro/routing-native.js'), 'utf8');
   const file = path.join(directory, 'routing-native.js');
-  await fs.writeFile(file, geometry + '\n' + source + '\n' + controller);
+  await fs.writeFile(file, geometry + '\n' + source + '\n' + drc + '\n' + compatibility + '\n' + controller);
   return file;
 }
-export async function executeNative({ directory, windowId, mode, input = {}, logName = mode, sourceFile = null }) {
+function executionFailure(text, fallback, receiptFile, cause) {
+  for (const line of text.split(/\r?\n/).reverse()) {
+    let value;
+    try { value = JSON.parse(line.replace(/^\uFEFF/, '')); } catch { continue; }
+    const message = value.error?.message;
+    const match = /^(UNRESOLVED_ROUTING_TRANSACTION|OTHER_IMPORT_PENDING|OTHER_ROUTER_PENDING|ROUTING_COMPATIBILITY_UNKNOWN): (\{.*\})$/.exec(message ?? '');
+    if (!match) continue;
+    try {
+      const compatibility = JSON.parse(match[2]);
+      if (compatibility.kind === 'flitrealize.routing-compatibility' && compatibility.schemaVersion === 1 && compatibility.state === 'blocked') return Object.assign(Error(match[1]), { code: match[1], compatibility, receiptFile, cause });
+    } catch {}
+  }
+  return Object.assign(Error(fallback), { receiptFile, cause });
+}
+export async function executeNative({ directory, windowId, mode, input = {}, logName = mode, sourceFile = null }, { runner = exec } = {}) {
   const codeFile = sourceFile ?? await prepareNativeSource(directory), inputFile = path.join(directory, logName + '-input.json'), reportFile = path.join(directory, logName + '-result.json');
   await fs.writeFile(inputFile, JSON.stringify({ ...input, mode }));
   const args = [path.join(scripts, 'eda-host.mjs'), 'execute', '--eda', 'easyeda-pro', '--window-id', windowId, '--code-file', codeFile, '--input-file', inputFile];
   let text;
-  try { text = (await exec(process.execPath, args, { windowsHide: true, timeout: 180000, maxBuffer: 8 * 1024 * 1024, env: statePathEnvironment() })).stdout; }
+  try { text = (await runner(process.execPath, args, { windowsHide: true, timeout: 180000, maxBuffer: 8 * 1024 * 1024, env: statePathEnvironment() })).stdout; }
   catch (error) {
     text = error.stdout ?? '';
     await fs.writeFile(reportFile, text + (error.stderr ?? ''));
-    throw Object.assign(Error('NATIVE_REQUEST_UNRESOLVED'), { receiptFile: reportFile, cause: error });
+    throw executionFailure(text + '\n' + (error.stderr ?? ''), 'NATIVE_REQUEST_UNRESOLVED', reportFile, error);
   }
   await fs.writeFile(reportFile, text);
   const r = JSON.parse(text.replace(/^\uFEFF/, ''));
-  if (!r.success) throw Object.assign(Error('NATIVE_EXECUTION_FAILED'), { receiptFile: reportFile });
+  if (!r.success) throw executionFailure(text, 'NATIVE_EXECUTION_FAILED', reportFile);
   return r.result;
 }
 export async function activeWindow() {

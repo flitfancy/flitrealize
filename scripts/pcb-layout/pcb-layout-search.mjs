@@ -1,17 +1,17 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { inspectCandidate, objectiveVector } from './pcb-layout-solver-core.mjs';
+import { inspectCandidate, objectiveVector, validateSearchSettings } from './pcb-layout-solver-core.mjs';
 import { comparisonReport } from './pcb-layout-solver-report.mjs';
 import { catalogReport } from './pcb-layout-catalog-report.mjs';
 import { addToArchive, planKey, dominates } from './pcb-layout-archive.mjs';
 import { startingJobs } from './pcb-layout-starts.mjs';
 import { hash as sha } from './pcb-layout-project.mjs';
 import { prepareRunStarts, runLayoutJobs, evaluateCandidate, writeCandidate, writeRunConfiguration } from './pcb-layout-run.mjs';
-export async function runLayoutSearch({model,snapshot,contract,config,mechanical,root,dir,fingerprints,engine,inputReceipt,initialPlanFile,iterations=config.search.iterations,startOverrides={},sourceKind='offline-snapshot',log=()=>{}}) {
+export async function runLayoutSearch({model,snapshot,contract,config,mechanical,baseline:suppliedBaseline,configurationWritten=false,root,dir,fingerprints,engine,inputReceipt,initialPlanFile,iterations=config.search?.iterations,startOverrides={},sourceKind='offline-snapshot',log=()=>{}}) {
   const write=(name,value)=>fs.writeFile(path.join(dir,name),JSON.stringify(value,null,2));
-  const baseline = inspectCandidate(model);
+  const baseline = suppliedBaseline ?? inspectCandidate(model);
   const prepared = await prepareRunStarts({ model, dir, initialPlanFile, startOverrides, log, emptyError: 'NO_FEASIBLE_INITIAL_START' });
-  if (!Number.isInteger(iterations) || iterations < 1 || iterations > 100000) throw Error('INVALID_ITERATION_BUDGET');
+  validateSearchSettings(model, { iterations, requireProfiles: true });
   const jobs = startingJobs(config, prepared);
   const results = await runLayoutJobs(jobs, { snapshot, contract, config, mechanical, iterations });
   const failures = results.flatMap((r, i) => r.status === 'rejected' ? [{ name: jobs[i].profile.name, error: String(r.reason) }] : []);
@@ -35,7 +35,7 @@ export async function runLayoutSearch({model,snapshot,contract,config,mechanical
   }
   const records = [];
   for (const c of candidates) records.push(await writeCandidate(dir, c));
-  await writeRunConfiguration(dir, config);
+  if (!configurationWritten) await writeRunConfiguration(dir, config);
   await write('run-parameters.json', { initialization: prepared.options, requestedStarts: prepared.requested, acceptedStarts: prepared.accepted, iterationsPerCandidate: iterations, workers: jobs.map(j => ({ name: j.profile.name, seed: j.profile.seed, startId: j.startId, baseProfile: j.baseProfile })) });
   await write('manifest.json', { schemaVersion: 3, engine, projectRoot: root, fingerprints, effectiveWeights: config.comparisonWeights, profiles: config.search.profiles, snapshotHash: sha(snapshot), candidates: records });
   const recommended = candidates.filter(c => c.validation.valid).sort((a, b) => a.comparisonScore - b.comparisonScore)[0].name;

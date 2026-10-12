@@ -15,7 +15,7 @@ except ImportError:
     raise SystemExit(2)
 
 
-def solve(data):
+def solve(data, compile_extension=None):
     if data.get("schemaVersion") != 1 or data.get("kind") != "flitrealize-cpsat-problem":
         raise ValueError("CPSAT_INVALID_PROBLEM")
     settings, board = data["settings"], data["board"]
@@ -187,6 +187,8 @@ def solve(data):
         def shape(v):
             if kind.startswith("zone:"):
                 return v["zones"][kind[5:]]
+            if kind == "rough-band":
+                return v["roughBands"][index]
             if kind in ("body", "bundle", "physical", "courtyard"):
                 return v[kind]
             return v["views"][kind][index]
@@ -294,7 +296,10 @@ def solve(data):
         values = []
         for a in left:
             for b in right:
-                key = (a["id"], a.get("geometry","anchor"), b["id"], b.get("geometry","anchor"))
+                # Local endpoint names (for example "centre") repeat across
+                # components; the owning refs are part of endpoint identity.
+                key = (a["ref"], a["id"], a.get("geometry","anchor"),
+                       b["ref"], b["id"], b.get("geometry","anchor"))
                 if key not in distances:
                     pa, pb = point(a), point(b)
                     distance = absolute(pa["x"]-pb["x"])+absolute(pa["y"]-pb["y"])
@@ -373,7 +378,52 @@ def solve(data):
         shapes = [box(ref, "physical") for ref in group["members"]]
         span = (maximum([b["maxX"] for b in shapes])-minimum([b["minX"] for b in shapes])
                 + maximum([b["maxY"] for b in shapes])-minimum([b["minY"] for b in shapes]))
-        semantic_terms.append(unit*group["normalizedWeight"]/group["referenceMil"]*span)
+        semantic_terms.append(unit*group["normalizedWeight"]/group["referenceMil"]*span*data.get("roughLayout",{}).get("groupCompactnessWeight",1))
+    rough = data.get("roughLayout")
+    density_terms, connection_terms = [], []
+    if rough:
+        if data.get("openPlacement") or data.get("blockObjective"):
+            raise ValueError("ROUGH_LAYOUT_REQUIRES_BOARD_OBJECTIVE")
+        density = rough.get("density")
+        if density:
+            step = 2*density["cellUnits"]
+            for grid in density["grids"]:
+                memberships = [[] for _ in grid["targets"]]
+                for ref in density["refs"]:
+                    b=box(ref,"physical")
+                    indexes=[]
+                    for axis,n in (("X",grid["nx"]),("Y",grid["ny"])):
+                        origin=nearest(grid["origin"+axis])
+                        numerator=var(0,2*ceil(board["max"+axis]-grid["origin"+axis]))
+                        model.add(numerator==b["min"+axis]+b["max"+axis]-2*origin)
+                        raw=var(0,n)
+                        model.add_division_equality(raw,numerator,step)
+                        indexes.append(minimum([raw,n-1]))
+                    index=var(0,grid["nx"]*grid["ny"]-1)
+                    model.add(index==indexes[0]+grid["nx"]*indexes[1])
+                    choices=[]
+                    for i in range(len(memberships)):
+                        present=boolean()
+                        model.add(index==i).only_enforce_if(present)
+                        model.add(index!=i).only_enforce_if(present.Not())
+                        choices.append(present);memberships[i].append(present)
+                    model.add_exactly_one(choices)
+                for target,values in zip(grid["targets"],memberships):
+                    count=sum(values)*density["countScale"]
+                    excess=maximum([0,count-target])
+                    squared=var(0,(len(density["refs"])*density["countScale"])**2)
+                    model.add_multiplication_equality(squared,[excess,excess])
+                    density_terms.append((squared,1/(density["countScale"]*density["targetCount"])**2/len(density["grids"])))
+        for band in rough["bands"]:
+            shape=box(band["owner"],"rough-band",band["index"])
+            for ref in band["peerRefs"]:
+                distance=maximum(gaps(shape,box(ref,"physical")))
+                hit=boolean()
+                model.add(distance<=-1).only_enforce_if(hit)
+                model.add(distance>=0).only_enforce_if(hit.Not())
+                connection_terms.append((hit,band["weight"]))
+        objective.extend(term*(scale*rough["density"]["weight"]) for term,scale in density_terms)
+        objective.extend(term*(scale*rough["connectionSideWeight"]) for term,scale in connection_terms)
     if data.get("nativeBoardEdgeMil") is not None:
         gap = ceil(data["nativeBoardEdgeMil"])
         for ref in entities:
@@ -431,6 +481,7 @@ def solve(data):
         span=(maximum([b["maxX"] for b in shapes])-minimum([b["minX"] for b in shapes])
               +maximum([b["maxY"] for b in shapes])-minimum([b["minY"] for b in shapes]))
         model.minimize(unit*(sum(critical_distances)+sum(peers)+data.get("blockCompactnessWeight",0)*span))
+    extension = compile_extension(data, {"model":model,"point":point,"absolute":absolute,"maximum":maximum,"minimum":minimum,"states":states,"box":box,"unit":unit,"expression_bounds":expression_bounds}) if compile_extension else None
     if data.get("feasibilityOnly", False):
         model.clear_objective()
     validation = model.validate()
@@ -522,7 +573,11 @@ def solve(data):
         "semanticGroupCount":len(data.get("semanticGroups",[]))}}
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         result.update(placements=placements(solver), solutions=callback.solutions)
+        if extension:
+            result["electricalFunctionValues"]={k:solver.value(v) for k,v in extension.items()}
         result["solver"].update(objective=solver.objective_value,bestBound=solver.best_objective_bound,optimalForCompiledModel=status==cp_model.OPTIMAL)
+        if rough:
+            result["solver"]["roughLayout"]={"densityPenalty":sum(solver.value(t)*scale for t,scale in density_terms),"connectionSidePenalty":sum(solver.value(t)*scale for t,scale in connection_terms),"groupCompactnessWeight":rough["groupCompactnessWeight"]}
         if critical_worst is not None:
             result["solver"]["criticalWorstMil"]=solver.value(critical_worst)*unit
             result["solver"]["blockObjective"]=policy

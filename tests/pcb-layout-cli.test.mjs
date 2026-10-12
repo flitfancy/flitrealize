@@ -26,6 +26,29 @@ async function run(root,args) {
   catch(e){return{ok:false,stderr:e.stderr,stdout:e.stdout};}
 }
 
+test('rough policy is rejected by the ordinary search backend instead of being ignored',async()=>{
+ const root=await project();
+ try{
+  const file=path.join(root,'design/PCB_LAYOUT_CONSTRAINTS.v1.json'),config=JSON.parse(await fs.readFile(file));
+  config.roughLayoutPolicy={schemaVersion:1,groupCompactnessWeight:.2};await fs.writeFile(file,JSON.stringify(config));
+  const result=await run(root,['--mode','solve','--snapshot',path.join(root,'snapshot.json')]);
+  assert.equal(result.ok,false);assert.match(result.stderr,/ROUGH_LAYOUT_REQUIRES_CPSAT_BACKEND/);
+ }finally{await fs.rm(root,{recursive:true,force:true});}
+});
+
+test('public CP-SAT CLI persists the weighted rough ranking',{skip:!process.env.FLITREALIZE_CPSAT_PYTHON&&'Numeric runtime required'},async()=>{
+ const root=await project();
+ try{
+  const file=path.join(root,'design/PCB_LAYOUT_CONSTRAINTS.v1.json'),config=JSON.parse(await fs.readFile(file));
+  config.hard.boardBounds={minX:-100,minY:-100,maxX:400,maxY:300};
+  config.roughLayoutPolicy={schemaVersion:1,groupCompactnessWeight:.2,density:{weight:.25,cellMil:100,targetCount:1,offsetFractions:[0,.5]}};
+  await fs.writeFile(file,JSON.stringify(config));
+  const result=await run(root,['--mode','solve','--backend','cpsat','--snapshot',path.join(root,'snapshot.json'),'--python',process.env.FLITREALIZE_CPSAT_PYTHON,'--seconds','2','--candidates','1']);
+  assert.equal(result.ok,true,result.stderr);const output=result.lines.at(-1);assert.equal(output.nativeWrites,0);assert.equal(output.candidateCount,1);
+  const record=output.candidates[0];assert.ok(Number.isFinite(record.roughLayoutScore));assert.equal(record.rankingScore,record.score+record.semanticCompactnessScore+record.roughLayoutScore);
+ }finally{await fs.rm(root,{recursive:true,force:true});}
+});
+
 test('portable CLI prepares immutable complete inputs and replays them without the original design files',async()=>{
   const root=await project();
   try {

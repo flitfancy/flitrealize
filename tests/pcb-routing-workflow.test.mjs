@@ -33,3 +33,8 @@ test('unknown native outcomes stop without save or replay',async()=>{
  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'flit-routing-')),f=fixture(),calls=[];
  try{const native=async req=>{calls.push(req.mode);throw Error('NATIVE_REQUEST_UNRESOLVED');};const r=await runWorkflow({...f,directory,runtime:{},route,native,apply:true,windowId:'WINDOW'});assert.equal(r.status,'needs-attention');assert.equal(r.saved,false);assert.deepEqual(calls,['apply']);}finally{await fs.rm(directory,{recursive:true,force:true});}
 });
+test('compatibility diagnostics reach the workflow report and no save follows rejection',async()=>{
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'flit-routing-')),f=fixture(),calls=[];
+ const compatibility={schemaVersion:1,kind:'flitrealize.routing-compatibility',state:'blocked',requestedTarget:{status:'known',value:f.board.target},findings:[{source:'naturecraft-autorouter',scope:'unknown',state:'blocked',reasons:['journal-state-unknown']}]};
+ try{const native=async req=>{calls.push(req.mode);throw Object.assign(Error('OTHER_ROUTER_PENDING'),{code:'OTHER_ROUTER_PENDING',compatibility});};const r=await runWorkflow({...f,directory,runtime:{},route,native,apply:true,windowId:'MOCK'});assert.equal(r.status,'needs-attention');assert.equal(r.saved,false);assert.deepEqual(calls,['apply']);assert.deepEqual(r.issues[0].compatibility,compatibility);const saved=JSON.parse(await fs.readFile(path.join(directory,'workflow.json'),'utf8'));assert.deepEqual(saved.issues[0].compatibility,compatibility);}finally{await fs.rm(directory,{recursive:true,force:true});}
+});

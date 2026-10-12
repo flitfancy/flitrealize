@@ -27,7 +27,7 @@
 - `pcb-preroute.mjs`：离线出口、路径、局部回退与潜在地空间。
 - `pcb-route.mjs`：FR 任务与原生布线执行链。
 
-以上只解释实现职责；能力清单和支持模式仍由 manifest 查询。通用算法说明位于 `references/3.4-block-layout.md`、`3.8-prerouting.md`、`3.3-ground-space.md`；Provider 操作页只维护原生转换、目标绑定、写入及能力特有边界。
+以上只解释实现职责；能力清单和支持模式仍由 manifest 查询。通用算法说明位于 `references/3.5.1-block-layout.md`、`3.8-prerouting.md`、`3.3-ground-space.md`；Provider 操作页只维护原生转换、目标绑定、写入及能力特有边界。
 
 内部 Action 可从默认发现结果隐藏，仍保留准确名称、输入输出和测试。`list --full` 从 manifest 展开内部项，不维护第二份能力目录。
 
@@ -108,6 +108,8 @@ Provider 将坐标、角度和边界转换到统一约定。转换结果由 `lay
 实现层保存输入、原请求/会话、对象归属及分步回执，使 0.3 的恢复规则可以核对。只支持保存恢复的入口须接受同一执行链的 apply 回执；占用记录只保护其流程，不宣称整板事务锁。不能实际完成的恢复方式不注册为能力。
 
 ## 源码与证据
+
+API 查询资料用 `scripts/update-api-reference.py --archive <官方仓库ZIP> --commit <完整提交SHA> --snapshot <日期>` 更新；先用 `--output-dir <临时目录>` 校验再替换。只导入四类参考 Markdown，保留完整定义、示例、限制与原始/规范化哈希；不导入上游 Skill、执行脚本或依赖。`provenance.json` 记录版本、固定提交和归属，旧库与差异报告留项目证据。在线资料和客户端自带定义可能不同，文档更新不标记目标 API 已验证。
 
 EasyEDA 源码中的 DOCHEAD 含会话字段。比较源码或生成指纹时，沿用对应 Provider 的规范化函数，避免把会话变化误判为设计变化；几何和对象事实仍参与核对。
 

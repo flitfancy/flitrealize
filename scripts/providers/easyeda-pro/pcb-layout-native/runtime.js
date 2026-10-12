@@ -148,6 +148,7 @@ async function layoutNative(eda, input) {
   const moved = (a, b) => Math.abs(a.x - b.x) > .001 || Math.abs(a.y - b.y) > .001 || Math.abs(angle(a.rotation ?? 0) - angle(b.rotation ?? 0)) > 1e-7;
   function checkPlan(live) {
     if (!plan || !before || !Array.isArray(plan.issues) || plan.issues.length) fail('PLAN_INVALID');
+    if(!['joint','separate'].includes(cfg.labelGeometryMode??'joint')||(plan.geometryPolicy?.labelMode??'joint')!==(cfg.labelGeometryMode??'joint'))fail('PLAN_LABEL_GEOMETRY_POLICY');
     if (plan.sourceHash !== before.sourceHash || live.sourceHash !== before.sourceHash) fail('SOURCE_CHANGED_REPLAN');
     if (live.capabilities.unsupported.length) fail('NATIVE_CAPABILITY_UNSUPPORTED ' + JSON.stringify(live.capabilities.unsupported));
     const boardBounds = resolveBoardBounds(decodeBoard(live.outlines), cfg.boardBounds).bounds;
@@ -168,6 +169,7 @@ async function layoutNative(eda, input) {
       const old = before.items.find(a => a.id === l.id), actual = live.items.find(a => a.id === l.id);
       if (!actual || l.type !== old.type || l.owner !== old.owner || l.parentId !== old.parentId || l.text !== old.text || ![l.x, l.y, l.rotation].every(Number.isFinite) || !finiteBox(l.bbox) || actual.parentId !== old.parentId || actual.text !== old.text || !sameBox(actual.original.bbox, old.original.bbox, .1)) fail('PLAN_LABEL_IDENTITY');
       if (actual.locked && (moved(old.original, l) || old.original.alignMode !== l.alignMode)) fail('LOCKED_LABEL ' + l.id);
+      if(cfg.labelGeometryMode==='separate'&&(l.fontSize!==old.fontSize||l.lineWidth!==old.lineWidth))fail('PLAN_LABEL_FORMAT_CHANGED '+l.id);
     }
     if (live.pads.length !== before.pads.length) fail('PAD_BASELINE_COUNT');
     for (const p of before.pads) { const actual = live.pads.find(a => a.id === p.id); if (!actual || actual.owner !== p.owner || actual.parentComponentId !== p.parentComponentId) fail('PAD_OWNER_CHANGED ' + p.id); if (actual.net !== p.net || actual.number !== p.number || actual.layer !== p.layer || !sameBox(actual.bbox, p.bbox)) fail('PAD_BASELINE_CHANGED ' + p.id); }
@@ -182,19 +184,21 @@ async function layoutNative(eda, input) {
   }
   function geometry(placements, labels, pads, boardBounds = null) {
     if (cfg.assemblyPolicy && typeof assemblyRuntime !== 'function') fail('ASSEMBLY_RUNTIME_MISSING');
+    const separate=cfg.labelGeometryMode==='separate';
     const testPads = pads.filter(p => !padComponent(p, placements));
-    const bundles = placements.map(c => ({ ref: c.ref, bbox: union([c.body ?? c.bbox, ...labels.filter(l => l.owner === c.ref).map(l => l.bbox)]) })).concat(testPads.map(p => ({ ref: p.number, bbox: p.bbox })));
+    const bundles = placements.map(c => ({ ref: c.ref, bbox: union([c.body ?? c.bbox, ...(separate?pads.filter(p=>padComponent(p,placements)?.ref===c.ref).map(p=>p.bbox):labels.filter(l=>l.owner===c.ref).map(l=>l.bbox))]) })).concat(testPads.map(p => ({ ref: p.number, bbox: p.bbox })));
     const issues = []; let minimumAxisGapMil = Infinity;
     issues.push(...checkBoardBounds(boardBounds,[...placements.map(c=>({ref:c.ref,id:c.id,kind:'component',bbox:c.body??c.bbox})),...labels.map(l=>({...l,kind:'label'})),...pads.map(p=>({...p,kind:'pad'}))]));
     const pairs = new Map((cfg.pairClearancesMil ?? []).map(p => [JSON.stringify([p.a, p.b].sort()), p.hardMinMil]));
     for (let i = 0; i < bundles.length; i++) for (let j = i + 1; j < bundles.length; j++) {
-      const a = bundles[i].bbox, b = bundles[j].bbox, gap = Math.max(a.minX - b.maxX, b.minX - a.maxX, a.minY - b.maxY, b.minY - a.maxY), requiredMil = Math.max(cfg.clearanceMil ?? 8, pairs.get(JSON.stringify([bundles[i].ref, bundles[j].ref].sort())) ?? 0);
+      const a = bundles[i].bbox, b = bundles[j].bbox, gap = Math.max(a.minX - b.maxX, b.minX - a.maxX, a.minY - b.maxY, b.minY - a.maxY), requiredMil = separate?(pairs.get(JSON.stringify([bundles[i].ref,bundles[j].ref].sort()))??cfg.clearanceMil??8):Math.max(cfg.clearanceMil ?? 8, pairs.get(JSON.stringify([bundles[i].ref, bundles[j].ref].sort())) ?? 0);
       minimumAxisGapMil = Math.min(minimumAxisGapMil, gap);
       if (gap < requiredMil - .001) issues.push({ code: 'BUNDLE_CLEARANCE', refs: [bundles[i].ref, bundles[j].ref], gapMil: gap, requiredMil });
     }
     const assembly = cfg.assemblyPolicy ? assemblyRuntime(cfg.assemblyPolicy, placements, pads) : null;
     if (assembly) issues.push(...assembly.issues);
-    return { issues, assembly, bundles, testPads, minimumAxisGapMil: Number.isFinite(minimumAxisGapMil) ? minimumAxisGapMil : null, extent: union(bundles.map(b => b.bbox)) };
+    if(separate){if(typeof independentLabelGeometry!=='function')fail('LABEL_GEOMETRY_RUNTIME_MISSING');issues.push(...independentLabelGeometry({components:placements,pads,labels,clearanceMil:cfg.labelClearanceMil??cfg.clearanceMil??8,gapByOwner:cfg.labelGapByOwner??{},maxOwnerDistanceMil:cfg.labelOwnerMaxDistanceMil}).issues);}
+    return { issues, assembly, bundles, testPads, minimumAxisGapMil: Number.isFinite(minimumAxisGapMil) ? minimumAxisGapMil : null, extent: union([...bundles.map(b => b.bbox),...(separate?labels.map(l=>l.bbox):[])]) };
   }
   async function verify(expectedSourceHash) {
     const live = await read(), issues = [];
@@ -206,6 +210,7 @@ async function layoutNative(eda, input) {
     for (const l of plan.labels) {
       const a = live.items.find(a => a.id === l.id), old = before.items.find(a => a.id === l.id);
       if (!a || a.parentId !== l.parentId || a.text !== old.text || a.layer !== old.layer || !sameBox(a.original.bbox, l.bbox, .1) || moved(a.original, l) || a.original.alignMode !== l.alignMode) issues.push({ code: 'LABEL_READBACK_FAILED', id: l.id });
+      if(cfg.labelGeometryMode==='separate'&&(a?.fontSize!==old.fontSize||a?.lineWidth!==old.lineWidth))issues.push({code:'LABEL_READBACK_FORMAT_CHANGED',id:l.id});
       if (a) labels.push({ ...l, ...a.original, layer: a.layer });
     }
     for (const p of before.pads) {

@@ -1,16 +1,17 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { inspectCandidate } from './pcb-layout-solver-core.mjs';
+import { inspectCandidate, validateSearchSettings } from './pcb-layout-solver-core.mjs';
 import { selectCatalogCandidates } from './pcb-layout-catalog-pool.mjs';
 import { catalogReport } from './pcb-layout-catalog-report.mjs';
 import { startingJobs } from './pcb-layout-starts.mjs';
 import { hash } from './pcb-layout-project.mjs';
 import { prepareRunStarts, runLayoutJobs, evaluateCandidate, writeCandidate, writeRunConfiguration } from './pcb-layout-run.mjs';
 
-export async function runCatalog({ model, snapshot, contract, config, mechanical, dir, fingerprints, inputReceipt, count = 100, iterations = 1200, initialPlanFile, startOverrides = {}, projectRoot, engine, log = value => console.log(JSON.stringify(value)) }) {
+export async function runCatalog({ model, snapshot, contract, config, mechanical, baseline: suppliedBaseline, configurationWritten = false, dir, fingerprints, inputReceipt, count = 100, iterations = 1200, initialPlanFile, startOverrides = {}, projectRoot, engine, log = value => console.log(JSON.stringify(value)) }) {
   if (!projectRoot) throw Error('PROJECT_ROOT_REQUIRED');
+  validateSearchSettings(model, { iterations, requireProfiles: true });
   const write = (name, value) => fs.writeFile(path.join(dir, name), JSON.stringify(value, null, 2));
-  const baseline = inspectCandidate(model);
+  const baseline = suppliedBaseline ?? inspectCandidate(model);
   await write('baseline.json', baseline);
   const prepared = await prepareRunStarts({ model, dir, initialPlanFile, startOverrides, log, emptyError: 'CATALOG_INITIALIZATION_FAILED' });
   const seed = prepared.starts[0];
@@ -52,7 +53,7 @@ export async function runCatalog({ model, snapshot, contract, config, mechanical
   }
   const runId = path.basename(dir);
   await fs.writeFile(path.join(dir, 'catalog.html'), catalogReport(candidates, baseline, config, contract, snapshot, { runId, sourceLabel: '读取的 PCB 快照；仅内存求解，未写入 PCB' }));
-  await writeRunConfiguration(dir, config);
+  if (!configurationWritten) await writeRunConfiguration(dir, config);
   await write('run-parameters.json', { count, iterations, initialization: prepared.options, requestedStarts: prepared.requested, acceptedStarts: prepared.accepted, poolSize: workerConfig.search.catalogPoolSize, poolGridMil: workerConfig.search.catalogGridMil, runs });
   await write('manifest.json', { schemaVersion: 3, kind: 'catalog', engine, projectRoot, fingerprints, snapshotHash: hash(snapshot), candidates: records });
   const summary = { status: 'catalog-ready-not-applied', count, availableDistinctSamples: selection.available, duplicatesRemoved: selection.duplicatesRemoved, applied: false, nativeWrites: 0, scoringMode: config.scoringMode, allConfiguredHardConstraintsPass: true, inputCounts: { components: inputReceipt.components.length, independentPads: inputReceipt.standalonePads.length }, candidates: candidates.map(c => ({ name: c.name, label: c.label, score: c.comparisonScore, scores: c.scores, minimumGapMil: c.validation.minimumGapMil, counts: c.plan.counts, originProfile: c.originProfile ?? c.name, seed: c.seed })), runs };

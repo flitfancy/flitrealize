@@ -9,6 +9,7 @@ import { comparisonReport } from './pcb-layout/pcb-layout-solver-report.mjs';
 import { runLayoutSearch } from './pcb-layout/pcb-layout-search.mjs';
 import { runCatalog } from './pcb-layout/pcb-layout-catalog-run.mjs';
 import { inspectLayout, applyLayout, resumeLayoutSave } from './pcb-layout/pcb-layout-execution.mjs';
+import { main as fineMain } from './pcb-layout/fine/cli.mjs';
 import { checkEdges } from './pcb-layout/pcb-layout-edge.mjs';
 import { checkBlocks } from './pcb-layout/pcb-layout-features.mjs';
 import { buildGeometryViews } from './pcb-layout/pcb-layout-geometry-views.mjs';
@@ -19,8 +20,10 @@ import { auditNativeNetlist } from './pcb-layout/pcb-layout-netlist.mjs';
 import { runCpsatLayout } from './pcb-layout/pcb-layout-cpsat.mjs';
 import { convertSemanticInputs } from './pcb-layout/pcb-layout-semantic.mjs';
 import { resolvePcbPython } from './lib/pcb-python.mjs';
+import { writeRunConfiguration } from './pcb-layout/pcb-layout-run.mjs';
 
 const help = `PCB layout: prepare inputs, solve candidates, or apply an explicit candidate.
+Fine layout: node scripts/pcb-layout.mjs fine --help
 node <skill>/scripts/pcb-layout.mjs --project-root <project> [--mode prepare|semantic|solve|apply]
   --snapshot <json> | --window-id <confirmed-window> | --prepared <report-directory>
   --config <project-relative-json> --weights-file <json> --weight <key=value>
@@ -73,7 +76,13 @@ async function readbackChecks(model, actual) {
   return { edge, block, spatial, coupling, spacingPolicy, nativeNetwork, issues: [...edge.issues, ...block.issues, ...spatial.issues, ...coupling.issues, ...(spacingPolicy?.issues ?? []), ...nativeNetwork.diagnostics.filter(d => d.severity === 'error')] };
 }
 
-export async function main(args = process.argv.slice(2), { log = value => console.log(JSON.stringify(value)) } = {}) {
+export async function main(args = process.argv.slice(2), { log = value => console.log(JSON.stringify(value)), executionOptions = {} } = {}) {
+  if(args[0]==='fine')return fineMain(args.slice(1),{log,executionOptions});
+  const fineIndex=args.indexOf('--mode');
+  if(fineIndex>=0&&args[fineIndex+1]==='fine'){
+    if(args.filter(a=>a==='--mode').length!==1)throw Error('FINE_STAGE_CONFLICT');
+    const forwarded=[...args];forwarded.splice(fineIndex,2);return fineMain(forwarded,{log,executionOptions});
+  }
   const o = options(args);
   if (o.help) { console.log(help); return; }
   if (!o['--project-root']) throw Error('PROJECT_ROOT_REQUIRED');
@@ -162,11 +171,11 @@ export async function main(args = process.argv.slice(2), { log = value => consol
     await write('summary.json',result);log(result);process.exitCode=1;return result;
   }
   const {model,contract,config,mechanical}=prepared,baseline=inspectCandidate(model);
+  if(mode==='solve'&&config.roughLayoutPolicy&&backend!=='cpsat')throw Error('ROUGH_LAYOUT_REQUIRES_CPSAT_BACKEND');
   // New solves use the formal ownership contract. Historical snapshots remain
   // inspectable, but do not feed a second live-placement implementation.
   if (['solve','apply'].includes(mode) && snapshot.sourceKind !== 'synthetic-example' && snapshot.padOwnership?.status !== 'verified') throw Error('REFRESH_NATIVE_OWNERSHIP: prepare a new snapshot from the current PCB before solving or applying');
-  await write('baseline.json',baseline);await write('effective-config.json',config);
-  await write('effective-weights.json',{schemaVersion:1,weights:config.comparisonWeights,labels:config.weightLabels});
+  await write('baseline.json',baseline);await writeRunConfiguration(dir,config);
   const semanticPolicy=o['--semantic-policy']?await readJson(path.resolve(root,o['--semantic-policy'])):config.semanticPolicy;
   if(mode==='semantic'){
     const semantic=convertSemanticInputs(model,semanticPolicy);await write('semantic-conversion.json',semantic);
@@ -191,12 +200,12 @@ export async function main(args = process.argv.slice(2), { log = value => consol
     const summary={...result,candidate:id,from,report:dir};await write('summary.json',summary);log(summary);
     if(result.saved!==true||result.status!=='verified')process.exitCode=1;return summary;
   }
-  const iterations=Number(o['--iterations']??config.search.iterations);
-  if(!Number.isInteger(iterations)||iterations<1||iterations>100000)throw Error('INVALID_ITERATION_BUDGET');
+  const iterations=backend==='search'?Number(o['--iterations']??config.search.iterations):undefined;
+  if(backend==='search'&&(!Number.isInteger(iterations)||iterations<1||iterations>100000))throw Error('INVALID_ITERATION_BUDGET');
   const startOverrides={};
   for(const [flag,key]of [['--start-mode','mode'],['--starts','count'],['--start-seed','seed'],['--exploration','explorationStrength'],['--start-gap-mil','packingGapMil']])if(o[flag]!==undefined)startOverrides[key]=key==='mode'?o[flag]:Number(o[flag]);
   if(o['--initial-plan']&&startOverrides.mode===undefined)startOverrides.mode='existing';
-  const common={model,snapshot,contract,config,mechanical,root,projectRoot:root,dir,fingerprints:loaded.fingerprints,engine,inputReceipt:prepared.receipt,initialPlanFile:o['--initial-plan'],iterations,startOverrides,sourceKind,log};
+  const common={model,snapshot,contract,config,mechanical,baseline,configurationWritten:true,root,projectRoot:root,dir,fingerprints:loaded.fingerprints,engine,inputReceipt:prepared.receipt,initialPlanFile:o['--initial-plan'],iterations,startOverrides,sourceKind,log};
   let result;
   if(backend==='cpsat'){
     if(o['--initial-plan']||o['--start-mode']&&o['--start-mode']!=='fresh')throw Error('CPSAT_COLD_START_NO_EXISTING_HINTS');
@@ -205,7 +214,7 @@ export async function main(args = process.argv.slice(2), { log = value => consol
     const parameters={candidateCount,maxRuns,timeLimitSeconds:seconds,seed:Number(o['--start-seed']??0),semanticPolicy};await write('cpsat-parameters.json',parameters);
     const solved=await runCpsatLayout(model,{timeLimitSeconds:seconds,seed:parameters.seed},{candidateCount,maxRuns,coldSeconds:seconds,semanticPolicy,runtime:{pythonPath:resolvePcbPython({python:o['--python']})},onProgress:log});
     await write('cpsat-problem.json',solved.problem);await write('semantic-conversion.json',solved.semantic);await write('cpsat-runs.json',solved.runs);
-    const records=[];for(const candidate of solved.candidates){const raw=JSON.stringify(candidate);await fs.writeFile(path.join(dir,candidate.name+'.json'),raw);records.push({name:candidate.name,sha256:hash(raw),score:candidate.comparisonScore,valid:candidate.validation.valid});}
+    const records=[];for(const candidate of solved.candidates){const raw=JSON.stringify(candidate);await fs.writeFile(path.join(dir,candidate.name+'.json'),raw);records.push({name:candidate.name,sha256:hash(raw),score:candidate.comparisonScore,valid:candidate.validation.valid,...(candidate.roughLayoutMetrics?{semanticCompactnessScore:candidate.semanticCompactnessScore,roughLayoutScore:candidate.roughLayoutScore,rankingScore:candidate.comparisonScore+candidate.semanticCompactnessScore+candidate.roughLayoutScore}:{})});}
     await fs.writeFile(path.join(dir,'comparison.html'),comparisonReport(solved.candidates,baseline,{...config,reportMode:'cpsat-candidates',reportSource:sourceKind},contract,snapshot,prepared.receipt));
     await write('manifest.json',{...manifestBase,backend:'cpsat',parameters,candidates:records});
     result={status:solved.status,backend:'cpsat',candidateCount:records.length,candidates:records,scope:solved.scope,nativeWrites:0,report:dir};await write('summary.json',result);log(result);if(solved.status==='no-candidate')process.exitCode=1;return result;

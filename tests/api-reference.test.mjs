@@ -22,10 +22,11 @@ async function temporaryTask(fn) {
   }
 }
 
-test('historical corpus retains complete document inventory and source provenance', async () => {
-  assert.equal(corpus.entries.length, 346);
-  assert.equal(corpus.source.version, '1.1.22');
-  assert.equal(corpus.source.status, 'historical-snapshot');
+test('official corpus retains the pinned complete document inventory and source provenance', async () => {
+  assert.equal(corpus.entries.length, 404);
+  assert.equal(corpus.source.version, '1.1.44');
+  assert.equal(corpus.source.status, 'official-repository-snapshot');
+  assert.equal(corpus.source.commit, '20e08dd62ec4faa5eb527332df2c29c9dc0fbaf4');
   assert.equal(corpus.source.currentApiAvailability, 'not-verified');
   const provenance = JSON.parse(await readFile(join(root, 'adapters/easyeda-pro/api-reference/provenance.json'), 'utf8'));
   assert.match(provenance.archive.sha256, /^[a-f0-9]{64}$/);
@@ -52,7 +53,7 @@ test('method and Chinese geometry queries return bounded relevant definitions', 
 test('default member output contains an intact signature and type references, not examples', () => {
   const result = showReference(corpus, { id: 'IPCB\\_PrimitiveComponent#getAllPins' });
   assert.equal(result.status, 'found');
-  assert.equal(result.signature, 'public getAllPins(): Promise<Array<IPCB_PrimitiveComponentPad>>;');
+  assert.equal(result.signature, 'function getAllPins(): Promise<Array<IPCB_PrimitiveComponentPad>>;');
   assert.ok(result.relatedTypes.some(item => item.id === 'IPCB_PrimitiveComponentPad'));
   assert.equal(Object.hasOwn(result, 'text'), false);
   assert.ok(JSON.stringify(result).length < 2000);
@@ -62,7 +63,7 @@ test('explicit full show returns only the complete selected member without cutti
   const result = showReference(corpus, { id: 'IPCB_PrimitiveComponent#getallpins', full: true });
   assert.equal(result.status, 'found');
   assert.ok(result.text.startsWith('### getallpins\n'));
-  assert.match(result.text, /public getAllPins\(\): Promise<Array<IPCB_PrimitiveComponentPad>>;/);
+  assert.match(result.text, /function getAllPins\(\): Promise<Array<IPCB_PrimitiveComponentPad>>;/);
   assert.match(result.text, /console\.log\('firstPinPrimitiveId:', pinInfos\[0\]\.primitiveId\);\s*```$/);
   assert.ok(!result.text.includes('### getstate_addintobom'));
   assert.equal(result.textSha256, sha(result.text));

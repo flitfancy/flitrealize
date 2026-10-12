@@ -68,7 +68,7 @@ for (const scenario of [
         assert.equal(payload.results[0].id, 'IPCB_PrimitiveComponent#getallpins');
       } else {
         assert.equal(payload.id, scenario.input.id);
-        assert.equal(payload.signature, 'public getAllPins(): Promise<Array<IPCB_PrimitiveComponentPad>>;');
+        assert.equal(payload.signature, 'function getAllPins(): Promise<Array<IPCB_PrimitiveComponentPad>>;');
       }
     } finally {
       assert.equal(dirname(resolve(directory)), resolve(tmpdir()));

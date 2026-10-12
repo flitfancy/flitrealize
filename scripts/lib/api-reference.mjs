@@ -95,7 +95,7 @@ function limitValue(limit) {
   return limit;
 }
 
-const envelope = corpus => ({ readOnly: true, source: corpus.source, evidenceScope: 'Historical documentation only; current EDA API availability and behavior are not verified.' });
+const envelope = corpus => ({ readOnly: true, source: corpus.source, evidenceScope: 'Pinned reference documentation only; target-editor API availability and behavior are not verified.' });
 function documentationNotes(item) {
   const text = item.members ? item.text.slice(0, headingPositions(item.text)[0]?.offset ?? item.text.length) : item.text;
   const collected = new Map();

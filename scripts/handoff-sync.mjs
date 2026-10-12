@@ -224,7 +224,7 @@ if (isDirectExecution(import.meta.url)) {
     for (let i = 2; i < process.argv.length; i += 1) {
       const arg = process.argv[i];
       if (arg === '--help') {
-        console.log('handoff-sync.mjs --project-root PROJECT --contract FILE [--snapshot FILE] [--connections FILE] [--print | --check | --apply]\nDefault: compact offline preview. --print includes generated Markdown. --check is read-only. --apply updates only an existing marked facts region, only when changed. No EDA calls or evidence/status files. See references/0.1-continuation.md.');
+        console.log('handoff-sync.mjs --project-root PROJECT --contract FILE [--snapshot FILE] [--connections FILE] [--print | --check | --apply]\nDefault: compact offline preview. --print includes generated Markdown. --check is read-only. --apply updates only an existing marked facts region, only when changed. No EDA calls or evidence/status files. See references/0.5-handoff-record.md.');
         process.exit(0);
       }
       if (arg === '--print') { print = true; continue; }

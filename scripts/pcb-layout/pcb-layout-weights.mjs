@@ -1,9 +1,9 @@
-import { validateWeights, simpleWeightKeys } from './pcb-layout-solver-core.mjs';
+import { validateWeights, validateProfileMultipliers, simpleWeightKeys } from './pcb-layout-solver-core.mjs';
 
 export { simpleWeightKeys };
 const retiredWeightKeys = new Set(['displacement', 'rotation', 'silk', 'proximity', 'spacing', 'whitespace', 'compactness']);
 
-export function configureWeights(config, document, overrides = []) {
+export function configureWeights(config, document, overrides = [], { validateSearchProfiles = true } = {}) {
   const out = structuredClone(config);
   const mode = config.scoringMode === undefined ? 'simple-v1' : config.scoringMode;
   if (mode !== 'simple-v1') throw Error('INVALID_SCORING_MODE: only simple-v1 is supported; migrate explicit historical modes before solving');
@@ -21,12 +21,21 @@ export function configureWeights(config, document, overrides = []) {
   validateWeights(weights, out.groups);
   out.comparisonWeights = weights;
   out.weightLabels = Object.fromEntries(Object.entries(document?.labels ?? {}).filter(([key]) => known.has(key)));
-  out.search.profiles = out.search.profiles.map(profile => {
-    const multipliers = profile.weightMultipliers ?? {};
-    if (Object.entries(multipliers).some(([k, v]) => !known.has(k) || !Number.isFinite(v) || v < 0)) throw Error('INVALID_PROFILE_MULTIPLIER');
-    const effective = Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, value * (multipliers[key] ?? 1)]));
-    validateWeights(effective, out.groups);
-    return { ...profile, weights: effective };
+  if (out.search === undefined) out.search = {};
+  if (!out.search || typeof out.search !== 'object' || Array.isArray(out.search)) throw Error('INVALID_SEARCH_CONFIGURATION');
+  if (validateSearchProfiles && (!Array.isArray(out.search.profiles) || !out.search.profiles.length)) throw Error('SEARCH_PROFILES_REQUIRED');
+  // Keep normalization of valid historical profiles byte-compatible. Unused
+  // search settings do not prevent common preparation or another backend.
+  if (Array.isArray(out.search.profiles)) out.search.profiles = out.search.profiles.map(profile => {
+    try {
+      const multipliers = validateProfileMultipliers(profile, out.groups);
+      const effective = Object.fromEntries(Object.entries(weights).map(([key, value]) => [key, value * (multipliers[key] ?? 1)]));
+      validateWeights(effective, out.groups);
+      return { ...profile, weights: effective };
+    } catch (error) {
+      if (validateSearchProfiles) throw error;
+      return profile;
+    }
   });
   return out;
 }

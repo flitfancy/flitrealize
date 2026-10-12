@@ -11,7 +11,7 @@ const doc=body=>'# P\n## 3. PCB 设计\n### 3.8 网络规则\nViewState: 历史�
 
 test('explicit network table exposes rows, exact color and unknown values with its source',()=>{
   const snapshot=parseHandoff(doc(block));
-  const source=navigation(snapshot)[3].children.at(-1).sources[0];
+  const source=navigation(snapshot)[3].children.find(n=>n.kind==='networks').sources[0];
   assert.deepEqual(snapshot.issues,[]);
   assert.deepEqual(source.networkTable,{units:'mil',rows:[
     {net:'SYS',width:'40 / 20',color:'#FF4040'}, {net:'I2C_SCL',width:'6',color:null},

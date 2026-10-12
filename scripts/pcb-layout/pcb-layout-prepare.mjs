@@ -1,7 +1,8 @@
-import { compileModel, validateWeights } from './pcb-layout-solver-core.mjs';
+import { compileModel } from './pcb-layout-solver-core.mjs';
 import { layoutInputModel } from './pcb-layout-input-model.mjs';
 import { padOwner } from './pcb-layout-geometry.mjs';
 import { auditNativeNetlist } from './pcb-layout-netlist.mjs';
+import { auditFootprintNames } from './pcb-footprint-audit.mjs';
 import { nativeObservations } from './pcb-layout-observations.mjs';
 import { layoutRealization } from './pcb-layout-provider.mjs';
 import { resolveBoardBounds } from './pcb-layout-board.mjs';
@@ -48,7 +49,8 @@ export function prepareLayoutInputs(input = {}) {
   for (const [name, value, fields] of [['snapshot', snapshot, ['components', 'pads', 'items']], ['contract', contract, ['components', 'blocks', 'nets', 'constraints']], ['config', config, ['groups']]]) {
     for (const field of fields) if (!Array.isArray(value[field])) issue('structure', 'MISSING_INPUT_ARRAY', `${name}.${field}`, 'An explicit array is required, including when empty.');
   }
-  if (!object(config.hard) || !object(config.search) || !object(config.connectivity) || !object(config.comparisonWeights)) issue('structure', 'MISSING_LAYOUT_CONFIGURATION', 'config', 'hard, search, connectivity and comparisonWeights are required objects.');
+  if (config.search === undefined) config.search = {};
+  if (!object(config.hard) || !object(config.search) || !object(config.connectivity) || !object(config.comparisonWeights)) issue('structure', 'MISSING_LAYOUT_CONFIGURATION', 'config', 'hard, connectivity and comparisonWeights are required objects; search must be an object when supplied.');
   if (!Number.isFinite(mechanical.clearanceMil) || mechanical.clearanceMil < 0) issue('structure', 'INVALID_CLEARANCE', 'mechanical.clearanceMil', 'A nonnegative clearance in mil is required.');
   if (hasErrors(diagnostics)) return finish();
   try { realization = layoutRealization(snapshot, contract, config.provider, mechanical); source.provider = realization.provider; source.normalization = realization.provenance ?? null; }
@@ -100,11 +102,10 @@ export function prepareLayoutInputs(input = {}) {
     if (![c.x, c.y, c.rotation].every(Number.isFinite) || !boxValid(c.bbox ?? c.body)) issue('structure', 'INVALID_NATIVE_GEOMETRY', path, 'A finite pose and positive bounding box are required.');
     if (!records.has(c.ref)) scope.pcbOnly.push(c.ref);
     else if (!records.get(c.ref).includeInPcb) scope.excludedPresent.push(c.ref);
-    const footprint = records.get(c.ref)?.footprint;
-    if (footprint?.selection === 'exact' && text(footprint.name) && footprint.name !== c.footprint?.name) issue('identity', 'FOOTPRINT_IDENTITY_MISMATCH', path + '.footprint', `Expected exact footprint ${footprint.name}; observed ${c.footprint?.name ?? 'unknown'}.`);
     if (realization.layers[c.id] !== 'top-copper') issue('support', 'UNSUPPORTED_COMPONENT_LAYER', path + '.layer', 'The current solver requires an explicitly recorded top-layer component.');
     if (Number.isFinite(c.rotation) && Math.abs(c.rotation / 90 - Math.round(c.rotation / 90)) > 1e-8) issue('support', 'UNSUPPORTED_COMPONENT_ROTATION', path + '.rotation', 'The current solver supports quarter-turn source rotations.');
   }
+  for (const diagnostic of auditFootprintNames({ snapshot, contract }).diagnostics) issue('identity', diagnostic.code, diagnostic.path, diagnostic.message, diagnostic.severity);
   const standaloneRefs = new Set();
   for (const [index, p] of snapshot.pads.entries()) {
     const path = `snapshot.pads[${index}]`;
@@ -153,7 +154,6 @@ export function prepareLayoutInputs(input = {}) {
   contract.blocks = contract.blocks.map(b => ({ ...b, components: b.components.filter(ref => records.get(ref).includeInPcb) })).filter(b => b.components.length);
   contract.nets = contract.nets.map(n => ({ ...n, endpoints: n.endpoints.filter(e => records.get(e.component).includeInPcb) })).filter(n => n.endpoints.length);
   compileIntent(contract.extensions?.pcbLayout, { config, records, requirements, logicalNets, native, issue, coverage, diagnostics });
-  validateProfiles(config, issue);
   if (hasErrors(diagnostics)) return finish();
   try { model = compileModel(snapshot, contract, config, mechanical); }
   catch (error) {
@@ -165,22 +165,6 @@ export function prepareLayoutInputs(input = {}) {
     for (const diagnostic of nativeNetwork.diagnostics ?? []) diagnostics.push({ ...diagnostic, category: diagnostic.severity === 'error' ? 'identity' : 'coverage', path: 'snapshot.nativeNetlist', severity: diagnostic.severity ?? 'warning' });
   }
   return finish();
-}
-
-function validateProfiles(config, issue) {
-  const profiles = config.search.profiles, names = new Set();
-  if (!Array.isArray(profiles) || !profiles.length) { issue('structure', 'MISSING_SEARCH_PROFILES', 'config.search.profiles', 'At least one effective search profile is required.'); return; }
-  for (const [index, profile] of profiles.entries()) {
-    const path = `config.search.profiles[${index}]`;
-    if (!object(profile)) { issue('structure', 'INVALID_SEARCH_PROFILE', path, 'A search profile must be an object.'); continue; }
-    if (!text(profile.name) || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(profile.name) || names.has(profile.name)) issue('structure', 'INVALID_SEARCH_PROFILE_NAME', path + '.name', 'Profile names must be unique path-safe identifiers.');
-    names.add(profile.name);
-    if (!Number.isInteger(profile.seed) || profile.seed < 0 || profile.seed > 0xffffffff) issue('structure', 'INVALID_SEARCH_SEED', path + '.seed', 'Provide a reproducible unsigned 32-bit integer seed.');
-    try {
-      if (!object(profile.weights)) throw Error('Provide effective weights after configuration; multipliers alone are not executable.');
-      validateWeights(profile.weights, config.groups);
-    } catch (error) { issue('structure', 'INVALID_SEARCH_WEIGHTS', path + '.weights', error.message); }
-  }
 }
 
 function compileIntent(intent, context) {

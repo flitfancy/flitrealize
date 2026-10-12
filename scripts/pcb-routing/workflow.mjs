@@ -59,7 +59,7 @@ export async function runWorkflow({board,policy,directory,runtime,selection={},e
     state.status=state.counts.blocked?'saved-with-blocked-tasks':'saved-and-read-back';state.actualConnectivity=actualConnectivity;state.pcbCounts=saved.counts;
     for(const record of state.tasks)if(record.status==='candidate-validated')record.status='saved-and-read-back';
    }
-  }catch(error){state.status='needs-attention';state.issues=[{code:error.message,receiptFile:error.receiptFile}];}
+  }catch(error){state.status='needs-attention';state.issues=[{code:error.code??error.message,receiptFile:error.receiptFile,...(error.compatibility?{compatibility:error.compatibility}: {})}];}
  }else state.status=accepted.length?'candidate-ready':state.counts.blocked?'blocked':'no-routing-needed';
  state.totalSeconds=(performance.now()-started)/1000;await checkpoint();return{...state,reportFile:path.join(directory,'workflow.json'),candidateFile:path.join(directory,'candidate-set.json')};
 }

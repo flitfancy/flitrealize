@@ -25,7 +25,8 @@ const xyMap = cs => new Map(cs.map(c => [c.ref, c]));
 export const simpleWeightKeys = ['power', 'sense', 'bypass', 'connectivity', 'uniformity'];
 
 export function compileModel(snapshot, contract, config, mechanical) {
-  config = { ...config, scoringMode: config.scoringMode === undefined ? 'simple-v1' : config.scoringMode };
+  config = { ...config, search: config.search === undefined ? {} : config.search, scoringMode: config.scoringMode === undefined ? 'simple-v1' : config.scoringMode };
+  if (!config.search || typeof config.search !== 'object' || Array.isArray(config.search)) throw Error('INVALID_SEARCH_CONFIGURATION');
   if (config.scoringMode !== 'simple-v1') throw Error('INVALID_SCORING_MODE: only simple-v1 is supported; migrate explicit historical modes before solving');
   const realization = layoutRealization(snapshot, contract, config.provider, mechanical);
   const board = resolveBoardBounds(realization.board ?? (snapshot.outlines?.length ? { status: 'unsupported' } : null), config.hard.boardBounds, mechanical.boardBounds);
@@ -35,16 +36,11 @@ export function compileModel(snapshot, contract, config, mechanical) {
   const assemblyPolicy = compileAssemblyPolicy(snapshot, config.assemblyRules);
   const referenceGeometry = compileReferenceGeometry(snapshot, assemblyPolicy);
   const features = compileFeatures(config.componentFeatures, xyMap(snapshot.components), contract, referenceGeometry);
-  const probabilities = [config.search.rotationMoveProbability ?? 0, config.search.silkMoveProbability ?? 0, config.search.edgeMoveProbability ?? (features.edgeRules.length ? .1 : 0), config.search.groupMoveProbability ?? 0, config.search.jointMoveProbability ?? 0, config.search.spacingMoveProbability ?? 0];
-  if (probabilities.some(p => !Number.isFinite(p) || p < 0) || probabilities.reduce((a, b) => a + b, 0) >= 1) throw Error('INVALID_MOVE_PROBABILITIES');
   const components = xyMap(snapshot.components);
   const geometryModel = compileGeometryViews(snapshot, config.geometryViews);
   const couplingModel = compileBlockCoupling(contract, snapshot, config.blockCoupling, realization);
   const spatialRules = compileSpatial(config.spatial, components, config.geometryViews);
   if (spatialRules.uniformity && spatialRules.uniformity.targetMil - spatialRules.uniformity.toleranceMil < mechanical.clearanceMil) throw Error('UNIFORMITY_BAND_BELOW_HARD_CLEARANCE');
-  for (const key of ['jointRepairRadiusMil', 'neighborRadiusMil', 'maxGroupStepMil']) if (config.search[key] !== undefined && (!Number.isFinite(config.search[key]) || config.search[key] < 0)) throw Error('INVALID_SEARCH_DISTANCE ' + key);
-  if (config.search.archiveSize !== undefined && (!Number.isInteger(config.search.archiveSize) || config.search.archiveSize < 2 || config.search.archiveSize > 30)) throw Error('INVALID_ARCHIVE_SIZE');
-  if (config.search.reportAlternatives !== undefined && (!Number.isInteger(config.search.reportAlternatives) || config.search.reportAlternatives < 0 || config.search.reportAlternatives > 12)) throw Error('INVALID_REPORT_ALTERNATIVES');
   const edgeRules = [...features.edgeRules, ...compileEdgeRules(config.hard.edgePlacement, components)];
   if (new Set(edgeRules.map(r => r.ref)).size !== edgeRules.length) throw Error('DUPLICATE_EDGE_RULE');
   const contractComponents = new Map(contract.components.map(c => [c.designator, c]));
@@ -383,8 +379,46 @@ export function initializeFeasibleLayout(model, preferredEdges = {}, repairOptio
   return { ...current, initialization: trace };
 }
 
+export function validateProfileMultipliers(profile, groups) {
+  if (!profile || typeof profile !== 'object' || Array.isArray(profile)) throw Error('INVALID_SEARCH_PROFILE');
+  const multipliers = profile.weightMultipliers ?? {};
+  const known = new Set([...groups.map(g => g.id).filter(id => simpleWeightKeys.includes(id)), 'connectivity', 'uniformity']);
+  if (!multipliers || typeof multipliers !== 'object' || Array.isArray(multipliers) || Object.entries(multipliers).some(([key, value]) => !known.has(key) || !Number.isFinite(value) || value < 0)) throw Error('INVALID_PROFILE_MULTIPLIER');
+  return multipliers;
+}
+
+function validateSearchProfile(profile, groups) {
+  validateProfileMultipliers(profile, groups);
+  if (typeof profile.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(profile.name)) throw Error('INVALID_SEARCH_PROFILE_NAME');
+  if (!Number.isInteger(profile.seed) || profile.seed < 0 || profile.seed > 0xffffffff) throw Error('INVALID_SEARCH_SEED');
+  try { validateWeights(profile.weights, groups); }
+  catch (error) { throw Error('INVALID_SEARCH_WEIGHTS: ' + error.message); }
+}
+
+// Backend validation lives at the search boundary, not in compileModel.
+export function validateSearchSettings(model, { iterations = model.config.search.iterations, requireProfiles = false, profile } = {}) {
+  const { config } = model;
+  if (!Number.isInteger(iterations) || iterations < 1 || iterations > 100000) throw Error('INVALID_ITERATION_BUDGET');
+  const featureEdges = config.componentFeatures?.some(f => f.edge) ?? false;
+  const probabilities = [config.search.rotationMoveProbability ?? 0, config.search.silkMoveProbability ?? 0, config.search.edgeMoveProbability ?? (featureEdges ? .1 : 0), config.search.groupMoveProbability ?? 0, config.search.jointMoveProbability ?? 0, config.search.spacingMoveProbability ?? 0];
+  if (probabilities.some(p => !Number.isFinite(p) || p < 0) || probabilities.reduce((a, b) => a + b, 0) >= 1) throw Error('INVALID_MOVE_PROBABILITIES');
+  for (const key of ['jointRepairRadiusMil', 'neighborRadiusMil', 'maxGroupStepMil']) if (config.search[key] !== undefined && (!Number.isFinite(config.search[key]) || config.search[key] < 0)) throw Error('INVALID_SEARCH_DISTANCE ' + key);
+  if (config.search.archiveSize !== undefined && (!Number.isInteger(config.search.archiveSize) || config.search.archiveSize < 2 || config.search.archiveSize > 30)) throw Error('INVALID_ARCHIVE_SIZE');
+  if (config.search.reportAlternatives !== undefined && (!Number.isInteger(config.search.reportAlternatives) || config.search.reportAlternatives < 0 || config.search.reportAlternatives > 12)) throw Error('INVALID_REPORT_ALTERNATIVES');
+  if (requireProfiles) {
+    if (!Array.isArray(config.search.profiles) || !config.search.profiles.length) throw Error('MISSING_SEARCH_PROFILES');
+    const names = new Set();
+    for (const p of config.search.profiles) {
+      validateSearchProfile(p, config.groups);
+      if (names.has(p.name)) throw Error('INVALID_SEARCH_PROFILE_NAME');
+      names.add(p.name);
+    }
+  }
+  if (profile !== undefined) validateSearchProfile(profile, config.groups);
+}
+
 export function runSearch(model, profile, iterations = model.config.search.iterations, initialPlan) {
-  validateWeights(profile.weights, model.config.groups);
+  validateSearchSettings(model, { iterations, profile });
   let seed = profile.seed >>> 0;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
   const movable = model.snapshot.components.filter(c => !model.fixed.has(c.ref)).map(c => c.ref);

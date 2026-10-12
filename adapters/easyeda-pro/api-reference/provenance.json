@@ -2,39 +2,42 @@
   "schemaVersion": 1,
   "source": {
     "name": "easyeda-api",
-    "version": "1.1.22",
-    "snapshot": "2026-09-12",
-    "status": "historical-snapshot",
+    "version": "1.1.44",
+    "snapshot": "2026-10-09",
+    "status": "official-repository-snapshot",
+    "repository": "https://github.com/easyeda/easyeda-api-skill",
+    "commit": "20e08dd62ec4faa5eb527332df2c29c9dc0fbaf4",
     "officialReferenceBase": "https://prodocs.lceda.cn/en/api/reference/",
     "currentApiAvailability": "not-verified"
   },
   "archive": {
-    "name": "easyeda-api-full.zip",
-    "sha256": "8e9f5389cf95336c0906a57e146a8c7ad70150f85a995791c3c9f0824d1566ac"
+    "name": "official-api-repository.zip",
+    "url": "https://codeload.github.com/easyeda/easyeda-api-skill/zip/20e08dd62ec4faa5eb527332df2c29c9dc0fbaf4",
+    "sha256": "700fabbb157e84b006566385889fd33166f07daade0cab7ad2fa08f785627596"
   },
   "selection": {
     "directories": [
       "references/classes",
-      "references/interfaces",
       "references/enums",
+      "references/interfaces",
       "references/types"
     ],
-    "entryCount": 346,
+    "entryCount": 404,
     "counts": {
-      "class": 127,
-      "enum": 73,
-      "interface": 122,
-      "type": 24
+      "class": 131,
+      "enum": 76,
+      "interface": 162,
+      "type": 35
     }
   },
-  "normalization": "CR/CRLF line endings normalized to LF. Entry sha256 covers stored UTF-8 text; sourceSha256 covers original archive bytes. Text, examples and embedded notices are retained.",
+  "normalization": "CR/CRLF normalized to LF. Entry sha256 covers stored UTF-8 text; sourceSha256 covers original archive bytes. Definitions, examples and notices are retained.",
   "attribution": {
     "author": "JLCEDA",
     "licenseDeclaration": "MIT",
     "declarationSource": "upstream SKILL.md frontmatter",
     "standaloneLicenseFilePresent": false,
-    "note": "No standalone top-level license file was present in the archive. The declaration is provenance, not a new license grant or an assertion about every upstream document."
+    "note": "Upstream declarations are recorded as provenance, not a new license grant or a claim about every document."
   },
-  "scope": "Only reference documents are included. Upstream skills, bridge scripts, dependencies, execution instructions and project files were not imported. API examples are inert reference text and must not be executed by lookup.",
-  "freshness": "The snapshot is historical, not a claim about current API behavior or an EDA instance. Official source URLs are references, not fetched or verified by the lookup command."
+  "scope": "Only API reference documents are imported. Upstream execution instructions, bridge code, dependencies, guides and project files are not imported or executed.",
+  "freshness": "Pinned official documentation snapshot; documentation presence does not prove API availability or behavior in a target editor."
 }

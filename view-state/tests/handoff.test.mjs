@@ -88,15 +88,15 @@ test('PCB operations retain separate discovery guides while the viewer combines 
   ].map(([heading,summary])=>'### '+heading+'\nViewState: '+summary+'\n').join('');
   const snapshot=parseHandoff(text),items=navigation(snapshot)[3].children.slice(3);
   assert.equal(items.length,2);
-  assert.equal(items[0].sources[0].summary,'接口固定。');
-  assert.equal(items[1].kind,'networks');
-  assert.deepEqual(items[1].sources.map(n=>n.summary),['仅计划。','仅局部回读。','仅预览。']);
-  assert.ok(items[1].sources.every(n=>!n.networkTable));
+  assert.equal(items[0].kind,'networks');assert.equal(items[0].code,'3.4');
+  assert.equal(items[1].code,'3.5');assert.equal(items[1].sources[0].summary,'接口固定。');
+  assert.deepEqual(items[0].sources.map(n=>n.summary),['仅计划。','仅局部回读。','仅预览。']);
+  assert.ok(items[0].sources.every(n=>!n.networkTable));
   const registry=JSON.parse(await readFile(new URL('../../scripts/actions/manifest.json',import.meta.url),'utf8'));
-  const refs=['pcb-routing-plan','pcb-trace-width','pcb-net-color'].map(name=>registry.actions[name].discovery.reference);
-  assert.deepEqual(items[1].references,refs);
+  const refs=['pcb-net-color','pcb-routing-plan','pcb-trace-width'].map(name=>registry.actions[name].discovery.reference);
+  assert.deepEqual(items[0].references,refs);
   for(const ref of refs)assert.ok((await readFile(new URL('../../'+ref,import.meta.url),'utf8')).length>0);
-  for(const source of items[1].sources){
+  for(const source of items[0].sources){
     const url=new URL(sourceUrl('/project',source),'http://localhost');
     assert.equal(url.searchParams.get('heading'),source.heading);
     assert.equal(Number(url.searchParams.get('line')),text.split('\n').indexOf('### '+source.heading)+1);
@@ -105,15 +105,36 @@ test('PCB operations retain separate discovery guides while the viewer combines 
 
 test('combined network topic replaces old source links without inferring rows from their prose',()=>{
   const old='# P\n## 3. PCB 设计\n### 3.3 网络分类、线宽/过孔、布线优先级与配色\nViewState: 合并记录。\n';
-  const legacy=navigation(parseHandoff(old))[3].children.at(-1);
+  const legacy=navigation(parseHandoff(old))[3].children.find(n=>n.kind==='networks');
   assert.equal(legacy.sources.length,1);assert.equal(legacy.sources[0].networkTable,undefined);
-  const current=navigation(parseHandoff(old+'### 3.7 网络规则\nViewState: 只提供摘要。'))[3].children.at(-1);
+  const current=navigation(parseHandoff(old+'### 3.7 网络规则\nViewState: 只提供摘要。'))[3].children.find(n=>n.kind==='networks');
   assert.equal(current.sources.length,1);assert.equal(current.sources[0].title,'网络规则');
   assert.equal(current.sources[0].networkTable,undefined);
 });
 
 test('multiple network records preserve their source ownership and unknown status',()=>{
-  const node=navigation(parseHandoff('# P\n## 3. PCB 设计\n### 3.2 网络规则\nViewState: 旧版记录。\n### 3.9 网络规则\n正文无梗概。'))[3].children.at(-1);
+  const node=navigation(parseHandoff('# P\n## 3. PCB 设计\n### 3.2 网络规则\nViewState: 旧版记录。\n### 3.9 网络规则\n正文无梗概。'))[3].children.find(n=>n.kind==='networks');
   assert.deepEqual(node.sources.map(n=>n.summary),['旧版记录。',null]);
   assert.equal(node.status,undefined);
+});
+
+test('network rules precede placement while standalone project chapters keep their original identities',()=>{
+  const stage='网络规则、配色与布线准备（2026-10-05）';
+  const text='# Project\n## 0. 当前交接\n当前阶段: '+stage+'\n'+
+    '## 6. '+stage+'\nViewState: 原始规则记录。\nViewStateTable: networks\n\n| 网络名称 | 线宽 (mil) | 颜色 |\n| --- | --- | --- |\n| N | 24 | #AABBCC |\n'+
+    '## 9. 布局与空间（原项目章节，2026-10-06）\nViewState: 原始布局记录。\n'+
+    '## 8. 分层自动布线\nViewState: 保留原编号。\n';
+  const snapshot=parseHandoff(text),before=structuredClone(snapshot),roots=navigation(snapshot),pcb=roots[3];
+  const network=pcb.children.find(n=>n.kind==='networks'),layout=pcb.children.find(n=>n.code==='3.5');
+  assert.equal(network.id,'skill-3.4');assert.ok(pcb.children.indexOf(network)<pcb.children.indexOf(layout));
+  assert.equal(network.sources.length,1);assert.equal(network.sources[0].heading,'6. '+stage);
+  assert.deepEqual(network.sources[0].networkTable.rows,[{net:'N',width:'24',color:'#AABBCC'}]);
+  assert.equal(layout.sources[0].heading,'9. 布局与空间（原项目章节，2026-10-06）');
+  assert.deepEqual(roots[6].children[0].sources,[]);assert.equal(roots[6].current,false);assert.equal(pcb.current,true);
+  assert.equal(snapshot.currentStage,stage);assert.deepEqual(snapshot,before);
+  assert.equal(snapshot.sections[3].heading,'8. 分层自动布线');
+  const mappedOwners=roots.flatMap(group=>group.children).filter(slot=>slot.sources.includes(network.sources[0]));
+  assert.deepEqual(mappedOwners.map(slot=>slot.id),['skill-3.4']);
+  const url=new URL(sourceUrl('/project',network.sources[0]),'http://localhost');
+  assert.equal(url.searchParams.get('heading'),'6. '+stage);assert.equal(Number(url.searchParams.get('line')),network.sources[0].line);
 });

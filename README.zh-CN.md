@@ -1,58 +1,37 @@
 # FlitRealize
 
-**把硬件想法推进到可测试的样机，保留设计依据、结果和下一步。**
+**把硬件想法推进到可测试的样机，留下设计依据、结果和下一步。**
 
 [English](README.md) · [首次使用](docs/first-run.md) · [更新记录](CHANGELOG.md) · [发布包](https://github.com/flitfancy/flitrealize/releases)
 
-版本标识：`v2.0.0`。
+一个 Skill 串起需求、器件、原理图、PCB、制造准备和样机测试。AI 负责电路与工程判断，脚本处理重复计算、执行和回读。
 
-一个 Skill 覆盖需求、选型、原理图、PCB、制造准备与样机验证。AI 负责工程判断，脚本负责重复计算、执行和回读。项目保持一份 `CURRENT_HANDOFF.md`，Contract、EDA 文件及原始证据保存各自的事实。
-
-## 已实现的工作
-
-| 本次任务 | 能力与范围 |
-| --- | --- |
-| 需求与器件 | 功能/电源/接口架构、器件身份和资料、复用项目库存工具 |
-| 原理图 | Contract 核对、库绑定、批量放件、端点连接、重排与保存检查 |
-| 布局 | 统一输入与公共 model；多起点搜索、CP-SAT、开放块、带铜刚性模板、有限形状重力装填及局部比较 |
-| 布线 | 角色规则、FR 批次求解与验收/原生执行链；两层 A* 预走线、全层孔位扫描、联合扇出、铜路径、有限回退与清理 |
-| PCB 专项操作 | 板框/层/keepout、明确器件移动、指定线段改宽、配色和接地工具 |
-| 制造与样机 | 制造候选版本配对、BOM/CPL 和测量/改版的工程指导及证据组织 |
-| 续接 | 简短顶部、相关项目正文、只读 View State 面板 |
-
-通用候选和局部诊断保留覆盖范围；地空间是潜在容量模型。完整候选的现场应用走原有执行链，局部/带铜块和细布局候选仍需完整原生计划。实际回流、载流、热和制造结论按相应工程验证取得。
-
-现场 Provider 目前为 EasyEDA Pro：桌面可选官方CLI；网页或明确选用Bridge的桌面使用API Gateway + Node Bridge，由同一 `eda-host.mjs` 选择通道。CLI 的只读 API、会话及原请求查询已实测；其他原生操作按其说明核验代表对象。其他 EDA 须有对应 Provider。
+版本文件为 `v2.0.0`；当前源码变更和验证结果见 [Unreleased](CHANGELOG.md#unreleased)。
 
 ## 开始或继续
 
-安装到宿主 Skill 目录，`flitrealize/` 下直接包含 `SKILL.md`；安装后新开任务：
+将仓库放到宿主的 Skill 目录，确保 `flitrealize/` 下直接有 `SKILL.md`。安装后新开任务：
 
 ```text
 $flitrealize 从 <PROJECT_ROOT> 开始硬件项目，这次完成需求、架构和器件候选。
 $flitrealize 继续 <PROJECT_ROOT>，处理当前 PCB 布局问题。
 ```
 
-日常读取项目顶部、本次相关章节和当前操作说明。跨阶段或整体设计才查[阶段导航](references/0.0-overview.md)；能力查找见[主入口](SKILL.md#查找能力)，运行依赖与现场通道见[首次使用](docs/first-run.md)。项目目录与 Skill 分开。
+项目与 Skill 分开。每个项目保留一份 `CURRENT_HANDOFF.md`：顶部写当前方案、结果、卡点和下一步，正文保留设计理由及证据入口。实际连接和几何由 Contract、EDA 文件及原始报告保存。
 
-新建或首次接管时按需打开 [View State](view-state/README.md)，以后复用；面板显示作者提供的文稿内容和当前通道健康状态，不推断工程进度。
+普通续接读项目顶部、本次相关章节和当前操作说明。工作顺序与能力查找见[主入口](SKILL.md)，跨阶段查[阶段导航](references/0.0-overview.md)，依赖和接入见[首次使用](docs/first-run.md)。[View State](view-state/README.md)提供只读项目面板，新建或首次接管时打开，后续复用。
 
-## 架构
+## 工作范围
 
-| 部分 | 职责 |
-| --- | --- |
-| `SKILL.md` | 任务范围、续接、能力查找和必要原则 |
-| `references/` | 工程阶段、公共输入/算法和操作支持范围 |
-| `references/0.3-easyeda-pro.md` | 共同目标、保存回读和未知结果恢复 |
-| CLI / manifest | 定位已有能力、接收输入、衔接实现、保留证据 |
-| 公共模型与算法 | 派生候选并复用统一约束和验收 |
-| Provider / 通道 | 原生身份/层/网表转换与读写；原宿主调度官方 CLI 或 Bridge |
+粗布局安排块，细布局安排簇和器件，走线连接并反馈。按项目当前进度进入相应阶段；字段、命令和支持条件由对应技术参考维护。
 
-公共算法位于 `scripts/pcb-layout/`、`scripts/pcb-routing/`；原生实现和 CLI 通道在 `scripts/providers/`，Bridge 在 `adapters/`。项目参数与证据留在项目。中文执行文档只有一套；`docs/zh-CN` 是兼容跳转，`docs/en-backup` 是固定历史快照。
+当前现场接入是 EasyEDA Pro，支持桌面官方 CLI 与网页／桌面 Bridge；其他 EDA 软件需要对应实现。块区域自动分配、按走线失败自动选器件移动，以及整个流程的自动循环仍待实现。
+
+候选、写入、保存、连通、DRC、电气和样机结果分别记录。二维几何、连接距离或试走线通过，不能代替实际回流、载流、热、机械与制造检查。真实 SDK 位号边界仍待实测；具体限制见[细布局接口](references/technical/pcb-fine-layout-execution.md#验证记录)和[新建 PCB 验证范围](references/providers/easyeda-pro/3.1-pcb-create.md#当前验证范围)，本轮详细变化与回归结果见[更新记录](CHANGELOG.md#unreleased)。
 
 ## 开发与验证
 
-Node.js 22+；仓库校验/打包脚本可用 Python 3.10+。数值后端需 Python 3.12+ 和[固定依赖](requirements-pcb.txt)，配置见[首跑指南](docs/first-run.md#数值与路由环境)。源码仓库运行：
+Node.js 22+；仓库校验和打包使用 Python 3.10+。数值后端需要 Python 3.12+ 与[固定依赖](requirements-pcb.txt)，配置见[首次使用](docs/first-run.md#数值与路由环境)。在源码目录运行：
 
 ```sh
 python scripts/validate.py
@@ -60,6 +39,8 @@ npm test
 python -m unittest discover -s tests -p "test_*.py"
 ```
 
-数值测试需按首跑指南配置解释器；Bridge 集成测试需其通道依赖。完整发布检查使用 `./scripts/release.ps1 -DryRun`。运行包包含工具、参考、依赖清单和面板，排除测试、项目记录及 `node_modules`；实现约定见 [Action 与 Provider](development/action-system.md)。
+数值测试需要已配置的解释器，Bridge 集成测试需要通道依赖。`./scripts/release.ps1 -DryRun` 运行仓库、回归和干净 ZIP 检查。开发约定见 [Action 与 Provider](development/action-system.md)。
 
-[MIT](LICENSE) · Copyright (c) 2026 FlitFancy。
+中文执行说明只有一套；`docs/zh-CN` 保留兼容跳转，`docs/en-backup` 保留固定历史快照。运行包包含工具、说明、依赖清单和面板，项目记录、测试及依赖安装目录留在包外。
+
+[MIT](LICENSE) · Copyright (c) 2026 FlitFancy.

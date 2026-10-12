@@ -1,3 +1,4 @@
+import { validateSearchSettings } from '../scripts/pcb-layout/pcb-layout-solver-core.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -184,7 +185,7 @@ test('explicit owner or parent is required regardless of native-id naming patter
   assert.ok(codes(unknownParent).includes('UNKNOWN_PAD_PARENT'));
 });
 
-test('search profiles must be nonempty, uniquely named and executable with explicit seeds and effective weights', () => {
+test('common preparation leaves search profiles to the search backend', () => {
   const cases = [
     [f => { delete f.config.search.profiles; }, 'MISSING_SEARCH_PROFILES'],
     [f => { f.config.search.profiles = []; }, 'MISSING_SEARCH_PROFILES'],
@@ -200,12 +201,14 @@ test('search profiles must be nonempty, uniquely named and executable with expli
   ];
   for (const [change, code] of cases) {
     const fixture = prepareFixture(); change(fixture); const result = prepareLayoutInputs(fixture);
-    assert.equal(result.state.ready, false); assert.ok(codes(result).includes(code), JSON.stringify(result.diagnostics));
+    ready(result);
+    assert.throws(() => validateSearchSettings(result.model, { requireProfiles: true }), new RegExp(code));
   }
   const fixture = prepareFixture(); fixture.config.search.profiles[0].seed = 0; ready(prepareLayoutInputs(fixture));
   delete fixture.config.scoringMode;
   fixture.config.search.profiles[0].weights.displacement = 0;
-  assert.ok(codes(prepareLayoutInputs(fixture)).includes('INVALID_SEARCH_WEIGHTS'), 'The single current weighting rule also applies when scoringMode is omitted');
+  const prepared = prepareLayoutInputs(fixture); ready(prepared);
+  assert.throws(() => validateSearchSettings(prepared.model, { requireProfiles: true }), /INVALID_SEARCH_WEIGHTS/);
 });
 
 test('zero or absent objective weights are recorded without creating a new preference', () => {

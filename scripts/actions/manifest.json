@@ -8,6 +8,45 @@
     }
   },
   "workflows": {
+    "easyeda-pcb-create": {
+      "description": "从已确认的单页原理图新建 PCB，复用器件、封装、焊盘与网表核对并保存对账。",
+      "discovery": {
+        "keywords": [
+          "转PCB",
+          "转 PCB",
+          "新建PCB",
+          "schematic to pcb"
+        ],
+        "reference": "references/providers/easyeda-pro/3.1-pcb-create.md",
+        "entrypoint": "scripts/pcb-create.mjs",
+        "limitations": [
+          "必须使用封装入口；步骤清单不替代完整回读与保存。",
+          "仅新建单页来源的 PCB；原理图须游离或所在 Board 尚无 PCB，不替换已有 PCB。已有 PCB 更新及保铜保布局未覆盖。"
+        ]
+      },
+      "domain": "pcb",
+      "provider": "easyeda-pro",
+      "phases": {
+        "prepare": [
+          {
+            "action": "pcb-create",
+            "mode": "inspect"
+          }
+        ],
+        "apply": [
+          {
+            "action": "pcb-create",
+            "mode": "apply"
+          }
+        ],
+        "verify": [
+          {
+            "action": "pcb-create",
+            "mode": "verify"
+          }
+        ]
+      }
+    },
     "easyeda-schematic-reflow": {
       "description": "按功能块重排原理图器件，或整体重排器件、短线和文字组合。",
       "discovery": {
@@ -26,9 +65,24 @@
       "domain": "schematic",
       "provider": "easyeda-pro",
       "phases": {
-        "prepare": [{ "action": "schematic-reflow", "mode": "plan" }],
-        "apply": [{ "action": "schematic-reflow", "mode": "apply" }],
-        "verify": [{ "action": "schematic-reflow", "mode": "verify" }]
+        "prepare": [
+          {
+            "action": "schematic-reflow",
+            "mode": "plan"
+          }
+        ],
+        "apply": [
+          {
+            "action": "schematic-reflow",
+            "mode": "apply"
+          }
+        ],
+        "verify": [
+          {
+            "action": "schematic-reflow",
+            "mode": "verify"
+          }
+        ]
       }
     },
     "easyeda-schematic-components": {
@@ -55,18 +109,52 @@
       "provider": "easyeda-pro",
       "phases": {
         "prepare": [
-          { "action": "schematic-contract-audit", "mode": "inspect" },
-          { "action": "schematic-resolve-bindings", "mode": "resolve" },
-          { "action": "schematic-layout", "mode": "generate" },
-          { "action": "schematic-component-place", "mode": "inspect" },
-          { "action": "schematic-component-place", "mode": "plan" }
+          {
+            "action": "schematic-contract-audit",
+            "mode": "inspect"
+          },
+          {
+            "action": "schematic-resolve-bindings",
+            "mode": "resolve"
+          },
+          {
+            "action": "schematic-layout",
+            "mode": "generate"
+          },
+          {
+            "action": "schematic-component-place",
+            "mode": "inspect"
+          },
+          {
+            "action": "schematic-component-place",
+            "mode": "plan"
+          }
         ],
-        "apply": [{ "action": "schematic-component-place", "mode": "apply" }],
-        "verify": [{ "action": "schematic-component-place", "mode": "verify" }],
+        "apply": [
+          {
+            "action": "schematic-component-place",
+            "mode": "apply"
+          }
+        ],
+        "verify": [
+          {
+            "action": "schematic-component-place",
+            "mode": "verify"
+          }
+        ],
         "save": [
-          { "action": "schematic-save-verify", "mode": "plan" },
-          { "action": "schematic-save-verify", "mode": "apply" },
-          { "action": "schematic-component-place", "mode": "inspect" }
+          {
+            "action": "schematic-save-verify",
+            "mode": "plan"
+          },
+          {
+            "action": "schematic-save-verify",
+            "mode": "apply"
+          },
+          {
+            "action": "schematic-component-place",
+            "mode": "inspect"
+          }
         ]
       }
     },
@@ -96,37 +184,105 @@
       "provider": "easyeda-pro",
       "phases": {
         "prepare": [
-          { "action": "schematic-inspect", "mode": "inspect" },
-          { "action": "schematic-wire-plan", "mode": "generate" },
-          { "action": "schematic-wire-create", "mode": "plan" },
-          { "action": "schematic-net-flag", "mode": "plan" },
-          { "action": "schematic-no-connect", "mode": "plan" }
+          {
+            "action": "schematic-inspect",
+            "mode": "inspect"
+          },
+          {
+            "action": "schematic-wire-plan",
+            "mode": "generate"
+          },
+          {
+            "action": "schematic-wire-create",
+            "mode": "plan"
+          },
+          {
+            "action": "schematic-net-flag",
+            "mode": "plan"
+          },
+          {
+            "action": "schematic-no-connect",
+            "mode": "plan"
+          }
         ],
         "apply": [
-          { "action": "schematic-wire-create", "mode": "apply" },
-          { "action": "schematic-net-flag", "mode": "apply" },
-          { "action": "schematic-no-connect", "mode": "apply" }
+          {
+            "action": "schematic-wire-create",
+            "mode": "apply"
+          },
+          {
+            "action": "schematic-net-flag",
+            "mode": "apply"
+          },
+          {
+            "action": "schematic-no-connect",
+            "mode": "apply"
+          }
         ],
         "verify": [
-          { "action": "schematic-wire-create", "mode": "verify" },
-          { "action": "schematic-net-flag", "mode": "verify" },
-          { "action": "schematic-no-connect", "mode": "verify" },
-          { "action": "schematic-inspect", "mode": "inspect" }
+          {
+            "action": "schematic-wire-create",
+            "mode": "verify"
+          },
+          {
+            "action": "schematic-net-flag",
+            "mode": "verify"
+          },
+          {
+            "action": "schematic-no-connect",
+            "mode": "verify"
+          },
+          {
+            "action": "schematic-inspect",
+            "mode": "inspect"
+          }
         ],
         "reflow": [
-          { "action": "schematic-reflow", "mode": "plan", "optional": true },
-          { "action": "schematic-reflow", "mode": "apply", "optional": true },
-          { "action": "schematic-reflow", "mode": "verify", "optional": true }
+          {
+            "action": "schematic-reflow",
+            "mode": "plan",
+            "optional": true
+          },
+          {
+            "action": "schematic-reflow",
+            "mode": "apply",
+            "optional": true
+          },
+          {
+            "action": "schematic-reflow",
+            "mode": "verify",
+            "optional": true
+          }
         ],
         "finalize": [
-          { "action": "schematic-save-verify", "mode": "plan" },
-          { "action": "schematic-save-verify", "mode": "apply" },
-          { "action": "schematic-inspect", "mode": "inspect" }
+          {
+            "action": "schematic-save-verify",
+            "mode": "plan"
+          },
+          {
+            "action": "schematic-save-verify",
+            "mode": "apply"
+          },
+          {
+            "action": "schematic-inspect",
+            "mode": "inspect"
+          }
         ],
         "rollback": [
-          { "action": "schematic-no-connect", "mode": "rollback", "optional": true },
-          { "action": "schematic-net-flag", "mode": "rollback", "optional": true },
-          { "action": "schematic-wire-create", "mode": "rollback" }
+          {
+            "action": "schematic-no-connect",
+            "mode": "rollback",
+            "optional": true
+          },
+          {
+            "action": "schematic-net-flag",
+            "mode": "rollback",
+            "optional": true
+          },
+          {
+            "action": "schematic-wire-create",
+            "mode": "rollback"
+          }
         ]
       }
     },
@@ -145,11 +301,27 @@
       "provider": "easyeda-pro",
       "phases": {
         "prepare": [
-          { "action": "schematic-inspect", "mode": "inspect" },
-          { "action": "schematic-save-verify", "mode": "plan" }
+          {
+            "action": "schematic-inspect",
+            "mode": "inspect"
+          },
+          {
+            "action": "schematic-save-verify",
+            "mode": "plan"
+          }
         ],
-        "apply": [{ "action": "schematic-save-verify", "mode": "apply" }],
-        "verify": [{ "action": "schematic-save-verify", "mode": "verify" }]
+        "apply": [
+          {
+            "action": "schematic-save-verify",
+            "mode": "apply"
+          }
+        ],
+        "verify": [
+          {
+            "action": "schematic-save-verify",
+            "mode": "verify"
+          }
+        ]
       }
     },
     "easyeda-pcb-route": {
@@ -191,6 +363,51 @@
     }
   },
   "actions": {
+    "pcb-create": {
+      "file": "easyeda-pro/pcb-create.js",
+      "description": "核对单页原理图及 Board 关系，仅新建 PCB 并验证同 Board 来源后导入；完整回读、保存和续接使用封装入口。",
+      "discovery": {
+        "keywords": [
+          "转PCB",
+          "转 PCB",
+          "新建PCB",
+          "schematic to pcb"
+        ],
+        "reference": "references/providers/easyeda-pro/3.1-pcb-create.md",
+        "entrypoint": "scripts/pcb-create.mjs",
+        "limitations": [
+          "单页来源须为游离原理图或尚无 PCB 的 Board；显式关联同一 Board，只新建 PCB，不替换旧 PCB。",
+          "未知结果不重放创建、关联或导入；正常路径复用现有回读和网表核对。",
+          "新 Board 路径已在官方样例隔离副本验证创建、关联、导入与保存，并核对器件、封装、焊盘及赋网；既有空 Board 路径仅 Mock 回归。具体范围见操作页。"
+        ]
+      },
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": [
+        "easyeda-pro"
+      ],
+      "defaultMode": "inspect",
+      "internal": true,
+      "modes": {
+        "inspect": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        }
+      },
+      "requires": {
+        "all": [
+          "document.current",
+          "project.current",
+          "file.documentSource"
+        ]
+      }
+    },
     "api-reference": {
       "file": "api-reference.js",
       "description": "离线检索嘉立创 API 类、方法、参数与类型资料，按需展开准确成员。",
@@ -225,114 +442,314 @@
     },
     "pcb-layout-prepare": {
       "file": "pcb-layout-prepare.js",
-      "description": "将上游设计、PCB 快照与项目规则关联为布局求解输入，报告输入状态和工程要求覆盖；完整读写流程使用布局入口。",
+      "description": "关联上游设计、PCB 快照与项目规则，准备粗细布局输入；完整细布局调用公共 pcb-layout.mjs fine 入口。",
       "discovery": {
-        "keywords": ["布局输入", "粗布局", "布局候选", "pcb layout solver"],
-        "reference": "references/providers/easyeda-pro/3.4-pcb-placement.md",
+        "keywords": [
+          "布局输入",
+          "粗布局",
+          "布局候选",
+          "pcb layout solver",
+          "细布局",
+          "独立位号",
+          "fine layout",
+          "周围空白"
+        ],
+        "reference": "references/providers/easyeda-pro/3.5-pcb-placement.md",
         "entrypoint": "scripts/pcb-layout.mjs",
-        "limitations": ["此 host action 只接受完整输入进行 prepare，不读取或修改 EDA。", "读取现场、求解与应用选定候选使用 pcb-layout.mjs；完整柔性填空和主动收拢尚未实现。", "几何及连接距离是代理检查，不代表实际布线、回流或整板 DRC 通过。"]
+        "limitations": [
+          "此 host action 只执行 prepare，不读取或修改 EDA。",
+          "完整细布局使用 node scripts/pcb-layout.mjs fine：器件、独立位号、验收和完整候选；离线求解不自动写板。",
+          "周围空白仍受真实板框、固定障碍、来源约束限制；不会自动扩大邻居权限。",
+          "实际铜、回流及整板完成状态分别报告；原生文字渲染尚须真实 SDK 代表对象验证。"
+        ]
       },
-      "contractVersion": 1, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "prepare",
-      "modes": { "prepare": { "mutates": false } }
-    },
-    "pcb-fine-layout": {
-      "file": "pcb-fine-layout.js",
-      "description": "1.5维重力算法：局部组形状预生成、按原布局分层取块、重力下落与固定板框装填。",
-      "discovery": {
-        "keywords": ["细布局", "1.5维重力算法", "1.5D gravity", "俄罗斯方块", "重力试排", "预生成形状", "tetris", "pcb gravity layout"],
-        "reference": "references/providers/easyeda-pro/3.4-fine-layout.md",
-        "entrypoint": "scripts/pcb-fine-layout.mjs",
-        "limitations": ["离线有限形状装填；不连接或修改 EDA。", "需要实际矩形板框与装配规则，先合并局部组，再预生成收拢/旋转形状。", "碰撞基于装配包围盒；装入率、精确贴边检查和实际电气验收分别报告。"]
-      },
-      "contractVersion": 1, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "pack",
-      "modes": { "pack": { "mutates": false } }
-    },
-    "pcb-fine-review": {
-      "file": "pcb-fine-review.js",
-      "description": "在实际板框内比较细布局局部候选，回算焊盘距离、网络跨度及几何变化。",
-      "discovery": {
-        "keywords": ["细布局", "局部细化", "焊盘距离", "fine placement", "pcb fine layout"],
-        "reference": "references/providers/easyeda-pro/3.4-fine-review.md",
-        "entrypoint": "scripts/pcb-fine-review.mjs",
-        "limitations": ["只比较显式候选，不搜索、不写入 EDA；没有板框先生成板框请求并重新读取。", "平移与相对90度旋转；矩形板框、二维占位和可选装配规则。", "写入复用 pcb-edit 的现场计划；当前执行器不能带动已有铜线。"]
-      },
-      "contractVersion": 1, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "review",
-      "modes": { "review": { "mutates": false } }
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "host",
+      "providers": [],
+      "defaultMode": "prepare",
+      "modes": {
+        "prepare": {
+          "mutates": false
+        }
+      }
     },
     "pcb-board-outline": {
       "file": "easyeda-pro/pcb-board-outline.js",
       "description": "在 BOARD_OUTLINE 层用 Polyline 创建或替换矩形板框，回读闭合几何并可单独保存。",
       "discovery": {
-        "keywords": ["板框", "板边", "outline", "board outline", "矩形板框"],
+        "keywords": [
+          "板框",
+          "板边",
+          "outline",
+          "board outline",
+          "矩形板框"
+        ],
         "reference": "references/providers/easyeda-pro/3.2-pcb-foundation.md",
-        "limitations": ["只用 pcb_PrimitivePolyline.create，不用 Line 写 layer 11。", "默认拒绝覆盖已有板框；replace:true 时仅允许替换唯一已有板框。", "矩形或显式 path；不自动从器件包围盒推导板框。"]
+        "limitations": [
+          "只用 pcb_PrimitivePolyline.create，不用 Line 写 layer 11。",
+          "默认拒绝覆盖已有板框；replace:true 时仅允许替换唯一已有板框。",
+          "矩形或显式 path；不自动从器件包围盒推导板框。"
+        ]
       },
-      "contractVersion": 1, "domain": "pcb", "runtime": "eda", "providers": ["easyeda-pro"], "defaultMode": "inspect",
-      "modes": { "inspect": { "mutates": false }, "plan": { "mutates": false }, "apply": { "mutates": true }, "verify": { "mutates": false }, "save": { "mutates": true } },
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": [
+        "easyeda-pro"
+      ],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        },
+        "save": {
+          "mutates": true
+        }
+      },
       "requires": {
-        "all": ["document.current", "project.current", "polyline.list", "math.polygon.create"],
-        "apply": ["polyline.create", "polyline.delete"],
-        "save": ["pcb.document.save"]
+        "all": [
+          "document.current",
+          "project.current",
+          "polyline.list",
+          "math.polygon.create"
+        ],
+        "apply": [
+          "polyline.create",
+          "polyline.delete"
+        ],
+        "save": [
+          "pcb.document.save"
+        ]
       }
     },
     "pcb-placement": {
       "file": "easyeda-pro/pcb-placement.js",
       "description": "比较 PCB 功能块平移或器件布局方案，检查空白、锁定、重叠与预留区，并执行明确的未布线器件移动。",
       "discovery": {
-        "keywords": ["PCB布局", "布局优化", "功能块收束", "空白区域", "布局美化", "pcb layout", "placement", "空白检查"],
-        "reference": "references/providers/easyeda-pro/3.4-pcb-placement.md",
+        "keywords": [
+          "PCB布局",
+          "布局优化",
+          "功能块收束",
+          "空白区域",
+          "布局美化",
+          "pcb layout",
+          "placement",
+          "空白检查"
+        ],
+        "reference": "references/providers/easyeda-pro/3.5-pcb-placement.md",
         "entrypoint": "scripts/pcb-edit.mjs",
-        "limitations": ["矩形边界和保守包围盒检查；不是自动电气布局优化器。", "不移动锁定器件；有走线、过孔或铺铜时不执行移动，不自动清线。", "已通过隔离模拟测试；真实 EDA 新入口仍需代表对象验收。"]
+        "limitations": [
+          "矩形边界和保守包围盒检查；不是自动电气布局优化器。",
+          "不移动锁定器件；有走线、过孔或铺铜时不执行移动，不自动清线。",
+          "已通过隔离模拟测试；真实 EDA 新入口仍需代表对象验收。"
+        ]
       },
-      "contractVersion": 1, "domain": "pcb", "runtime": "eda", "providers": ["easyeda-pro"], "defaultMode": "inspect",
-      "modes": { "inspect": { "mutates": false }, "plan": { "mutates": false }, "apply": { "mutates": true }, "verify": { "mutates": false }, "save": { "mutates": true } },
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": [
+        "easyeda-pro"
+      ],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        },
+        "save": {
+          "mutates": true
+        }
+      },
       "requires": {
-        "all": ["document.current", "project.current", "file.documentSource", "component.list", "primitive.bbox", "region.list", "line.list", "arc.list", "polyline.list", "via.list", "pour.list"],
-        "apply": ["component.get", "component.modify"], "save": ["pcb.document.save"]
+        "all": [
+          "document.current",
+          "project.current",
+          "file.documentSource",
+          "component.list",
+          "primitive.bbox",
+          "region.list",
+          "line.list",
+          "arc.list",
+          "polyline.list",
+          "via.list",
+          "pour.list"
+        ],
+        "apply": [
+          "component.get",
+          "component.modify"
+        ],
+        "save": [
+          "pcb.document.save"
+        ]
       }
     },
     "pcb-trace-width": {
       "file": "easyeda-pro/pcb-trace-width.js",
       "description": "按明确网络和线段 ID 计划、修改与回读 PCB 线宽，检查当前配置 DRC，并单独保存。",
       "discovery": {
-        "keywords": ["线宽", "加粗", "主干宽度", "trace width"],
-        "reference": "references/providers/easyeda-pro/3.6-pcb-trace-width.md",
+        "keywords": [
+          "线宽",
+          "加粗",
+          "主干宽度",
+          "trace width"
+        ],
+        "reference": "references/providers/easyeda-pro/3.7-pcb-trace-width.md",
         "entrypoint": "scripts/pcb-edit.mjs",
-        "limitations": ["必须指定线段 ID；不根据电流自动算宽、不修改网络类或自动路由器规则。", "不把全部同网线段统一加粗；焊盘逃逸、长度、过孔和实际载流能力另行核验。", "已通过隔离模拟测试；真实 EDA 新入口仍需代表对象验收。"]
+        "limitations": [
+          "必须指定线段 ID；不根据电流自动算宽、不修改网络类或自动路由器规则。",
+          "不把全部同网线段统一加粗；焊盘逃逸、长度、过孔和实际载流能力另行核验。",
+          "已通过隔离模拟测试；真实 EDA 新入口仍需代表对象验收。"
+        ]
       },
-      "contractVersion": 1, "domain": "pcb", "runtime": "eda", "providers": ["easyeda-pro"], "defaultMode": "inspect",
-      "modes": { "inspect": { "mutates": false }, "plan": { "mutates": false }, "apply": { "mutates": true }, "verify": { "mutates": false }, "save": { "mutates": true } },
+      "contractVersion": 1,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": [
+        "easyeda-pro"
+      ],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        },
+        "save": {
+          "mutates": true
+        }
+      },
       "requires": {
-        "all": ["document.current", "project.current", "file.documentSource", "line.list"],
-        "plan": ["drc.check"], "apply": ["line.get", "line.modify", "drc.check"], "save": ["pcb.document.save", "drc.check"]
+        "all": [
+          "document.current",
+          "project.current",
+          "file.documentSource",
+          "line.list"
+        ],
+        "plan": [
+          "drc.check"
+        ],
+        "apply": [
+          "line.get",
+          "line.modify",
+          "drc.check"
+        ],
+        "save": [
+          "pcb.document.save",
+          "drc.check"
+        ]
       }
     },
     "pcb-net-color": {
       "file": "easyeda-pro/pcb-net-color.js",
       "description": "按固定用途/信号色表修改已有网络类；一次执行完成规则恢复、回读和可选保存。",
       "discovery": {
-        "keywords": ["配色","线路颜色","网络颜色","net color","pcb color"],
-        "reference": "references/providers/easyeda-pro/3.7-pcb-net-color.md",
+        "keywords": [
+          "配色",
+          "焊盘着色",
+          "布局配色",
+          "布局第一步",
+          "线路颜色",
+          "网络颜色",
+          "net color",
+          "pcb color"
+        ],
+        "reference": "references/providers/easyeda-pro/3.4-pcb-net-color.md",
         "entrypoint": "scripts/pcb-edit.mjs",
-        "limitations": ["仅重建选定已有网络类，不逐网络上色或清除历史覆盖；不自动建类或改变成员。","按 kind 固定着色，支持电源、地、逻辑供电、I2C、SPI、UART等信号；不猜用途或自动补色。显式色值优先，写入 alpha=255、回读 alpha=1。"]
+        "limitations": [
+          "仅重建选定已有网络类，不逐网络上色或清除历史覆盖；不自动建类或改变成员。",
+          "按 kind 固定着色，支持电源、地、逻辑供电、I2C、SPI、UART等信号；不猜用途或自动补色。显式色值优先，写入 alpha=255、回读 alpha=1。"
+        ]
       },
-      "contractVersion": 4, "domain": "pcb", "runtime": "eda", "providers": ["easyeda-pro"], "defaultMode": "inspect",
-      "modes": { "inspect": { "mutates": false }, "plan": { "mutates": false }, "apply": { "mutates": true } },
+      "contractVersion": 4,
+      "domain": "pcb",
+      "runtime": "eda",
+      "providers": [
+        "easyeda-pro"
+      ],
+      "defaultMode": "inspect",
+      "modes": {
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        }
+      },
       "requires": {
-        "all": ["document.current","project.current","drc.netClass.list"],
-        "apply": ["drc.config.get","drc.netRules.get","drc.netByNetRules.get","drc.regionRules.get","drc.netClass.delete","drc.netClass.create","drc.config.overwrite","drc.netRules.overwrite","pcb.document.save"]
+        "all": [
+          "document.current",
+          "project.current",
+          "drc.netClass.list"
+        ],
+        "apply": [
+          "drc.config.get",
+          "drc.netRules.get",
+          "drc.netByNetRules.get",
+          "drc.regionRules.get",
+          "drc.netClass.delete",
+          "drc.netClass.create",
+          "drc.config.overwrite",
+          "drc.netRules.overwrite",
+          "pcb.document.save"
+        ]
       }
     },
     "pcb-routing-plan": {
       "file": "pcb-routing-plan.js",
       "description": "离线整理 PCB 网络规则和走线优先级，检查输入网络清单与用途字段，生成明确线段的线宽计划请求。",
       "discovery": {
-        "keywords": ["走线优先级", "布线顺序", "网络规则", "线宽分类", "routing priority", "net classes"],
-        "reference": "references/providers/easyeda-pro/3.5-pcb-routing-plan.md",
-        "limitations": ["只生成有序计划及已有线段的改宽/配色请求，不实际布线或写入 EDA 网络类。", "排序不等于自动路由器已按优先级执行；后续执行者需逐组完成并核对证据。"]
+        "keywords": [
+          "走线优先级",
+          "布线顺序",
+          "网络规则",
+          "线宽分类",
+          "routing priority",
+          "net classes"
+        ],
+        "reference": "references/providers/easyeda-pro/3.6-pcb-routing-plan.md",
+        "limitations": [
+          "只生成有序计划及已有线段的改宽/配色请求，不实际布线或写入 EDA 网络类。",
+          "排序不等于自动路由器已按优先级执行；后续执行者需逐组完成并核对证据。"
+        ]
       },
-      "contractVersion": 3, "domain": "pcb", "runtime": "host", "providers": [], "defaultMode": "generate",
-      "modes": { "generate": { "mutates": false } }
+      "contractVersion": 3,
+      "domain": "pcb",
+      "runtime": "host",
+      "providers": [],
+      "defaultMode": "generate",
+      "modes": {
+        "generate": {
+          "mutates": false
+        }
+      }
     },
     "schematic-reflow": {
       "file": "easyeda-pro/schematic-reflow.js",
@@ -354,12 +771,20 @@
       "contractVersion": 1,
       "domain": "schematic",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "plan",
       "modes": {
-        "plan": { "mutates": false },
-        "apply": { "mutates": true },
-        "verify": { "mutates": false }
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        }
       }
     },
     "eda-capabilities": {
@@ -377,13 +802,19 @@
       "contractVersion": 1,
       "domain": "system",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false }
+        "inspect": {
+          "mutates": false
+        }
       },
       "requires": {
-        "all": ["document.current"]
+        "all": [
+          "document.current"
+        ]
       }
     },
     "pcb-component-geometry": {
@@ -404,13 +835,23 @@
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false }
+        "inspect": {
+          "mutates": false
+        }
       },
       "requires": {
-        "all": ["document.current", "component.list", "pad.list", "file.documentSource", "file.footprintSources"]
+        "all": [
+          "document.current",
+          "component.list",
+          "pad.list",
+          "file.documentSource",
+          "file.footprintSources"
+        ]
       }
     },
     "pcb-functional-keepouts": {
@@ -427,19 +868,39 @@
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "plan": { "mutates": false },
-        "apply": { "mutates": true },
-        "verify": { "mutates": false },
-        "rollback": { "mutates": true }
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        },
+        "rollback": {
+          "mutates": true
+        }
       },
       "requires": {
-        "all": ["document.current", "region.list", "math.polygon.create"],
-        "apply": ["region.create"],
-        "rollback": ["region.delete"]
+        "all": [
+          "document.current",
+          "region.list",
+          "math.polygon.create"
+        ],
+        "apply": [
+          "region.create"
+        ],
+        "rollback": [
+          "region.delete"
+        ]
       }
     },
     "pcb-ground-pours": {
@@ -457,19 +918,42 @@
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "plan": { "mutates": false },
-        "apply": { "mutates": true },
-        "verify": { "mutates": false },
-        "rollback": { "mutates": true }
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        },
+        "rollback": {
+          "mutates": true
+        }
       },
       "requires": {
-        "all": ["document.current", "layer.list", "polyline.list", "pour.list", "poured.list", "math.polygon.create"],
-        "apply": ["pour.create"],
-        "rollback": ["pour.delete"]
+        "all": [
+          "document.current",
+          "layer.list",
+          "polyline.list",
+          "pour.list",
+          "poured.list",
+          "math.polygon.create"
+        ],
+        "apply": [
+          "pour.create"
+        ],
+        "rollback": [
+          "pour.delete"
+        ]
       }
     },
     "pcb-ground-stitching": {
@@ -489,14 +973,31 @@
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "generate": { "mutates": false }
+        "inspect": {
+          "mutates": false
+        },
+        "generate": {
+          "mutates": false
+        }
       },
       "requires": {
-        "all": ["document.current", "layer.list", "polyline.list", "region.list", "via.list", "pad.list", "line.list", "arc.list", "pour.list", "poured.list"]
+        "all": [
+          "document.current",
+          "layer.list",
+          "polyline.list",
+          "region.list",
+          "via.list",
+          "pad.list",
+          "line.list",
+          "arc.list",
+          "pour.list",
+          "poured.list"
+        ]
       }
     },
     "pcb-ground-vias": {
@@ -513,20 +1014,45 @@
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "generate": { "mutates": false },
-        "plan": { "mutates": false },
-        "apply": { "mutates": true },
-        "verify": { "mutates": false },
-        "rollback": { "mutates": true }
+        "inspect": {
+          "mutates": false
+        },
+        "generate": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        },
+        "rollback": {
+          "mutates": true
+        }
       },
       "requires": {
-        "all": ["document.current", "via.list", "region.list", "component.list", "file.documentSource", "file.footprintSources"],
-        "apply": ["via.create"],
-        "rollback": ["via.delete"]
+        "all": [
+          "document.current",
+          "via.list",
+          "region.list",
+          "component.list",
+          "file.documentSource",
+          "file.footprintSources"
+        ],
+        "apply": [
+          "via.create"
+        ],
+        "rollback": [
+          "via.delete"
+        ]
       }
     },
     "pcb-grounding-inspect": {
@@ -543,13 +1069,25 @@
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false }
+        "inspect": {
+          "mutates": false
+        }
       },
       "requires": {
-        "all": ["document.current", "pour.list", "region.list", "via.list", "component.list", "file.documentSource", "file.footprintSources"]
+        "all": [
+          "document.current",
+          "pour.list",
+          "region.list",
+          "via.list",
+          "component.list",
+          "file.documentSource",
+          "file.footprintSources"
+        ]
       }
     },
     "pcb-layer-stack": {
@@ -566,19 +1104,40 @@
       "contractVersion": 1,
       "domain": "pcb",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "plan": { "mutates": false },
-        "apply": { "mutates": true },
-        "verify": { "mutates": false },
-        "rollback": { "mutates": true }
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        },
+        "rollback": {
+          "mutates": true
+        }
       },
       "requires": {
-        "all": ["document.current", "layer.list"],
-        "apply": ["layer.setCopperCount", "layer.modify"],
-        "rollback": ["layer.setCopperCount", "layer.modify"]
+        "all": [
+          "document.current",
+          "layer.list"
+        ],
+        "apply": [
+          "layer.setCopperCount",
+          "layer.modify"
+        ],
+        "rollback": [
+          "layer.setCopperCount",
+          "layer.modify"
+        ]
       }
     },
     "schematic-contract-audit": {
@@ -590,7 +1149,7 @@
           "结构检查",
           "contract audit"
         ],
-        "reference": "references/2.1-schematic-contract.md",
+        "reference": "references/technical/schematic-contract.md",
         "limitations": [
           "结构通过不证明电路功能、EDA 实现或器件额定值满足。"
         ]
@@ -601,7 +1160,9 @@
       "providers": [],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false }
+        "inspect": {
+          "mutates": false
+        }
       }
     },
     "schematic-layout": {
@@ -625,8 +1186,12 @@
       "providers": [],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "generate": { "mutates": false }
+        "inspect": {
+          "mutates": false
+        },
+        "generate": {
+          "mutates": false
+        }
       }
     },
     "schematic-wire-plan": {
@@ -646,8 +1211,12 @@
       "providers": [],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "generate": { "mutates": false }
+        "inspect": {
+          "mutates": false
+        },
+        "generate": {
+          "mutates": false
+        }
       }
     },
     "schematic-inspect": {
@@ -667,13 +1236,22 @@
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false }
+        "inspect": {
+          "mutates": false
+        }
       },
       "requires": {
-        "all": ["document.current", "sch.component.list", "sch.component.getAllPins", "sch.wire.list"]
+        "all": [
+          "document.current",
+          "sch.component.list",
+          "sch.component.getAllPins",
+          "sch.wire.list"
+        ]
       }
     },
     "schematic-component-place": {
@@ -690,45 +1268,92 @@
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "plan": { "mutates": false },
-        "apply": { "mutates": true },
-        "verify": { "mutates": false },
-        "rollback": { "mutates": true }
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        },
+        "rollback": {
+          "mutates": true
+        }
       },
       "requires": {
-        "all": ["document.current", "sch.component.list", "sch.component.get"],
-        "apply": ["sch.component.create", "sch.component.modify"],
-        "rollback": ["sch.component.delete"]
+        "all": [
+          "document.current",
+          "sch.component.list",
+          "sch.component.get"
+        ],
+        "apply": [
+          "sch.component.create",
+          "sch.component.modify"
+        ],
+        "rollback": [
+          "sch.component.delete"
+        ]
       }
     },
     "schematic-no-connect": {
       "file": "easyeda-pro/schematic-no-connect.js",
       "description": "为显式声明未使用的原理图引脚设置非连接标识，并支持回读、验证和局部回滚。",
       "discovery": {
-        "keywords": ["非连接标识", "悬空引脚", "no connect", "NC"],
+        "keywords": [
+          "非连接标识",
+          "悬空引脚",
+          "no connect",
+          "NC"
+        ],
         "reference": "references/providers/easyeda-pro/2.2-schematic-workflow.md"
       },
       "contractVersion": 2,
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "plan": { "mutates": false },
-        "apply": { "mutates": true },
-        "verify": { "mutates": false },
-        "rollback": { "mutates": true }
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        },
+        "rollback": {
+          "mutates": true
+        }
       },
       "requires": {
-        "all": ["document.current", "sch.component.list", "sch.component.getAllPins", "sch.wire.list"],
-        "apply": ["sch.pin.modify"],
-        "rollback": ["sch.pin.modify"]
+        "all": [
+          "document.current",
+          "sch.component.list",
+          "sch.component.getAllPins",
+          "sch.wire.list"
+        ],
+        "apply": [
+          "sch.pin.modify"
+        ],
+        "rollback": [
+          "sch.pin.modify"
+        ]
       }
     },
     "schematic-resolve-bindings": {
@@ -747,15 +1372,25 @@
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "search": { "mutates": false },
-        "resolve": { "mutates": false }
+        "inspect": {
+          "mutates": false
+        },
+        "search": {
+          "mutates": false
+        },
+        "resolve": {
+          "mutates": false
+        }
       },
       "requires": {
-        "search": ["lib.device.search"]
+        "search": [
+          "lib.device.search"
+        ]
       }
     },
     "schematic-wire-create": {
@@ -778,19 +1413,41 @@
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "plan": { "mutates": false },
-        "apply": { "mutates": true },
-        "verify": { "mutates": false },
-        "rollback": { "mutates": true }
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        },
+        "rollback": {
+          "mutates": true
+        }
       },
       "requires": {
-        "all": ["document.current", "sch.component.list", "sch.component.getAllPins", "sch.wire.list", "sch.wire.get"],
-        "apply": ["sch.wire.create"],
-        "rollback": ["sch.wire.delete"]
+        "all": [
+          "document.current",
+          "sch.component.list",
+          "sch.component.getAllPins",
+          "sch.wire.list",
+          "sch.wire.get"
+        ],
+        "apply": [
+          "sch.wire.create"
+        ],
+        "rollback": [
+          "sch.wire.delete"
+        ]
       }
     },
     "schematic-net-flag": {
@@ -808,19 +1465,41 @@
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "plan": { "mutates": false },
-        "apply": { "mutates": true },
-        "verify": { "mutates": false },
-        "rollback": { "mutates": true }
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        },
+        "rollback": {
+          "mutates": true
+        }
       },
       "requires": {
-        "all": ["document.current", "sch.component.list", "file.documentSource"],
-        "apply": ["sch.component.createNetFlag", "sch.component.createNetPort", "file.documentSource"],
-        "rollback": ["sch.component.delete"]
+        "all": [
+          "document.current",
+          "sch.component.list",
+          "file.documentSource"
+        ],
+        "apply": [
+          "sch.component.createNetFlag",
+          "sch.component.createNetPort",
+          "file.documentSource"
+        ],
+        "rollback": [
+          "sch.component.delete"
+        ]
       }
     },
     "schematic-save-verify": {
@@ -838,18 +1517,36 @@
       "internal": true,
       "domain": "schematic",
       "runtime": "eda",
-      "providers": ["easyeda-pro"],
+      "providers": [
+        "easyeda-pro"
+      ],
       "defaultMode": "inspect",
       "modes": {
-        "inspect": { "mutates": false },
-        "plan": { "mutates": false },
-        "apply": { "mutates": true },
-        "verify": { "mutates": false }
+        "inspect": {
+          "mutates": false
+        },
+        "plan": {
+          "mutates": false
+        },
+        "apply": {
+          "mutates": true
+        },
+        "verify": {
+          "mutates": false
+        }
       },
       "requires": {
-        "all": ["document.current", "sch.component.list", "sch.wire.list"],
-        "apply": ["sch.document.save"],
-        "drc": ["sch.drc.check"]
+        "all": [
+          "document.current",
+          "sch.component.list",
+          "sch.wire.list"
+        ],
+        "apply": [
+          "sch.document.save"
+        ],
+        "drc": [
+          "sch.drc.check"
+        ]
       }
     },
     "pcb-route-data": {
@@ -881,7 +1578,7 @@
           "冷启动",
           "cpsat layout"
         ],
-        "reference": "references/3.4-block-layout.md",
+        "reference": "references/3.5.1-block-layout.md",
         "entrypoint": "scripts/pcb-layout.mjs",
         "limitations": [
           "离线候选/几何诊断；不写EDA，不代表真实地回流、载流或原生DRC通过。"
@@ -912,7 +1609,7 @@
           "铜通道",
           "block packing"
         ],
-        "reference": "references/3.4-block-layout.md",
+        "reference": "references/3.5.1-block-layout.md",
         "entrypoint": "scripts/pcb-block-layout.mjs",
         "limitations": [
           "离线候选/几何诊断；不写EDA，不代表真实地回流、载流或原生DRC通过。"
@@ -952,7 +1649,7 @@
           "地空间",
           "preroute"
         ],
-        "reference": "references/3.8-prerouting.md",
+        "reference": "references/technical/pcb-prerouting.md",
         "entrypoint": "scripts/pcb-preroute.mjs",
         "limitations": [
           "离线候选/几何诊断；不写EDA，不代表真实地回流、载流或原生DRC通过。"

@@ -34,7 +34,7 @@ python -m venv <HOST_NUMERIC_RUNTIME>
 
 依赖保存在宿主运行目录，不写入项目 Contract，不把某台机器的路径、JRE、JAR 或虚拟环境打进 Skill。查到可执行文件或模块不等于本次算法与工程检查已通过。
 
-首次使用数值入口时，可按需跑 [open最小示例](../references/3.4-block-layout.md#最小运行示例) 或 [预走线最小示例](../references/3.8-prerouting.md#最小运行示例)；普通续接不重跑样例。
+首次使用数值入口时，可按需跑 [open最小示例](../references/technical/pcb-layout-inputs.md#最小运行示例) 或 [预走线最小示例](../references/technical/pcb-prerouting.md#最小运行示例)；普通续接不重跑样例。
 
 ## 现场执行通道
 

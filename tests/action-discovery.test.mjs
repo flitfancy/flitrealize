@@ -109,7 +109,7 @@ test('PCB tools expose real PCB entrypoints without falling back to schematic ca
   }
   const placement = lookup('布局', 'pcb');
   const global = lookup('pcb layout', null);
-  for (const name of ['pcb-fine-layout', 'pcb-fine-review', 'pcb-layout-prepare', 'pcb-placement']) {
+  for (const name of ['pcb-layout-prepare', 'pcb-placement']) {
     getAction(placement, name);
     getAction(global, name);
   }
@@ -132,19 +132,10 @@ test('layout input discovery separates read-only preparation from the full layou
     assert.equal(action.entrypoint.kind, 'script');
     assert.equal(action.entrypoint.file, 'scripts/pcb-layout.mjs');
     assert.deepEqual(action.modes, [{ mode: 'prepare', mutates: false }]);
-    assert.ok(action.reference.endsWith('3.4-pcb-placement.md'));
+    assert.ok(action.reference.endsWith('3.5-pcb-placement.md'));
     assert.ok(action.limitations.length);
     assert.ok(result.actions.every(item => item.domain === 'pcb'));
   }
-});
-
-test('fine placement queries distinguish gravity packing from auxiliary review', () => {
-  const result = lookup('细布局', 'pcb');
-  const main = getAction(result, 'pcb-fine-layout');
-  const review = getAction(result, 'pcb-fine-review');
-  assert.equal(main.entrypoint.file, 'scripts/pcb-fine-layout.mjs');
-  assert.deepEqual(main.modes, [{ mode: 'pack', mutates: false }]);
-  assert.equal(review.entrypoint.file, 'scripts/pcb-fine-review.mjs');
 });
 
 test('width discovery distinguishes editing existing traces from planning rules', () => {

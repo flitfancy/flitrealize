@@ -36,7 +36,7 @@ test('runtime packaging includes the complete layout engine and runs from an iso
   for (const file of [...await filesUnder(join(root, 'scripts/pcb-layout')), ...await filesUnder(join(root, 'scripts/providers')), ...await filesUnder(join(root,'scripts/pcb-routing'))]) {
     if (/\.(mjs|js|py|json)$/.test(file)) assert.ok(packaged.has(relative(root, file).replaceAll('\\', '/')), file);
   }
-  for (const file of ['scripts/pcb-layout.mjs', 'scripts/actions/pcb-layout-prepare.js', 'schemas/pcb-layout-intent.v1.schema.json', 'references/pcb-layout-inputs.md', 'scripts/api-reference.mjs', 'scripts/actions/api-reference.js', 'adapters/easyeda-pro/api-reference/corpus.json', 'adapters/easyeda-pro/api-reference/provenance.json']) {
+  for (const file of ['scripts/pcb-layout.mjs', 'scripts/actions/pcb-layout-prepare.js', 'schemas/pcb-layout-intent.v1.schema.json', 'references/technical/pcb-layout-inputs.md', 'scripts/api-reference.mjs', 'scripts/actions/api-reference.js', 'adapters/easyeda-pro/api-reference/corpus.json', 'adapters/easyeda-pro/api-reference/provenance.json']) {
     assert.ok(packaged.has(file), file);
   }
   assert.ok(!entries.some(file => /(^|\/)(tests|evidence|node_modules)(\/|$)/.test(file) || file.startsWith('design/')), 'project data, test fixtures and dependencies are not runtime assets');

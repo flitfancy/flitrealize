@@ -2,7 +2,7 @@
 import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { loadCorpus, searchReference, showReference } from './lib/api-reference.mjs';
 
-const help = `Offline EasyEDA API reference lookup (historical snapshot; no EDA calls).
+const help = `Offline EasyEDA API reference lookup (pinned official snapshot; no EDA calls).
 node scripts/api-reference.mjs search --query <text> [--kind class|interface|enum|type|method|property] [--limit 8]
 node scripts/api-reference.mjs show --id <entry or entry#member> [--full]
 Default output is a summary. --full returns the complete selected definition.

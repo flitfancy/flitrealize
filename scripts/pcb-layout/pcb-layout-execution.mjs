@@ -62,40 +62,78 @@ export async function verifyLayout(options) {
   if (result.status === 'verified' && options.validateReadback) await options.validateReadback(result);
   return result;
 }
+function markerLocations(projectRoot, receipt) {
+  const directory = join(projectRoot, 'evidence', 'pcb-layout-execution', 'save-attempts'), key = digest(receipt);
+  return { directory, pending: join(directory, key + '.pending.json'), completed: join(directory, key + '.saved.json') };
+}
 async function markerPaths(ctx, receipt) {
-  const dir = join(ctx.projectRoot, 'evidence', 'pcb-layout-execution', 'save-attempts'); await mkdir(dir, { recursive: true });
-  if (!within(ctx.projectRoot, await realpath(dir))) fail('REPORT_OUTSIDE_PROJECT');
-  const key = digest(receipt);
-  return { pending: join(dir, key + '.pending.json'), completed: join(dir, key + '.saved.json') };
+  const paths = markerLocations(ctx.projectRoot, receipt); await mkdir(paths.directory, { recursive: true });
+  if (!within(ctx.projectRoot, await realpath(paths.directory))) fail('REPORT_OUTSIDE_PROJECT');
+  return paths;
 }
 async function exists(file) { try { await readFile(file); return true; } catch (e) { if (e.code === 'ENOENT') return false; throw e; } }
-async function readReceipt(ctx, options) {
+async function boundReceipt(ctx, options, readOnly = false) {
   if (!options.resumeSave) fail('RESUME_REPORT_REQUIRED');
   const file = await realpath(resolve(ctx.projectRoot, options.resumeSave));
   if (!within(ctx.projectRoot, file)) fail('REPORT_OUTSIDE_PROJECT');
-  let record = await json(file);
+  let record = await json(file), receiptPath = file, selectedWorkflow = null;
   if (record.kind === 'flitrealize.pcb-layout.execution') {
-    if (unsettled(record.status) || record.steps?.some(s => s.mutates && unsettled(s.status))) fail('SAVE_RECOVERY_UNRESOLVED');
-    if (record.saved === true) fail('LAYOUT_ALREADY_SAVED');
+    selectedWorkflow = record;
+    if (!readOnly && (unsettled(record.status) || record.steps?.some(s => s.mutates && unsettled(s.status)))) fail('SAVE_RECOVERY_UNRESOLVED');
+    if (!readOnly && record.saved === true) fail('LAYOUT_ALREADY_SAVED');
     if (!record.resumeSaveReport) fail('SUCCESSFUL_APPLY_REQUIRED');
-    const receiptFile = await realpath(resolve(record.resumeSaveReport));
+    const receiptFile = await realpath(resolve(ctx.projectRoot, record.resumeSaveReport));
     if (!within(ctx.projectRoot, receiptFile)) fail('REPORT_OUTSIDE_PROJECT');
     record = await json(receiptFile);
+    receiptPath = receiptFile;
   }
   if (record.kind !== 'flitrealize.pcb-layout.apply-receipt' || record.schemaVersion !== 1 || record.executionVersion !== LAYOUT_EXECUTION_VERSION || record.status !== 'applied' || record.saved !== false || !record.applicationId || !record.workflowFile || !sourceFingerprint(record.expectedSourceHash)) fail('SUCCESSFUL_APPLY_REQUIRED');
   if (record.provider !== ctx.provider.id) fail('LAYOUT_PROVIDER_MISMATCH');
   if (await realpath(record.projectRoot) !== ctx.projectRoot) fail('REPORT_OUTSIDE_PROJECT');
-  const originalPath = await realpath(record.workflowFile);
+  const originalPath = await realpath(resolve(ctx.projectRoot, record.workflowFile));
   if (!within(ctx.projectRoot, originalPath)) fail('REPORT_OUTSIDE_PROJECT');
   const original = await json(originalPath);
   if (original.applicationId !== record.applicationId || original.receiptHash !== digest(record)) fail('APPLY_RECEIPT_MISMATCH');
-  if (unsettled(original.status) || original.steps?.some(s => s.mutates && unsettled(s.status))) fail('SAVE_RECOVERY_UNRESOLVED');
-  if (original.saved === true) fail('LAYOUT_ALREADY_SAVED');
+  if (selectedWorkflow && (selectedWorkflow.applicationId !== record.applicationId || selectedWorkflow.receiptHash !== digest(record) || selectedWorkflow.applyState !== 'applied')) fail('APPLY_RECEIPT_MISMATCH');
+  if (!readOnly && (unsettled(original.status) || original.steps?.some(s => s.mutates && unsettled(s.status)))) fail('SAVE_RECOVERY_UNRESOLVED');
+  if (!readOnly && original.saved === true) fail('LAYOUT_ALREADY_SAVED');
   if (options.config && digest(ctx.provider.target(options.config)) !== digest(ctx.provider.target(record.config))) fail('TARGET_MISMATCH');
-  return record;
+  return { receipt: record, original, selectedWorkflow, receiptFile: receiptPath, workflowFile: originalPath };
+}
+
+/** Resolve the SAME immutable apply receipt for recovery or read-only checking.
+ * Read-only inspection never settles an unknown save or removes its marker. */
+export async function readLayoutApplyReceipt(options, { readOnly = false } = {}) {
+  if (!options.projectRoot) fail('LAYOUT_CONTEXT_REQUIRED');
+  const ctx = { projectRoot: await realpath(resolve(options.projectRoot)), provider: getLayoutProvider(options.providerId ?? options.snapshot?.layout?.provider ?? options.snapshot?.provider) };
+  const bound = await boundReceipt(ctx, options, readOnly);
+  if (!readOnly) return bound;
+  return { ...bound, save: await readSaveEvidence(ctx, bound) };
+}
+async function readSaveEvidence(ctx, bound) {
+  const paths = markerLocations(ctx.projectRoot, bound.receipt);
+  const readOptional = async file => {
+    try { const actual = await realpath(file); if (!within(ctx.projectRoot, actual)) fail('REPORT_OUTSIDE_PROJECT'); return await json(actual); }
+    catch (error) { if (error.code === 'ENOENT') return null; throw error; }
+  };
+  const completed = await readOptional(paths.completed), pending = await readOptional(paths.pending);
+  for (const marker of [completed, pending].filter(Boolean)) {
+    if (marker.applicationId !== bound.receipt.applicationId || pending === marker && marker.receiptHash !== digest(bound.receipt) || completed === marker && marker.saved !== true) fail('APPLY_RECEIPT_MISMATCH');
+  }
+  const latestReference = completed?.workflowFile ?? pending?.workflowFile;
+  let latest = bound.selectedWorkflow ?? bound.original;
+  if (latestReference) {
+    const file = await realpath(resolve(ctx.projectRoot, latestReference)); if (!within(ctx.projectRoot, file)) fail('REPORT_OUTSIDE_PROJECT');
+    latest = await json(file);
+    if (latest.applicationId !== bound.receipt.applicationId || latest.receiptHash !== digest(bound.receipt)) fail('APPLY_RECEIPT_MISMATCH');
+  }
+  const mutationUnsettled = latest.steps?.some(s => s.mutates && unsettled(s.status)) === true;
+  const saved = completed || latest.saved === true ? true : mutationUnsettled || latest.saved === null ? null : false;
+  return { saved, pending: Boolean(pending), unsettled: Boolean(pending) || mutationUnsettled || Boolean(unsettled(latest.status)), workflowFile: latestReference ?? bound.workflowFile };
 }
 async function workflow(options, resume) {
-  const ctx = await context(options), resumed = resume ? await readReceipt(ctx, options) : null;
+  const ctx = await context(options), bound = resume ? await boundReceipt(ctx, options) : null, resumed = bound?.receipt;
+  const acceptanceEvidence = options.acceptanceEvidence ? JSON.parse(JSON.stringify(options.acceptanceEvidence)) : null;
   const config = resumed?.config ?? options.config, plan = resumed?.plan ?? options.plan, snapshot = resumed?.snapshot ?? options.snapshot;
   const reportFile = join(ctx.reportDir, 'layout-execution-result.json');
   const summary = { schemaVersion: 1, kind: 'flitrealize.pcb-layout.execution', executionVersion: LAYOUT_EXECUTION_VERSION, projectRoot: ctx.projectRoot, provider: ctx.provider.id, target: ctx.provider.target(config), applicationId: resumed?.applicationId ?? randomUUID(), status: 'started', saved: resumed ? false : null, applyState: resumed ? 'applied' : 'not-started', saveState: 'not-started', steps: [], reportFile, reportDir: ctx.reportDir };
@@ -130,7 +168,7 @@ async function workflow(options, resume) {
   try {
     if (!receipt) {
       const applied = await step('apply');
-      receipt = { schemaVersion: 1, kind: 'flitrealize.pcb-layout.apply-receipt', executionVersion: LAYOUT_EXECUTION_VERSION, applicationId: summary.applicationId, projectRoot: ctx.projectRoot, provider: ctx.provider.id, workflowFile: reportFile, status: 'applied', saved: false, config, plan, snapshot, expectedSourceHash: applied.sourceHash ?? applied.after?.sourceHash };
+      receipt = { schemaVersion: 1, kind: 'flitrealize.pcb-layout.apply-receipt', executionVersion: LAYOUT_EXECUTION_VERSION, applicationId: summary.applicationId, projectRoot: ctx.projectRoot, provider: ctx.provider.id, workflowFile: reportFile, status: 'applied', saved: false, config, plan, snapshot, expectedSourceHash: applied.sourceHash ?? applied.after?.sourceHash, ...(acceptanceEvidence ? { acceptanceEvidence } : {}) };
       if (!sourceFingerprint(receipt.expectedSourceHash)) fail('APPLIED_FINGERPRINT_MISSING');
       summary.resumeSaveReport = join(ctx.reportDir, 'layout-apply-receipt.json'); summary.receiptHash = digest(receipt);
       await writeFile(summary.resumeSaveReport, JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx' });
@@ -141,9 +179,9 @@ async function workflow(options, resume) {
       await writeFile(summary.resumeSaveReport, JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx' });
     }
     await persist(); markers = await markerPaths(ctx, receipt);
-    if (await exists(markers.completed)) fail('LAYOUT_ALREADY_SAVED');
+    if (await exists(markers.completed)) { const state = await readSaveEvidence(ctx, bound ?? {receipt, original:summary, workflowFile:reportFile}); summary.saved = state.saved; summary.saveState = 'saved'; fail('LAYOUT_ALREADY_SAVED'); }
     try { await writeFile(markers.pending, JSON.stringify({ projectRoot: ctx.projectRoot, applicationId: receipt.applicationId, workflowFile: reportFile, receiptHash: digest(receipt) }, null, 2) + '\n', { flag: 'wx' }); ownsMarker = true; }
-    catch (error) { if (error.code === 'EEXIST') fail('SAVE_RECOVERY_UNRESOLVED', 'A save attempt is in flight or unknown. Reconcile its report before continuing.'); throw error; }
+    catch (error) { if (error.code === 'EEXIST') { const state = await readSaveEvidence(ctx, bound ?? {receipt, original:summary, workflowFile:reportFile}); summary.saved = state.saved; summary.saveState = state.saved === null ? 'unknown' : state.saved === true ? 'saved' : 'not-started'; fail('SAVE_RECOVERY_UNRESOLVED', 'A save attempt is in flight or unknown. Reconcile its report before continuing.'); } throw error; }
     summary.saveAttemptFile = markers.pending; await persist();
     await step('verify');
     await step('save');
