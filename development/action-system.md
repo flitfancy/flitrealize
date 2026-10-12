@@ -39,6 +39,8 @@
 
 ### 发现信息
 
+脚本入口有子命令时，可在 discovery.commands 登记固定 args 与 mutates。查询时作为 entrypoint.commands 返回；Action 的 modes 仍只描述 Action 本身，不因关联脚本而虚报可执行模式。
+
 已有条目可声明：
 
 ```json

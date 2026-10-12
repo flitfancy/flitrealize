@@ -1,10 +1,10 @@
 # FlitRealize
 
-**把硬件想法推进到可测试的样机，留下设计依据、结果和下一步。**
+**从需求与器件选择推进到原理图、PCB、制造准备和样机验证。**
 
 [English](README.md) · [首次使用](docs/first-run.md) · [更新记录](CHANGELOG.md) · [发布包](https://github.com/flitfancy/flitrealize/releases)
 
-一个 Skill 串起需求、器件、原理图、PCB、制造准备和样机测试。AI 负责电路与工程判断，脚本处理重复计算、执行和回读。
+FlitRealize 是用于推进电子硬件项目的 Skill。可以从项目当前阶段开始，保留设计依据、实际结果和待解决问题，方便继续推进。
 
 版本文件为 `v2.0.0`；当前源码变更和验证结果见 [Unreleased](CHANGELOG.md#unreleased)。
 
@@ -23,11 +23,11 @@ $flitrealize 继续 <PROJECT_ROOT>，处理当前 PCB 布局问题。
 
 ## 工作范围
 
-粗布局安排块，细布局安排簇和器件，走线连接并反馈。按项目当前进度进入相应阶段；字段、命令和支持条件由对应技术参考维护。
+覆盖需求与器件选择、原理图设计、PCB 布局与走线、制造准备，以及样机上电、功能测试和改版。AI 负责电路与工程判断；已有脚本处理重复检索、转换、放置、连接和回读。
 
-当前现场接入是 EasyEDA Pro，支持桌面官方 CLI 与网页／桌面 Bridge；其他 EDA 软件需要对应实现。块区域自动分配、按走线失败自动选器件移动，以及整个流程的自动循环仍待实现。
+当前支持 EasyEDA Pro（嘉立创 EDA 专业版），通过桌面官方 CLI 或网页／桌面 Bridge 操作 EDA 项目。按用户本次要求推进，分别记录候选、实际修改、保存和验证结果。
 
-候选、写入、保存、连通、DRC、电气和样机结果分别记录。二维几何、连接距离或试走线通过，不能代替实际回流、载流、热、机械与制造检查。真实 SDK 位号边界仍待实测；具体限制见[细布局接口](references/technical/pcb-fine-layout-execution.md#验证记录)和[新建 PCB 验证范围](references/providers/easyeda-pro/3.1-pcb-create.md#当前验证范围)，本轮详细变化与回归结果见[更新记录](CHANGELOG.md#unreleased)。
+工作流程见[阶段导航](references/0.0-overview.md)。具体算法、命令、支持条件和验证边界见[技术参考目录](references/technical/)。
 
 ## 开发与验证
 

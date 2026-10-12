@@ -58,7 +58,7 @@ test('algorithm, validation, common copper geometry and dynamic execution change
     'scripts/pcb-layout/pcb-footprint-audit.mjs', 'scripts/pcb-layout/pcb-layout-solver-worker.mjs',
     'scripts/pcb-layout/pcb-layout-cpsat.py', 'scripts/pcb-layout/pcb-layout-blocks.py',
     'scripts/pcb-layout/pcb-layout-assembly-policy.mjs', 'scripts/providers/easyeda-pro/pcb-layout-board.mjs',
-    'scripts/providers/easyeda-pro/pcb-layout-native/runtime.js', 'scripts/providers/easyeda-pro/pcb-layout-native/apply.js',
+    'scripts/providers/easyeda-pro/pcb-layout-native/runtime.js', 'scripts/providers/easyeda-pro/pcb-layout-native/apply.js', 'scripts/providers/easyeda-pro/pcb-layout-native/preflight.js',
     'scripts/providers/easyeda-pro/pcb-layout-native/verify.js', 'scripts/providers/easyeda-pro/pcb-layout-native/save.js',
     'scripts/pcb-routing/geometry.mjs', 'scripts/eda-host.mjs', 'scripts/lib/state-paths.mjs',
     'scripts/providers/easyeda-pro/cli-channel.mjs', 'adapters/easyeda-pro/scripts/bridge-server.mjs',

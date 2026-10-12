@@ -1,10 +1,10 @@
 # FlitRealize
 
-**Carry a hardware idea to a testable prototype. Keep the design reasons, results, and next step.**
+**Develop a hardware project from requirements and part selection through prototype validation.**
 
 [简体中文](README.zh-CN.md) · [First run](docs/first-run.md) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/flitfancy/flitrealize/releases)
 
-One skill connects requirements, parts, schematics, PCB work, manufacturing preparation, and prototype tests. The agent makes engineering decisions. Scripts handle repeatable computation, execution, and readback.
+FlitRealize is a skill for developing electronic hardware projects. Start at the project's current stage and keep the design rationale, actual results, and open issues so work can continue.
 
 The version file is `v2.0.0`. Current source changes and verification results are under [Unreleased](CHANGELOG.md#unreleased).
 
@@ -23,11 +23,11 @@ For ordinary continuation, read the handoff top, relevant chapters, and the curr
 
 ## Scope
 
-Coarse placement arranges blocks. Fine placement arranges clusters and parts. Routing connects nets and feeds problems back. Enter at the project's current stage; the corresponding technical reference defines fields, commands, and support conditions.
+Work covers requirements and part selection, schematic design, PCB placement and routing, manufacturing preparation, and prototype power-up, functional tests, and revisions. The agent makes circuit and engineering decisions; existing scripts handle repeatable searches, conversion, placement, connections, and readback.
 
-EasyEDA Pro is the current live implementation, with desktop official CLI and web/desktop Bridge support. Other EDA software needs its own implementation. Automatic block-region allocation, automatic part selection and movement from routing failures, and an automatic loop for the whole flow remain to be implemented.
+EasyEDA Pro is currently supported through the desktop official CLI or the web/desktop Bridge. Work follows the user's current request, with candidates, actual changes, saved designs, and validation results recorded separately.
 
-Candidates, writes, saving, connectivity, DRC, electrical checks, and prototype measurements are recorded separately. Two-dimensional geometry, connection distance, or trial-routing success cannot replace checks of return paths, current capacity, heat, mechanics, or manufacturing. Real SDK label bounds still need a live check. See the [fine-placement interface](references/technical/pcb-fine-layout-execution.md#验证记录) and [PCB-creation verification scope](references/providers/easyeda-pro/3.1-pcb-create.md#当前验证范围) for limits, and the [changelog](CHANGELOG.md#unreleased) for detailed changes and regression results.
+See the [stage guides](references/0.0-overview.md) for the workflow. Specific algorithms, commands, support conditions, and verification limits are documented in the [technical references](references/technical/).
 
 ## Develop and verify
 

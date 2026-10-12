@@ -6,14 +6,14 @@ import { fail, digest } from './common.mjs';
 
 /** Reuse the existing numeric backend with immutable bodies and actual glyphs. */
 export function compileFineLabels(scope,bodyPlan,settings) {
-  const {model,moving,request}=scope,geometry=buildGeometryViews(model.geometryModel,bodyPlan.components,bodyPlan.labels,bodyPlan.testPads),rules=fineLabelRules(model,request.labels);
-  const items=model.snapshot.items.filter(l=>moving.has(l.owner)),targets=items.map(l=>'fine-label:'+l.id),zero={minX:0,maxX:0,minY:0,maxY:0};
+  const {model,labelMoving,request}=scope,geometry=buildGeometryViews(model.geometryModel,bodyPlan.components,bodyPlan.labels,bodyPlan.testPads),rules=fineLabelRules(model,request.labels);
+  const items=model.snapshot.items.filter(l=>labelMoving.has(l.owner)),targets=items.map(l=>'fine-label:'+l.id),zero={minX:0,maxX:0,minY:0,maxY:0};
   const origin={x:model.config.hard.boardBounds.minX,y:model.config.hard.boardBounds.minY};
   const entities=bodyPlan.components.map(c=>({ref:c.ref,id:c.id,kind:'component',base:origin,fixed:true,variants:[{rotation:0,side:null,originOffset:{x:0,y:0},body:zero,bundle:zero,physical:zero,courtyard:zero,boardBox:zero,labels:[],pads:{},padCenters:{centre:{x:(c.body.minX+c.body.maxX)/2-origin.x,y:(c.body.minY+c.body.maxY)/2-origin.y}},views:{body:[zero],physical:[zero],bundle:[zero],placement:[zero],assembly:[],footprint:[],pads:[],operation:[],silkscreen:[]},zones:{}}]}));
   const problem={schemaVersion:1,kind:'flitrealize-cpsat-problem',sourceHash:model.snapshot.sourceHash,units:'mil',board:model.config.hard.boardBounds,settings,entities,pairs:[],assembly:false,links:[],limits:[],nets:[],spacing:[],blocks:[],relations:[],zones:[],noInitialHints:true,skipFeasibilityPhase:true,coverage:{stage:'independent-labels',bodyHash:digest(bodyPlan.components),bodies:'immutable accepted poses',geometry:'native glyph rectangles; fonts and line widths preserved'}};
   // Keep every real body, pad and outside glyph as a constant obstacle; do not
   // recreate their combined blank rectangular envelopes in this stage.
-  const obstacles=[...bodyPlan.components.map(c=>({id:'body:'+c.ref,bbox:c.body})),...geometry.pads.map(p=>({id:'pad:'+p.id,bbox:p.bbox})),...bodyPlan.labels.filter(l=>!moving.has(l.owner)).map(l=>({id:'label:'+l.id,bbox:l.bbox}))];
+  const obstacles=[...bodyPlan.components.map(c=>({id:'body:'+c.ref,bbox:c.body})),...geometry.pads.map(p=>({id:'pad:'+p.id,bbox:p.bbox})),...bodyPlan.labels.filter(l=>!labelMoving.has(l.owner)).map(l=>({id:'label:'+l.id,bbox:l.bbox}))];
   for(const l of items){const ref='fine-label:'+l.id,gap=rules.gapByOwner[l.owner];
     for(const obstacle of obstacles){const b=obstacle.bbox;problem.zones.push({id:ref+'/'+obstacle.id,mode:'keepout',geometry:'body',box:{minX:b.minX-gap,maxX:b.maxX+gap,minY:b.minY-gap,maxY:b.maxY+gap},excludeRefs:[],targetRefs:[ref]});}
     const variants=[0,90].map(rotation=>{const b=rotation===0?{minX:0,maxX:l.width,minY:0,maxY:l.height}:{minX:-l.height,maxX:0,minY:0,maxY:l.width};return {rotation,side:null,originOffset:{x:0,y:0},body:b,bundle:b,physical:b,courtyard:b,boardBox:b,labels:[],pads:{},padCenters:{centre:{x:(b.minX+b.maxX)/2,y:(b.minY+b.maxY)/2}},views:{body:[b],physical:[b],bundle:[b],placement:[b],assembly:[b],footprint:[],pads:[],operation:[],silkscreen:[b]},zones:{}};});
@@ -29,8 +29,8 @@ export function compileFineLabels(scope,bodyPlan,settings) {
   for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++)problem.pairs.push({a:targets[i],b:targets[j],gapMil:Math.max(rules.gapByOwner[items[i].owner],rules.gapByOwner[items[j].owner]),physicalGapMil:0});
   return {problem,items,rules};
 }
-export async function solveFineLabels(scope,bodyPlan,settings,runtime,executor=executeCpSat) {
-  const compiled=compileFineLabels(scope,bodyPlan,settings),result=await executor(compiled.problem,runtime);
+export async function solveFineLabels(scope,bodyPlan,settings,runtime,executor=executeCpSat,timing) {
+  const compiled=timing?timing.sync('compile',()=>compileFineLabels(scope,bodyPlan,settings)):compileFineLabels(scope,bodyPlan,settings),result=timing?await timing.run('labelSolve',()=>executor(compiled.problem,runtime)):await executor(compiled.problem,runtime);
   if(!['FEASIBLE','OPTIMAL'].includes(result.status))return {status:result.status,solver:result,problem:compiled.problem};
   if(result.sourceHash!==scope.model.snapshot.sourceHash||!Array.isArray(result.placements)||result.placements.length!==compiled.problem.entities.length||new Set(result.placements.map(p=>p.ref)).size!==compiled.problem.entities.length||result.placements.some(p=>!compiled.problem.entities.some(e=>e.ref===p.ref)))fail('FINE_LABEL_RESULT_IDENTITY');
   const alignment=layoutLabelAlignment(scope.model.snapshot).bottomLeft,changed=new Map();

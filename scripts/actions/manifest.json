@@ -442,7 +442,7 @@
     },
     "pcb-layout-prepare": {
       "file": "pcb-layout-prepare.js",
-      "description": "关联上游设计、PCB 快照与项目规则，准备粗细布局输入；完整细布局调用公共 pcb-layout.mjs fine 入口。",
+      "description": "关联上游设计、PCB 快照与项目规则，准备粗细布局输入；细布局及已有完整候选写回、保存与复核调用公共 pcb-layout.mjs fine 入口。",
       "discovery": {
         "keywords": [
           "布局输入",
@@ -452,15 +452,80 @@
           "细布局",
           "独立位号",
           "fine layout",
-          "周围空白"
+          "周围空白",
+          "布局写回",
+          "接收已有候选",
+          "完整候选写回",
+          "保存复核",
+          "apply candidate",
+          "布局前检",
+          "preflight"
         ],
         "reference": "references/providers/easyeda-pro/3.5-pcb-placement.md",
         "entrypoint": "scripts/pcb-layout.mjs",
         "limitations": [
           "此 host action 只执行 prepare，不读取或修改 EDA。",
-          "完整细布局使用 node scripts/pcb-layout.mjs fine：器件、独立位号、验收和完整候选；离线求解不自动写板。",
+          "公共细布局命令见 entrypoint.commands；此 Action 的 modes 仍只描述 prepare。已有完整计划可 adopt 接入，完整候选检查与应用提供项目和候选目录。",
           "周围空白仍受真实板框、固定障碍、来源约束限制；不会自动扩大邻居权限。",
-          "实际铜、回流及整板完成状态分别报告；原生文字渲染尚须真实 SDK 代表对象验证。"
+          "实际铜、回流及整板完成状态分别报告；原生文字与接入写回的具体验证范围见细布局执行接口。"
+        ],
+        "commands": [
+          {
+            "args": [
+              "fine",
+              "--stage",
+              "solve"
+            ],
+            "mutates": false
+          },
+          {
+            "args": [
+              "fine",
+              "--stage",
+              "adopt"
+            ],
+            "mutates": false
+          },
+          {
+            "args": [
+              "fine",
+              "--stage",
+              "route"
+            ],
+            "mutates": false
+          },
+          {
+            "args": [
+              "fine",
+              "--stage",
+              "preflight"
+            ],
+            "mutates": false
+          },
+          {
+            "args": [
+              "fine",
+              "--stage",
+              "apply"
+            ],
+            "mutates": true
+          },
+          {
+            "args": [
+              "fine",
+              "--stage",
+              "resume-save"
+            ],
+            "mutates": true
+          },
+          {
+            "args": [
+              "fine",
+              "--stage",
+              "verify"
+            ],
+            "mutates": false
+          }
         ]
       },
       "contractVersion": 1,

@@ -44,10 +44,11 @@ async function invoke(ctx, phase, input, name = phase) {
   let response;
   try { response = await ctx.transport({ ...ctx, phase, name, code, input, codeFile, inputFile, reportFile, mutates }); }
   catch (error) { response = { success: false, executionOutcome: 'unknown', error: { code: error.code ?? 'TRANSPORT_ERROR', message: error.message } }; }
-  const unknown = !response || response.executionOutcome === 'unknown' || unsettled(response.status) || unsettled(response.result?.status) || /TIMEOUT|TIMEDOUT|ECONN|EPIPE|ENOBUFS|TRANSPORT/.test(response.error?.code ?? '') || (mutates && response.success !== true);
+  // Request completion and mutation effect are separate facts.
+  const unknown = !response || response.executionOutcome === 'unknown' || unsettled(response.status) || unsettled(response.result?.status) || /TIMEOUT|TIMEDOUT|ECONN|EPIPE|ENOBUFS|TRANSPORT/.test(response.error?.code ?? '') || (mutates && response.success !== true && response.mutationOutcome !== 'not-started');
   const record = { schemaVersion: 1, kind: 'flitrealize.pcb-layout.native', executionVersion: LAYOUT_EXECUTION_VERSION, projectRoot: ctx.projectRoot, provider: ctx.provider.id, phase, mutates, target: ctx.provider.target(input.config), response: response ?? null, outcome: unknown ? 'unknown' : 'settled' };
   await writeFile(reportFile, JSON.stringify(record, null, 2) + '\n', { flag: 'wx' });
-  if (unknown || response.success !== true || !response.result) fail(unknown ? 'LAYOUT_OUTCOME_UNKNOWN' : 'LAYOUT_NATIVE_FAILED', response?.error?.message ?? 'Native layout request did not return a settled result.');
+  if (unknown || response.success !== true || !response.result) fail(unknown ? 'LAYOUT_OUTCOME_UNKNOWN' : response?.error?.code ?? 'LAYOUT_NATIVE_FAILED', response?.error?.message ?? 'Native layout request did not return a settled result.');
   return { result: { ...response.result, provider: ctx.provider.id }, reportFile };
 }
 export async function inspectLayout(options) {
@@ -55,6 +56,10 @@ export async function inspectLayout(options) {
   const { result } = await invoke(ctx, 'inspect', { config: options.config });
   if (result.status !== 'inspected') fail('LAYOUT_INSPECTION_FAILED');
   return result;
+}
+export async function preflightLayout(options) {
+  const ctx=await context(options);ctx.provider.target(options.config);
+  return (await invoke(ctx,'preflight',{config:options.config,plan:options.plan,snapshot:options.snapshot})).result;
 }
 export async function verifyLayout(options) {
   const ctx = await context(options); ctx.provider.target(options.config);
@@ -151,7 +156,7 @@ async function workflow(options, resume) {
     catch (error) {
       item.status = error.code === 'LAYOUT_OUTCOME_UNKNOWN' ? 'unknown' : 'failed';
       if (phase === 'apply') { summary.applyState = item.status; summary.saved = item.status === 'unknown' ? null : false; }
-      if (phase === 'save') summary.saveState = item.status;
+      if (phase === 'save') { summary.saveState = item.status; if(item.status !== 'unknown') { saveUnknown=false; summary.saved=false; } }
       error.workflowStatus = item.status === 'unknown' ? 'outcome-unknown' : name + '-failed'; await persist(); throw error;
     }
     if (phase === 'apply') { summary.applyState = result.status; summary.saved = result.saved ?? null; }

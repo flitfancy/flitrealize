@@ -5,11 +5,16 @@ import { scopeLayoutModel } from '../pcb-layout-scope.mjs';
 import { fineLabelRules } from './label-geometry.mjs';
 import { fail, issueKey, issueRefs } from './common.mjs';
 
-export function relationDistance(model, poses, relation) {
+export const relationEndpoints=(relation,side)=>relation[side].pads??[relation[side]];
+export function relationMeasurements(model, poses, relation) {
   const positions=new Map(poses.map(c=>[c.ref,c]));
-  const xy=e=>{const p=model.pads.find(p=>p.id===e.padId),q={x:(p.bbox.minX+p.bbox.maxX)/2,y:(p.bbox.minY+p.bbox.maxY)/2};return p.owner?transformPoint(q,model.components.get(p.owner),positions.get(p.owner)):q;};
-  const a=xy(relation.from),b=xy(relation.to);return Math.abs(a.x-b.x)+Math.abs(a.y-b.y);
+  const xy=e=>{const p=model.pads.find(p=>p.id===e.padId),q=relation.geometry==='pad-position'?{x:p.x,y:p.y}:{x:(p.bbox.minX+p.bbox.maxX)/2,y:(p.bbox.minY+p.bbox.maxY)/2};return p.owner?transformPoint(q,model.components.get(p.owner),positions.get(p.owner)):q;};
+  const pairs=relationEndpoints(relation,'from').flatMap(from=>relationEndpoints(relation,'to').map(to=>{
+    const a=xy(from),b=xy(to);return {fromPadId:from.padId,toPadId:to.padId,distanceMil:Math.abs(a.x-b.x)+Math.abs(a.y-b.y)};
+  }));
+  return {aggregation:'minimum-pad-pair-distance',distanceMil:Math.min(...pairs.map(p=>p.distanceMil)),maximumPairMil:Math.max(...pairs.map(p=>p.distanceMil)),pairs,connectivity:'not-evaluated; every mapped pad remains in the full native network'};
 }
+export const relationDistance=(model,poses,relation)=>relationMeasurements(model,poses,relation).distanceMil;
 export function compileFineProblem(scope, settings={}) {
   const {model,request,moving}=scope,baseline=inspectCandidate(model),separate=request.labels.mode==='separate',solverModel=separate?scopeLayoutModel(model,{includeLabels:false}):model,bodyBaseline=separate?inspectCandidate(solverModel):baseline;
   const outsideIssue=i=>{const refs=issueRefs(i);return refs.length&&refs.every(r=>!moving.has(r));};
@@ -39,12 +44,12 @@ export function compileFineProblem(scope, settings={}) {
     // are not re-solved. Decode restores their real bodies and labels below.
     for(const v of entity.variants){const zero={minX:0,maxX:0,minY:0,maxY:0};delete v.edge;for(const k of ['body','bundle','physical','courtyard','boardBox'])v[k]={...zero};for(const k of ['body','bundle','physical','placement','assembly','silkscreen'])v.views[k]=k==='silkscreen'?[]:[{...zero}];}
   }
-  if(separate){const glyphRules=fineLabelRules(model,request.labels);for(const label of baseline.plan.labels.filter(l=>!moving.has(l.owner))){const b=label.bbox,g=glyphRules.gapByOwner[label.owner];problem.zones.push({id:'fine-context-label:'+label.id,mode:'keepout',geometry:'physical',box:{minX:b.minX-g,maxX:b.maxX+g,minY:b.minY-g,maxY:b.maxY+g},excludeRefs:[],targetRefs:request.allMovableRefs});}}
+  if(separate){const glyphRules=fineLabelRules(model,request.labels);for(const label of baseline.plan.labels.filter(l=>!scope.labelMoving.has(l.owner))){const b=label.bbox,g=glyphRules.gapByOwner[label.owner];problem.zones.push({id:'fine-context-label:'+label.id,mode:'keepout',geometry:'physical',box:{minX:b.minX-g,maxX:b.maxX+g,minY:b.minY-g,maxY:b.maxY+g},excludeRefs:[],targetRefs:request.allMovableRefs});}}
   const constants=[];
   problem.limits=problem.limits.filter(l=>{
     if([...l.left,...l.right].some(e=>moving.has(e.ref)))return true;
     const xy=p=>{const e=problem.entities.find(e=>e.ref===p.ref),v=e.variants[0],q=(p.geometry==='bbox-center'?v.padCenters:v.pads)[p.id];return {x:e.base.x+q.x,y:e.base.y+q.y};};
-    const distanceMil=Math.min(...l.left.flatMap(a=>l.right.map(b=>{a=xy(a);b=xy(b);return Math.abs(a.x-b.x)+Math.abs(a.y-b.y);}))),passed=distanceMil<=l.maxMil+1e-4;
+    const distanceMil=Math.min(...l.left.flatMap(a=>l.right.map(b=>{const from=xy(a),to=xy(b);return Math.abs(from.x-to.x)+Math.abs(from.y-to.y);}))),passed=distanceMil<=l.maxMil+1e-4;
     constants.push({id:l.id,distanceMil,maxMil:l.maxMil,passed,scope:'frozen context'});
     if(!passed&&request.baselinePolicy!=='retain-outside-issues')fail('FINE_FROZEN_LIMIT_FAILED',l.id);
     return false;
@@ -55,16 +60,27 @@ export function compileFineProblem(scope, settings={}) {
   const margins=[{minX:board.minX,maxX:bounds.minX,minY:board.minY,maxY:board.maxY},{minX:bounds.maxX,maxX:board.maxX,minY:board.minY,maxY:board.maxY},{minX:board.minX,maxX:board.maxX,minY:board.minY,maxY:bounds.minY},{minX:board.minX,maxX:board.maxX,minY:bounds.maxY,maxY:board.maxY}];
   margins.filter(b=>b.minX<b.maxX&&b.minY<b.maxY).forEach((box,index)=>problem.zones.push({id:'fine-region-physical:'+index,mode:'keepout',geometry:'physical',box,excludeRefs:[],targetRefs:request.allMovableRefs}));
   for(const r of request.reservedRegions){if(r.geometry==='assembly'&&request.allMovableRefs.some(ref=>problem.entities.find(e=>e.ref===ref).variants.some(v=>!v.views.assembly.length)))fail('FINE_ASSEMBLY_VIEW_UNAVAILABLE',r.id);problem.zones.push({id:'fine-reservation:'+r.id,mode:'keepout',geometry:r.geometry==='placement'?'bundle':r.geometry,box:r.boundsMil,excludeRefs:[],targetRefs:request.allMovableRefs});}
+  const sourceLinks=new Map(problem.links.map(l=>[l.id,l]));
   if(!request.objective.retainSource){problem.links=[];problem.nets=[];problem.spacing=[];}
-  const endpoint=e=>({ref:e.ref,id:e.padId,geometry:'bbox-center'});
+  const endpoint=(e,geometry)=>({ref:e.ref,id:e.padId,...(geometry==='pad-position'?{}:{geometry:'bbox-center'})});
   const baselineRelations=request.relations.map(r=>({id:r.id,distanceMil:relationDistance(model,baseline.plan.components,r)}));
-  for(const r of request.relations){
-    const left=[endpoint(r.from)],right=[endpoint(r.to)];
-    if(r.weight>0)problem.links.push({id:'fine-soft:'+r.id,left,right,weight:r.weight});
+  const effectiveRelations=request.relations.map(r=>{
+    const source=r.composition?.objectiveId?sourceLinks.get(r.composition.objectiveId):null;
+    if(r.composition?.objectiveId&&!source)fail('FINE_BASE_OBJECTIVE_MISSING',r.id);
+    const weight=r.merge==='inherit'?source.weight:r.weight;
+    const composition={...(r.composition??{mode:'legacy-addition'}),sourceWeight:source?.weight??null,sourceGeometry:source?'pad-position':null,effectiveGeometry:r.geometry??'bbox-center',effectiveWeight:weight};
+    return {...r,weight,composition};
+  });
+  for(const r of effectiveRelations){
+    const left=relationEndpoints(r,'from').map(e=>endpoint(e,r.geometry)),right=relationEndpoints(r,'to').map(e=>endpoint(e,r.geometry));
+    if(r.merge==='replace-objective')problem.links=problem.links.filter(l=>l.id!==r.composition.objectiveId);
+    if(r.merge!=='inherit'&&r.weight>0)problem.links.push({id:'fine-soft:'+r.id,left,right,weight:r.weight});
     const before=baselineRelations.find(b=>b.id===r.id).distanceMil;
     if(r.maxDistanceMil!==undefined)problem.limits.push({id:'fine-hard:'+r.id,left,right,maxMil:r.maxDistanceMil});
     if(r.nonRegression)problem.limits.push({id:'fine-comparison:'+r.id,left,right,maxMil:before+r.nonRegression.toleranceMil});
   }
-  problem.fineScope={region:request.region,allMovableRefs:request.allMovableRefs,contextRefs:scope.frozenRefs,lockSources:scope.lockSources,crossingNets:scope.crossingNets,baselinePolicy:request.baselinePolicy};
-  return {problem,solverModel,baseline,bodyBaseline,baselineRelations,constantLimits:constants,baselineIssueKeys:new Set(baseline.validation.issues.map(issueKey))};
+  const objectiveComposition={retainSource:request.objective.retainSource,relations:effectiveRelations.map(r=>({id:r.id,...r.composition})),effectiveLinks:problem.links.map(l=>({id:l.id,weight:l.weight,geometry:l.left[0]?.geometry??'pad-position'}))};
+  problem.objectiveComposition=objectiveComposition;
+  problem.fineScope={region:request.region,allMovableRefs:request.allMovableRefs,contextRefs:scope.frozenRefs,lockSources:scope.lockSources,crossingNets:scope.crossingNets,baselinePolicy:request.baselinePolicy,selection:scope.selection};
+  return {problem,solverModel,baseline,bodyBaseline,baselineRelations,effectiveRelations,objectiveComposition,constantLimits:constants,baselineIssueKeys:new Set(baseline.validation.issues.map(issueKey))};
 }

@@ -161,6 +161,7 @@ export function prepareLayoutInputs(input = {}) {
     issue(identityFailure ? 'identity' : 'compile', identityFailure ? 'MODEL_IDENTITY_FAILED' : 'MODEL_COMPILE_FAILED', '', error.message);
   }
   if (model) {
+    model.preparedRelations = structuredClone(coverage.relations);
     nativeNetwork = auditNativeNetlist({ snapshot, contract, realization });
     for (const diagnostic of nativeNetwork.diagnostics ?? []) diagnostics.push({ ...diagnostic, category: diagnostic.severity === 'error' ? 'identity' : 'coverage', path: 'snapshot.nativeNetlist', severity: diagnostic.severity ?? 'warning' });
   }
@@ -232,9 +233,10 @@ function compileIntent(intent, context) {
     if (!Array.isArray(limits)) { issue('structure', 'INVALID_DISTANCE_LIMITS', 'config.hard.pinDistanceLimits', 'An array is required.'); continue; }
     const existingLimit = limits.filter(l => pairKey(l.a, l.aPin, l.b, l.bPin, l.net) === key);
     if (relation.maxDistanceMil !== undefined && existingLimit.some(l => l.maxMil !== relation.maxDistanceMil)) { issue('semantic', 'CONFLICTING_DISTANCE_LIMIT', source, 'The project limit and upstream relation disagree; no override was selected.'); continue; }
-    if (!exact.length) group.links.push({ a: from.ref, aPin: from.pin, b: to.ref, bPin: to.pin, nets: [net], basis: relation.basis });
+    const objective = exact[0] ?? { a: from.ref, aPin: from.pin, b: to.ref, bPin: to.pin, nets: [net], basis: relation.basis };
+    if (!exact.length) group.links.push(objective);
     if (relation.maxDistanceMil !== undefined && !existingLimit.length) config.hard.pinDistanceLimits = [...limits, { a: from.ref, aPin: from.pin, b: to.ref, bPin: to.pin, net, maxMil: relation.maxDistanceMil }];
-    entry.status = 'compiled'; entry.group = groupId; entry.implements.push({ type: 'pin-distance-objective', group: groupId, net, from: { ...from }, to: { ...to }, weightSource: 'config.comparisonWeights', effectiveWeight: config.comparisonWeights[groupId] ?? 0, active: (config.comparisonWeights[groupId] ?? 0) > 0 });
+    entry.status = 'compiled'; entry.group = groupId; entry.implements.push({ type: 'pin-distance-objective', objectiveId: groupId + ':' + objective.a + ':' + (objective.aPin ?? '*') + ':' + objective.b + ':' + (objective.bPin ?? '*') + ':' + net, group: groupId, net, from: { ...from }, to: { ...to }, weightSource: 'config.comparisonWeights', effectiveWeight: config.comparisonWeights[groupId] ?? 0, active: (config.comparisonWeights[groupId] ?? 0) > 0 });
     if (relation.maxDistanceMil !== undefined) entry.implements.push({ type: 'pin-distance-maximum', maxDistanceMil: relation.maxDistanceMil });
   }
   function contextErrorCount() { return context.diagnostics.filter(d => d.severity === 'error').length; }

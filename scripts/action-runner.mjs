@@ -69,13 +69,21 @@ function parseArguments(argv) {
 export function validateDiscoveryMetadata(discovery, skillRoot = dirname(SCRIPT_ROOT), label = 'discovery') {
   if (discovery === undefined) return;
   if (!discovery || typeof discovery !== 'object' || Array.isArray(discovery)
-      || Object.keys(discovery).some(key => !['keywords', 'reference', 'entrypoint', 'limitations'].includes(key))) {
+      || Object.keys(discovery).some(key => !['keywords', 'reference', 'entrypoint', 'limitations', 'commands'].includes(key))) {
     fail('INVALID_DISCOVERY_METADATA', label + ' has invalid discovery fields');
   }
   for (const field of ['keywords', 'limitations']) {
     if (discovery[field] !== undefined && (!Array.isArray(discovery[field])
         || discovery[field].some(value => typeof value !== 'string' || !value.trim()))) {
       fail('INVALID_DISCOVERY_METADATA', label + '.' + field + ' must contain nonempty strings');
+    }
+  }
+  if (discovery.commands !== undefined) {
+    if (!discovery.entrypoint || !Array.isArray(discovery.commands) || discovery.commands.length === 0
+        || discovery.commands.some(command => !command || Object.keys(command).some(key => !['args','mutates'].includes(key))
+          || typeof command.mutates !== 'boolean' || !Array.isArray(command.args) || command.args.length === 0
+          || command.args.some(arg => typeof arg !== 'string' || !arg.trim()))) {
+      fail('INVALID_DISCOVERY_METADATA', label + '.commands must describe script arguments and mutation modes');
     }
   }
   const root = realpathSync.native(skillRoot);
@@ -425,7 +433,7 @@ function discoveryDetails(name, record, workflow = false) {
   return {
     ...(details.reference ? { reference: details.reference } : {}),
     entrypoint: details.entrypoint
-      ? { kind: 'script', file: details.entrypoint }
+      ? { kind: 'script', file: details.entrypoint, ...(details.commands ? { commands: details.commands } : {}) }
       : workflow ? { kind: 'workflow-steps' }
         : { kind: 'action-runner', file: 'scripts/action-runner.mjs', args: ['run', '--action', name] },
     limitations: details.limitations ?? [],

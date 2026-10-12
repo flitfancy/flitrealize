@@ -226,5 +226,10 @@ export async function main(args = process.argv.slice(2), { log = value => consol
 }
 
 if (isDirectExecution(import.meta.url)) {
-  main().catch(error=>{console.error(JSON.stringify({status:'failed',error:error.message}));process.exitCode=1;});
+  main().catch(error => {
+    console.error(JSON.stringify({ status: 'failed', error: { code: error.code ?? 'LAYOUT_FAILED', message: error.message },
+      ...(error.state ? { state: error.state } : {}), ...(error.details ? { conflict: error.details } : {}),
+      ...(error.historyError ? { historyError: error.historyError } : {}) }));
+    process.exitCode = 1;
+  });
 }

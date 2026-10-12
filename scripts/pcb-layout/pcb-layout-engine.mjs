@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 // Mixed algorithm/evidence modules remain whole-file dependencies. Only these
 // standalone HTML presentation modules are excluded from candidate identity.
 const presentation = new Set(['solver-report', 'catalog-report', 'model-report', 'report-ui', 'spacing-report', 'spacing-policy-report'].map(name => 'scripts/pcb-layout/pcb-layout-' + name + '.mjs'));
-const nativePhases = ['inspect', 'apply', 'verify', 'save'];
+const nativePhases = ['inspect', 'preflight', 'apply', 'verify', 'save'];
 // These resources are loaded by generated paths or by a child process rather
 // than an ES import. Keep each edge beside its owning implementation.
 const dynamicDependencies = {

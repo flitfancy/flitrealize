@@ -265,3 +265,15 @@ test('full-plus-query stays filtered and does not silently accept unknown domain
   assert.equal(invalid.status, 1);
   assert.equal(JSON.parse(invalid.stderr).error.code, 'UNKNOWN_ACTION_DOMAIN');
 });
+
+
+test('fine-layout discovery exposes executable subcommands separately from Action modes',()=>{
+  const action=getAction(lookup('细布局','pcb'),'pcb-layout-prepare');
+  assert.deepEqual(action.modes,[{mode:'prepare',mutates:false}]);
+  assert.deepEqual(action.entrypoint.commands.map(c=>c.args),['solve','adopt','route','preflight','apply','resume-save','verify'].map(stage=>['fine','--stage',stage]));
+  assert.deepEqual(action.entrypoint.commands.filter(c=>c.mutates).map(c=>c.args.at(-1)),['apply','resume-save']);
+  for(const commands of [[],[{args:['fine']}],[{args:'fine',mutates:false}],[{args:[''],mutates:false}],[{args:['fine'],mutates:'false'}]]){
+    assert.throws(()=>validateDiscoveryMetadata({entrypoint:'scripts/pcb-layout.mjs',commands},root),/INVALID_DISCOVERY_METADATA|commands/);
+  }
+  assert.throws(()=>validateDiscoveryMetadata({commands:[{args:['fine'],mutates:false}]},root),/INVALID_DISCOVERY_METADATA|commands/);
+});

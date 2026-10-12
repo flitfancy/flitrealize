@@ -7,10 +7,52 @@ import { evaluateBlockCoupling } from '../pcb-layout-block-coupling.mjs';
 import { checkEdges } from '../pcb-layout-edge.mjs';
 import { checkBlocks } from '../pcb-layout-features.mjs';
 import { evaluateSpacingPolicy } from '../pcb-layout-spacing-evaluation.mjs';
-import { relationDistance } from './compile.mjs';
+import { relationDistance, relationMeasurements } from './compile.mjs';
 import { scopeLayoutModel } from '../pcb-layout-scope.mjs';
 import { independentLabelGeometry, fineLabelRules } from './label-geometry.mjs';
-import { digest, fail, issueKey, issueRefs, near, samePose, sameBox, union, within } from './common.mjs';
+import { layoutLabelAlignment } from '../pcb-layout-provider.mjs';
+import { digest, fail, finiteBox, issueKey, issueRefs, near, samePose, sameBox, union, within } from './common.mjs';
+
+/** Reconstruct a complete external plan from the frozen native geometry.
+ * This accepts target poses, never the producer's asserted acceptance status. */
+export function normalizeExternalFinePlan(scope,compilation,proposal) {
+  const {model,request}=scope;
+  if(!proposal||proposal.sourceHash!==model.snapshot.sourceHash)fail('FINE_PLAN_SOURCE_CHANGED');
+  if(!Array.isArray(proposal.issues)||proposal.issues.length)fail('FINE_PLAN_HAS_ISSUES');
+  if(!finiteBox(proposal.boardBounds)||!sameBox(proposal.boardBounds,model.config.hard.boardBounds))fail('FINE_PLAN_BOARD_CHANGED');
+  if(proposal.geometryPolicy?.labelMode!==undefined&&proposal.geometryPolicy.labelMode!==request.labels.mode)fail('FINE_PLAN_LABEL_POLICY_CHANGED');
+  const exact=(rows,old,name)=>{if(!Array.isArray(rows)||rows.length!==old.length||rows.some(r=>!r||typeof r!=='object')||new Set(rows.map(r=>r.id)).size!==old.length||rows.some(r=>!old.some(o=>o.id===r.id)))fail('FINE_PLAN_INVENTORY',name);};
+  exact(proposal.components,model.snapshot.components,'components');exact(proposal.labels,model.snapshot.items,'labels');
+  exact(proposal.testPads,compilation.baseline.plan.testPads,'testPads');
+  const components=proposal.components.map(c=>{
+    const old=model.components.get(c.ref);
+    if(!old||old.id!==c.id||c.layer!==undefined&&c.layer!==old.layer||![c.x,c.y,c.rotation].every(Number.isFinite)||!model.allowedRotations.get(c.ref).some(r=>near(angle(r),angle(c.rotation))))fail('FINE_PLAN_COMPONENT_IDENTITY',c.ref);
+    const body=transformBox(old.bbox,old,c);
+    if(c.body&&(!finiteBox(c.body)||!sameBox(c.body,body)))fail('FINE_PLAN_COMPONENT_GEOMETRY',c.ref);
+    return {id:c.id,ref:c.ref,x:c.x,y:c.y,rotation:c.rotation,dx:c.x-old.x,dy:c.y-old.y,deltaRotation:angle(c.rotation-old.rotation),body};
+  });
+  const bottomLeft=layoutLabelAlignment(model.snapshot).bottomLeft;
+  const labels=proposal.labels.map(l=>{
+    const old=model.snapshot.items.find(o=>o.id===l.id);
+    if(['owner','parentId','type','text','fontSize','lineWidth'].some(k=>l[k]!==old[k])||l.layer!==undefined&&l.layer!==old.layer||![l.x,l.y,l.rotation].every(Number.isFinite)||!finiteBox(l.bbox))fail('FINE_PLAN_LABEL_IDENTITY',l.id);
+    let expected;
+    if(l.alignMode===bottomLeft){expected=transformBox({minX:0,maxX:old.width,minY:0,maxY:old.height},{x:0,y:0,rotation:0},l);}
+    else if(l.alignMode===old.original.alignMode){expected=transformBox(old.original.bbox,old.original,l);}
+    else fail('FINE_PLAN_LABEL_ALIGNMENT',l.id);
+    if(!sameBox(l.bbox,expected))fail('FINE_PLAN_LABEL_GEOMETRY',l.id);
+    if(old.locked&&(!samePose(old.original,l)||old.original.alignMode!==l.alignMode))fail('FINE_LOCKED_LABEL_OWNER',old.owner);
+    const baseline=compilation.baseline.plan.labels.find(o=>o.id===l.id);
+    if(!scope.labelMoving.has(l.owner)&&samePose(baseline,l)&&sameBox(baseline.bbox,l.bbox)&&baseline.alignMode===l.alignMode)return {...baseline};
+    return {id:l.id,type:l.type,owner:l.owner,parentId:l.parentId,text:l.text,fontSize:l.fontSize,lineWidth:l.lineWidth,x:l.x,y:l.y,rotation:l.rotation,alignMode:l.alignMode,bbox:{...l.bbox}};
+  });
+  const testPads=proposal.testPads.map(p=>{
+    const old=compilation.baseline.plan.testPads.find(o=>o.id===p.id);
+    if(p.number!==old.number||p.net!==old.net||p.layer!==undefined&&p.layer!==old.layer||!near(p.x,old.x)||!near(p.y,old.y)||!finiteBox(p.bbox)||!sameBox(p.bbox,old.bbox))fail('FINE_STANDALONE_CHANGED',p.id);
+    return {...old};
+  });
+  const bundles=components.map(c=>({ref:c.ref,bbox:request.labels.mode==='separate'?c.body:union([c.body,...labels.filter(l=>l.owner===c.ref).map(l=>l.bbox)])})).concat(testPads.map(p=>({ref:p.number,bbox:p.bbox})));
+  return {...compilation.baseline.plan,status:'planned',sourceHash:model.snapshot.sourceHash,sourceBefore:model.snapshot.source,components,labels,testPads,bundles,issues:[],geometryPolicy:{labelMode:request.labels.mode}};
+}
 
 function measureSourceLimits(model,plan,moving=new Set()) {
   const positions=new Map(plan.components.map(c=>[c.ref,c]));
@@ -53,11 +95,11 @@ export function verifyFineReadback(model,plan,actual) {
   if(digest(actual.outlines)!==digest(model.snapshot.outlines)||digest(actual.routing)!==digest(model.snapshot.routing))fail('FINE_READBACK_SCENE_CHANGED');
   return {verified:true,components:plan.components.length,labels:plan.labels.length,pads:model.pads.length};
 }
-export function materializeFineCandidate(scope,compilation,result,{labels,bodyOnly=false}={}) {
+export function materializeFineCandidate(scope,compilation,result,{labels,bodyOnly=false,timing}={}) {
   const candidate=decodeCpSatCandidate(compilation.solverModel??scope.model,compilation.problem,result,{name:'fine',label:'Fine layout'}),plan=candidate.plan;
   const originals=new Map(compilation.baseline.plan.labels.map(l=>[l.id,l]));
   if(scope.request.labels.mode==='separate')plan.labels=labels??compilation.baseline.plan.labels.map(l=>({...l}));
-  plan.labels=plan.labels.map(l=>scope.moving.has(l.owner)?l:{...originals.get(l.id)});
+  plan.labels=plan.labels.map(l=>scope.labelMoving.has(l.owner)?l:{...originals.get(l.id)});
   for(const c of plan.components){const old=scope.model.components.get(c.ref);c.body=transformBox(old.bbox,old,c);c.dx=c.x-old.x;c.dy=c.y-old.y;}
   // Frozen context rectangles were neutralized only for solving. Restore every
   // standalone pad's real footprint before independent acceptance/readback.
@@ -65,15 +107,18 @@ export function materializeFineCandidate(scope,compilation,result,{labels,bodyOn
   plan.geometryPolicy={labelMode:scope.request.labels.mode};
   plan.bundles=plan.components.map(c=>({ref:c.ref,bbox:scope.request.labels.mode==='separate'?c.body:union([c.body,...plan.labels.filter(l=>l.owner===c.ref).map(l=>l.bbox)])})).concat(plan.testPads.map(p=>({ref:p.number,bbox:p.bbox})));
   plan.issues=[];plan.sourceBefore=scope.model.snapshot.source;
-  const audit=auditFineCandidate(scope,compilation,plan,{bodyOnly});
+  const audit=auditFineCandidate(scope,compilation,plan,{bodyOnly,timing});
   return {schemaVersion:1,kind:bodyOnly?'flitrealize.fine-layout.body-candidate':'flitrealize.fine-layout.candidate',plan,audit,candidateHash:digest(plan)};
 }
-export function auditFineCandidate(scope,compilation,plan,{bodyOnly=false}={}) {
+export function auditFineCandidate(scope,compilation,plan,options={}) {
+  return options.timing?options.timing.sync('audit',()=>auditFineCandidateCore(scope,compilation,plan,options)):auditFineCandidateCore(scope,compilation,plan,options);
+}
+function auditFineCandidateCore(scope,compilation,plan,{bodyOnly=false}={}) {
   const {model,request,moving}=scope,actual=review(scope,plan,bodyOnly),before=review(scope,compilation.baseline.plan,bodyOnly),oldKeys=new Set(before.issues.map(issueKey));
-  const isOutside=i=>{const refs=issueRefs(i);return refs.length&&refs.every(r=>!moving.has(r));};
+  const isOutside=i=>{const refs=issueRefs(i),active=i.code?.includes('LABEL')?scope.labelMoving:moving;return refs.length&&refs.every(r=>!active.has(r));};
   const retainedOutsideIssues=actual.issues.filter(i=>oldKeys.has(issueKey(i))&&isOutside(i)),blockingIssues=actual.issues.filter(i=>!(request.baselinePolicy==='retain-outside-issues'&&oldKeys.has(issueKey(i))&&isOutside(i)));
   const outsidePoseChanges=scope.frozenRefs.filter(ref=>!samePose(model.components.get(ref),plan.components.find(c=>c.ref===ref)));
-  const outsideLabelChanges=compilation.baseline.plan.labels.filter(l=>!moving.has(l.owner)).filter(l=>digest(l)!==digest(plan.labels.find(p=>p.id===l.id))).map(l=>l.id);
+  const outsideLabelChanges=compilation.baseline.plan.labels.filter(l=>!scope.labelMoving.has(l.owner)).filter(l=>digest(l)!==digest(plan.labels.find(p=>p.id===l.id))).map(l=>l.id);
   const standaloneChanges=compilation.baseline.plan.testPads.filter(p=>{const q=plan.testPads.find(q=>q.id===p.id);return !q||!near(p.x,q.x)||!near(p.y,q.y)||!sameBox(p.bbox,q.bbox)||p.net!==q.net;}).map(p=>p.id);
   const areaViolations=actual.geometry.physical.filter(p=>moving.has(p.ref)&&!within(p.bbox,request.region.boundsMil)).map(p=>p.ref);
   const physicalIssues=[];
@@ -87,15 +132,17 @@ export function auditFineCandidate(scope,compilation,plan,{bodyOnly=false}={}) {
     return rows.filter(p=>moving.has(p.ref)&&Math.min(p.bbox.maxX,r.boundsMil.maxX)>Math.max(p.bbox.minX,r.boundsMil.minX)+1e-4&&Math.min(p.bbox.maxY,r.boundsMil.maxY)>Math.max(p.bbox.minY,r.boundsMil.minY)+1e-4).map(p=>({id:r.id,ref:p.ref}));
   });
   const sourceLimits=measureSourceLimits(model,plan,moving);
-  const relations=request.relations.map(r=>{
+  const relations=(compilation.effectiveRelations??request.relations).map(r=>{
     const beforeMil=compilation.baselineRelations.find(p=>p.id===r.id).distanceMil,afterMil=relationDistance(model,plan.components,r),caps=[...(r.maxDistanceMil!==undefined?[r.maxDistanceMil]:[]),...(r.nonRegression?[beforeMil+r.nonRegression.toleranceMil]:[])];
-    return {id:r.id,source:r.source??null,basis:r.basis,net:r.net,from:r.from,to:r.to,weight:r.weight,critical:r.critical??false,beforeMil,afterMil,changeMil:afterMil-beforeMil,regressed:afterMil>beforeMil+1e-4,capsMil:caps,passed:caps.length?caps.every(c=>afterMil<=c+1e-4):r.critical?null:true,coverage:caps.length?'explicit-acceptance-rule':r.critical?'uncovered-critical-relation':'soft-objective-only'};
+    const inherited=sourceLimits.filter(l=>r.composition?.sourceLimitIds?.includes(l.id)),bound=caps.length||inherited.length;
+    const measurement=relationMeasurements(model,plan.components,r);
+    return {id:r.id,source:r.source??null,basis:r.basis,net:r.net,from:r.from,to:r.to,weight:r.weight,critical:r.critical??false,beforeMil,afterMil,changeMil:afterMil-beforeMil,regressed:afterMil>beforeMil+1e-4,capsMil:caps,sourceLimits:inherited,geometry:r.geometry??'bbox-center',composition:r.composition,measurement,acceptanceScope:'declared placement proxy; not all-pad connectivity',passed:bound?caps.every(c=>afterMil<=c+1e-4)&&inherited.every(l=>l.passed):r.critical?null:true,coverage:inherited.length?(caps.length?'source-and-explicit-acceptance':'source-acceptance-rule'):caps.length?'explicit-acceptance-rule':r.critical?'uncovered-critical-relation':'soft-objective-only'};
   });
   const unboundCritical=relations.filter(r=>r.critical&&r.passed===null).map(r=>r.id);
   const weightedBeforeMil=relations.reduce((s,r)=>s+r.weight*r.beforeMil,0),weightedAfterMil=relations.reduce((s,r)=>s+r.weight*r.afterMil,0);
   const borrowedRefs=request.region.referenceBoundsMil?actual.geometry.physical.filter(p=>moving.has(p.ref)&&!within(p.bbox,request.region.referenceBoundsMil)).map(p=>p.ref):[];
   const localAccepted=!blockingIssues.length&&!outsidePoseChanges.length&&!outsideLabelChanges.length&&!standaloneChanges.length&&!areaViolations.length&&!physicalIssues.length&&!reservationIssues.length&&sourceLimits.filter(l=>l.active).every(l=>l.passed)&&relations.every(r=>r.passed===true)&&!unboundCritical.length;
   const wholeBoardAccepted=!actual.issues.length&&sourceLimits.every(l=>l.passed)&&localAccepted;
-  return {localAccepted,wholeBoardAccepted,blockingIssues,retainedOutsideIssues,outsidePreserved:!outsidePoseChanges.length&&!outsideLabelChanges.length&&!standaloneChanges.length,outsidePoseChanges,outsideLabelChanges,standaloneChanges,areaViolations,physicalIssues,reservationIssues,sourceLimits,relations,unboundCritical,weightedBeforeMil,weightedAfterMil,regressions:relations.filter(r=>r.regressed).map(r=>r.id),borrowedRefs,region:request.region,lockSources:scope.lockSources,crossingNets:scope.crossingNets,
-    labelStatus:bodyOnly?'pending':request.labels.mode==='separate'?'individual-native-glyphs-checked':'joint-templates-and-placement-envelope-checked',assemblyStatus:model.assemblyPolicy?'configured-policy-checked':'explicit-envelopes-only; absent envelopes are not assembly acceptance',measurement:'Manhattan native pad-bbox-center distances; no actual copper-length, return-current or thermal claim',nativeEligible:wholeBoardAccepted&&!bodyOnly};
+  return {localAccepted,wholeBoardAccepted,blockingIssues,retainedOutsideIssues,outsidePreserved:!outsidePoseChanges.length&&!outsideLabelChanges.length&&!standaloneChanges.length,outsidePoseChanges,outsideLabelChanges,standaloneChanges,areaViolations,physicalIssues,reservationIssues,sourceLimits,relations,unboundCritical,weightedBeforeMil,weightedAfterMil,regressions:relations.filter(r=>r.regressed).map(r=>r.id),borrowedRefs,region:request.region,lockSources:scope.lockSources,crossingNets:scope.crossingNets,selection:scope.selection,objectiveComposition:compilation.objectiveComposition,
+    labelStatus:bodyOnly?'pending':request.labels.mode==='separate'?'individual-native-glyphs-checked':'joint-templates-and-placement-envelope-checked',assemblyStatus:model.assemblyPolicy?'configured-policy-checked':'explicit-envelopes-only; absent envelopes are not assembly acceptance',measurement:'Manhattan native pad positions or pad-bbox centres, declared per relation; no actual copper-length, return-current or thermal claim',nativeEligible:wholeBoardAccepted&&!bodyOnly};
 }
