@@ -108,7 +108,7 @@ test('a genuinely older candidate implementation preserves independently confirm
 test('unreadable history identifies its file; explicit receipt permits read-only checking without a history scan',async t=>{
   const f=await fineFixture(t),first=await publicCall(f,'apply','first');
   const bad=path.join(f.f.projectRoot,'evidence/unrelated/layout-execution-result.json');await fs.mkdir(path.dirname(bad),{recursive:true});await fs.writeFile(bad,'{');
-  const blocked=await publicCall(f,'preflight','blocked');assert.equal(blocked.error.code,'FINE_HISTORY_UNREADABLE');assert.ok(blocked.error.message.includes(bad));
+  const blocked=await publicCall(f,'preflight','blocked');assert.equal(blocked.error.code,'FINE_HISTORY_UNREADABLE');assert.ok(blocked.error.message.includes(await fs.realpath(bad)));
   const checked=await publicCall(f,'preflight','explicit',['--receipt',first.execution.resumeSaveReport]);
   assert.equal(checked.status,'verified');assert.equal(checked.state.saved,true);assert.equal(f.f.control.saves,1);
 });
