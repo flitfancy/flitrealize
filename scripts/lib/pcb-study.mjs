@@ -5,12 +5,28 @@ import {createHash} from 'node:crypto';
 
 export async function studyOutputDirectory(root,requested,{category='pcb-study'}={}) {
   root=await fs.realpath(root);
-  const dest=path.resolve(root,requested??path.join('evidence',category,new Date().toISOString().replace(/[:.]/g,'-')));
-  const within=p=>p!==root&&!path.relative(root,p).startsWith('..'+path.sep)&&path.relative(root,p)!=='..'&&!path.isAbsolute(path.relative(root,p));
-  if(!within(dest))throw Error('PREROUTE_OUTPUT_OUTSIDE_PROJECT');
+  let dest=path.resolve(root,requested??path.join('evidence',category,new Date().toISOString().replace(/[:.]/g,'-')));
+  const within=p=>{const relative=path.relative(root,p);return relative!==''&&relative!=='..'&&!relative.startsWith('..'+path.sep)&&!path.isAbsolute(relative);};
+  const requestedWithin=within(dest);
   let ancestor=dest;
-  while(true){try{const real=await fs.realpath(ancestor);if(!within(real)&&real!==root)throw Error('PREROUTE_OUTPUT_LINK_OUTSIDE_PROJECT');break;}catch(error){if(error.code!=='ENOENT')throw error;ancestor=path.dirname(ancestor);}}
-  await fs.mkdir(dest,{recursive:true});return await fs.realpath(dest);
+  // Resolve the existing ancestor before appending new directories, so short
+  // names and directory aliases use the same physical namespace as the root.
+  while(true){
+    try{
+      const real=await fs.realpath(ancestor);
+      dest=path.resolve(real,path.relative(ancestor,dest));
+      if(!within(dest))throw Error(requestedWithin?'PREROUTE_OUTPUT_LINK_OUTSIDE_PROJECT':'PREROUTE_OUTPUT_OUTSIDE_PROJECT');
+      break;
+    }catch(error){
+      const parent=path.dirname(ancestor);
+      if(error.code!=='ENOENT'||parent===ancestor)throw error;
+      ancestor=parent;
+    }
+  }
+  await fs.mkdir(dest,{recursive:true});
+  const real=await fs.realpath(dest);
+  if(!within(real))throw Error('PREROUTE_OUTPUT_LINK_OUTSIDE_PROJECT');
+  return real;
 }
 
 export async function pcbImplementationFingerprint(root,{directories=[],files=[]}={}) {

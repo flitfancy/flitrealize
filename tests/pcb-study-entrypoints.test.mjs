@@ -81,3 +81,29 @@ test('shipped open-block request consumes a prepared directory through the real 
   assert.equal(opened.status,0,opened.stderr);assert.equal(JSON.parse(opened.stdout.trim().split('\n').at(-1)).candidates,1);
  }finally{await fs.rm(root,{recursive:true,force:true});}
 });
+
+async function outputPathFixture(t) {
+ const parent=await fs.realpath(os.tmpdir()),directory=await fs.mkdtemp(path.join(parent,'pcb-study-paths-'));
+ t.after(async()=>{assert.equal(path.dirname(directory),parent);await fs.rm(directory,{recursive:true,force:true});});
+ const root=path.join(directory,'project'),alias=path.join(directory,'project-alias'),outside=path.join(directory,'project-sibling');
+ await fs.mkdir(root);await fs.mkdir(outside);await fs.symlink(root,alias,process.platform==='win32'?'junction':'dir');
+ return{root,alias,outside};
+}
+test('output directories canonicalize valid absolute project aliases before checking containment',async t=>{
+ const{root,alias}=await outputPathFixture(t);
+ assert.equal(await fs.realpath(alias),root);
+ assert.equal(await studyOutputDirectory(root,path.join(alias,'reports','new','nested')),path.join(root,'reports','new','nested'));
+ assert.equal(await studyOutputDirectory(alias,path.join(alias,'another','nested')),path.join(root,'another','nested'));
+ assert.equal(await studyOutputDirectory(alias,'relative-output'),path.join(root,'relative-output'));
+ assert.equal(await studyOutputDirectory(root,path.join(root,'canonical-output')),path.join(root,'canonical-output'));
+ assert.equal(await studyOutputDirectory(root,path.join(alias,'reports','new','nested')),path.join(root,'reports','new','nested'));
+});
+test('canonical output containment still rejects root, traversal, sibling and escaping link destinations',async t=>{
+ const{root,alias,outside}=await outputPathFixture(t);
+ for(const requested of[root,alias,'../project-sibling/forbidden',path.join(outside,'forbidden')])await assert.rejects(studyOutputDirectory(root,requested),/PREROUTE_OUTPUT_OUTSIDE_PROJECT/);
+ await fs.symlink(outside,path.join(root,'escape'),process.platform==='win32'?'junction':'dir');
+ await assert.rejects(studyOutputDirectory(root,'escape/forbidden'),/PREROUTE_OUTPUT_LINK_OUTSIDE_PROJECT/);
+ await assert.rejects(studyOutputDirectory(root,path.join(alias,'escape','forbidden')),/PREROUTE_OUTPUT_OUTSIDE_PROJECT/);
+ assert.deepEqual(await fs.readdir(outside),[],'rejected destinations must not create directories outside the project');
+ assert.deepEqual(await fs.readdir(root),['escape'],'root and parent failures must not create outputs');
+});
