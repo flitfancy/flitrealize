@@ -99,6 +99,13 @@ test('wire color capability is discoverable with its actual limited scope', () =
 });
 
 test('PCB tools expose real PCB entrypoints without falling back to schematic capabilities', () => {
+  for(const [query,name,reference] of [
+    ['布局输入与规则转置','pcb-layout-prepare','3.3-pcb-layout-inputs.md'],
+    ['板框','pcb-board-outline','3.2-pcb-foundation.md'],
+    ['铺铜','pcb-ground-pours','3.9.1-pcb-ground-pours.md'],
+    ['回流检查','pcb-grounding-inspect','3.9.2-pcb-grounding.md'],
+    ['地孔','pcb-ground-vias','3.9.2-pcb-grounding.md'],
+  ])assert.ok(getAction(lookup(query,'pcb'),name).reference.endsWith(reference),query);
   for (const [query, expected] of [['配色', 'pcb-net-color'], ['走线优先级', 'pcb-routing-plan']]) {
     const result = lookup(query, 'pcb');
     assert.equal(result.queryStatus, 'matched');
@@ -132,7 +139,7 @@ test('layout input discovery separates read-only preparation from the full layou
     assert.equal(action.entrypoint.kind, 'script');
     assert.equal(action.entrypoint.file, 'scripts/pcb-layout.mjs');
     assert.deepEqual(action.modes, [{ mode: 'prepare', mutates: false }]);
-    assert.ok(action.reference.endsWith('3.5-pcb-placement.md'));
+    assert.ok(action.reference.endsWith('3.3-pcb-layout-inputs.md'));
     assert.ok(action.limitations.length);
     assert.ok(result.actions.every(item => item.domain === 'pcb'));
   }

@@ -27,7 +27,7 @@
 - `pcb-preroute.mjs`：离线出口、路径、局部回退与潜在地空间。
 - `pcb-route.mjs`：FR 任务与原生布线执行链。
 
-以上只解释实现职责；能力清单和支持模式仍由 manifest 查询。通用算法说明位于 `references/3.5.1-block-layout.md`、`3.8-prerouting.md`、`3.3-ground-space.md`；Provider 操作页只维护原生转换、目标绑定、写入及能力特有边界。
+以上只解释实现职责；能力清单和支持模式仍由 manifest 查询。通用算法说明位于 `references/3.5.1-block-layout.md`、`3.8-prerouting.md`、`references/technical/pcb-ground-space.md`；Provider 操作页只维护原生转换、目标绑定、写入及能力特有边界。
 
 内部 Action 可从默认发现结果隐藏，仍保留准确名称、输入输出和测试。`list --full` 从 manifest 展开内部项，不维护第二份能力目录。
 

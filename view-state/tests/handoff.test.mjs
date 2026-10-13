@@ -51,7 +51,7 @@ test('skill groups remain complete and numbered independently of project chapter
   const roots=navigation(parseHandoff(fixture));
   assert.deepEqual(roots.map(n=>n.code),['0.x','1.x','2.x','3.x','4.x','5.x','6.x']);
   assert.deepEqual(roots[1].children.map(n=>n.code),['1.1','1.2']);
-  assert.deepEqual(roots[3].children.map(n=>n.code),['3.1','3.2','3.3','3.4','3.5']);
+  assert.deepEqual(roots[3].children.map(n=>n.code),['3.1','3.2','3.3','3.4','3.5','3.8','3.9.1','3.9.2']);
   assert.equal(roots[3].current,true);
   assert.equal(roots[4].current,false);
   assert.deepEqual(roots[4].children[0].sources,[]);
@@ -86,7 +86,7 @@ test('PCB operations retain separate discovery guides while the viewer combines 
     ['3.9 布局与空间','接口固定。'],['3.2 布线规则与优先级','仅计划。'],
     ['3.8 线宽调整','仅局部回读。'],['3.4 网络配色','仅预览。'],
   ].map(([heading,summary])=>'### '+heading+'\nViewState: '+summary+'\n').join('');
-  const snapshot=parseHandoff(text),items=navigation(snapshot)[3].children.slice(3);
+  const snapshot=parseHandoff(text),items=navigation(snapshot)[3].children.filter(n=>['3.4','3.5'].includes(n.code));
   assert.equal(items.length,2);
   assert.equal(items[0].kind,'networks');assert.equal(items[0].code,'3.4');
   assert.equal(items[1].code,'3.5');assert.equal(items[1].sources[0].summary,'接口固定。');
@@ -137,4 +137,27 @@ test('network rules precede placement while standalone project chapters keep the
   assert.deepEqual(mappedOwners.map(slot=>slot.id),['skill-3.4']);
   const url=new URL(sourceUrl('/project',network.sources[0]),'http://localhost');
   assert.equal(url.searchParams.get('heading'),'6. '+stage);assert.equal(Number(url.searchParams.get('line')),network.sources[0].line);
+});
+
+test('actual copper and return inspection follow routing without changing source ownership',async()=>{
+  const text='# P\n## 3. PCB 设计\n'+[
+    ['3.2 板框、层叠与机械约束','边界已核对。'],
+    ['3.3 布局输入与规则转置','当前输入已冻结。'],
+    ['3.8 走线与局部反馈','走线待检查。'],
+    ['3.9.1 实际铺铜','实际铜待重铺。'],
+    ['3.9.2 最终走线与接地状态','局部回流待核对。'],
+  ].map(([heading,summary])=>'### '+heading+'\nViewState: '+summary+'\n').join('');
+  const snapshot=parseHandoff(text),before=structuredClone(snapshot),nodes=navigation(snapshot)[3].children;
+  assert.equal(nodes.find(n=>n.code==='3.3').reference,'references/3.3-pcb-layout-inputs.md');
+  assert.equal(nodes.find(n=>n.code==='3.3').sources[0].summary,'当前输入已冻结。');
+  assert.ok(nodes.findIndex(n=>n.code==='3.8')<nodes.findIndex(n=>n.code==='3.9.1'));
+  assert.ok(nodes.findIndex(n=>n.code==='3.9.1')<nodes.findIndex(n=>n.code==='3.9.2'));
+  const pours=nodes.find(n=>n.code==='3.9.1'),returns=nodes.find(n=>n.code==='3.9.2');
+  assert.equal(pours.sources[0].summary,'实际铜待重铺。');
+  assert.equal(returns.sources[0].summary,'局部回流待核对。');
+  assert.equal(pours.reference,'references/providers/easyeda-pro/3.9.1-pcb-ground-pours.md');
+  assert.equal(returns.reference,'references/providers/easyeda-pro/3.9.2-pcb-grounding.md');
+  assert.ok(!pours.title.includes('3.9.1'));assert.ok(!returns.title.includes('3.9.2'));
+  for(const n of [pours,returns])assert.ok((await readFile(new URL('../../'+n.reference,import.meta.url),'utf8')).length);
+  assert.deepEqual(snapshot,before);
 });

@@ -446,6 +446,9 @@
       "discovery": {
         "keywords": [
           "布局输入",
+          "布局输入与规则转置",
+          "输入转置",
+          "规则转置",
           "粗布局",
           "布局候选",
           "pcb layout solver",
@@ -461,7 +464,7 @@
           "布局前检",
           "preflight"
         ],
-        "reference": "references/providers/easyeda-pro/3.5-pcb-placement.md",
+        "reference": "references/3.3-pcb-layout-inputs.md",
         "entrypoint": "scripts/pcb-layout.mjs",
         "limitations": [
           "此 host action 只执行 prepare，不读取或修改 EDA。",
@@ -978,7 +981,7 @@
           "地铜",
           "pours"
         ],
-        "reference": "references/providers/easyeda-pro/3.2-pcb-foundation.md"
+        "reference": "references/providers/easyeda-pro/3.9.1-pcb-ground-pours.md"
       },
       "contractVersion": 1,
       "domain": "pcb",
@@ -1030,7 +1033,7 @@
           "回流候选",
           "stitching"
         ],
-        "reference": "references/providers/easyeda-pro/3.3-pcb-grounding.md",
+        "reference": "references/providers/easyeda-pro/3.9.2-pcb-grounding.md",
         "limitations": [
           "生成候选不等于已写入过孔或已闭合回流。"
         ]
@@ -1074,7 +1077,7 @@
           "地孔",
           "ground vias"
         ],
-        "reference": "references/providers/easyeda-pro/3.3-pcb-grounding.md"
+        "reference": "references/providers/easyeda-pro/3.9.2-pcb-grounding.md"
       },
       "contractVersion": 1,
       "domain": "pcb",
@@ -1129,7 +1132,7 @@
           "回流检查",
           "grounding"
         ],
-        "reference": "references/providers/easyeda-pro/3.3-pcb-grounding.md"
+        "reference": "references/providers/easyeda-pro/3.9.2-pcb-grounding.md"
       },
       "contractVersion": 1,
       "domain": "pcb",

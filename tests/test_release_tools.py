@@ -63,10 +63,14 @@ class RuntimePackagingTests(unittest.TestCase):
             "references/providers/easyeda-pro/3.2-pcb-foundation.md",
             packaged,
         )
-        self.assertIn(
+        for entry in (
             "references/providers/easyeda-pro/3.3-pcb-grounding.md",
-            packaged,
-        )
+            "references/providers/easyeda-pro/3.9.1-pcb-ground-pours.md",
+            "references/providers/easyeda-pro/3.9.2-pcb-grounding.md",
+            "references/technical/pcb-ground-space.md",
+            "references/3.3-pcb-layout-inputs.md",
+        ):
+            self.assertIn(entry, packaged)
 
     def test_archive_bytes_and_metadata_are_platform_independent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

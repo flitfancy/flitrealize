@@ -48,7 +48,7 @@ node "<skill>/scripts/pcb-preroute.mjs" --project-root "<独立样例目录>" --
 | repair-plan | 排序阻挡网并给有限角色/整网回退范围 |
 | prune / shortcut | 指定普通网的保连通冗余清理和同层绕孔；保护角色及配对网 |
 | compose | 相同冻结几何下，各轮完整路径的冲突图与 CP-SAT 相容选择 |
-| ground | 潜在地空间诊断，技术接口见[本页](#地空间估算的技术接口)；用途见[3.3](../3.3-ground-space.md) |
+| ground | 潜在地空间诊断，技术接口见[本页](#地空间估算的技术接口)；用途见[布局诊断](pcb-ground-space.md) |
 
 Python A* 输入支持已保存的规范化 `boardMil/pads/segments/vias/nets`，亦可由 prepare 生成。每 pad 的 `shape/shapes/contactShapes` 区分保守障碍与真实端点接触；每 net 的源端、分支宽度、允许层、窄引出限长等由规则提供。新准备输入检查声明线宽，历史输入只回放原几何并报告未覆盖项。A* 严格限两个声明层；全层空位扫描和路径图可用于明确声明的多层板。
 
@@ -88,4 +88,4 @@ node <skill>/scripts/pcb-preroute.mjs --project-root <项目> --input <冻结输
 
 从焊盘、铜、孔、板边和显式 keepout 派生两层潜在铺铜空间。原生矩形／椭圆接触形状关联地焊盘，区域图考虑声明的跨层焊盘及可放地孔位置。按输入选定主区域检查潜在可达性，全图可达时可在限定区域图上选择连孔。
 
-输出 `ground-space.json`、`ground-link-plan.json` 和可选采样数组，保留面积、分割区、核心宽度、孔槽位及相关线长／层占用。结果标明 `groundCopperCreated:false`、`groundConnectivityVerified:false`、`nativeWrites:0`。模型解释、用途与未覆盖条件见 [3.3 地空间](../3.3-ground-space.md)，实际铺铜和回流仍按原接地入口验证。
+输出 `ground-space.json`、`ground-link-plan.json` 和可选采样数组，保留面积、分割区、核心宽度、孔槽位及相关线长／层占用。结果标明 `groundCopperCreated:false`、`groundConnectivityVerified:false`、`nativeWrites:0`。模型解释、用途与未覆盖条件见 [布局诊断](pcb-ground-space.md)，实际铺铜与回流分别按 [3.9.1](../providers/easyeda-pro/3.9.1-pcb-ground-pours.md) 和 [3.9.2](../providers/easyeda-pro/3.9.2-pcb-grounding.md) 验证。

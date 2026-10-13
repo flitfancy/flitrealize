@@ -47,10 +47,13 @@ export function navigation(snapshot) {
     group(3,[pcb,...networks,...legacyNetworks,...layouts],[
       slot('3.1',[pcb]),
       slot('3.2',[topic(pcb,'板框、层叠与测试点','板框、层叠与机械约束')]),
-      slot('3.3',[topic(pcb,'最终走线与接地状态','关键拓扑、功率环路与回流路径')]),
+      slot('3.3',[topic(pcb,'布局输入与规则转置','布局准备')]),
       {...slot('3.4',networks.length?networks:legacyNetworks,'networks'),...nameFor('pcb-networks'),
         references:['3.4','3.6','3.7'].map(code=>nameFor(code).reference)},
       slot('3.5',layouts),
+      slot('3.8',[topic(pcb,'走线与局部反馈','最终走线状态','分层自动布线')]),
+      slot('3.9.1',[topic(pcb,'创建、重铺并检查实际铜','实际铺铜','参考铜与铺铜')]),
+      slot('3.9.2',[topic(pcb,'回流检查与必要接地过孔','最终走线与接地状态','关键拓扑、功率环路与回流路径')]),
     ]),
     group(4,[manufacture],[slot('4.1',[manufacture])]),
     group(5,[validation],[
