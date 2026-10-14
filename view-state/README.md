@@ -55,4 +55,4 @@ node view-state/cli.mjs --project-root "<PROJECT_ROOT>"
 
 `lib/handoff.mjs`、`network-table.mjs` 解析作者合同，`project.mjs` 处理只读路径，`bridge.mjs` 读取所选通道健康。`server.mjs` 仅绑定 127.0.0.1，提供 GET 状态/原文与静态页面；原文阅读页按标题和行号定位并可下载文件。
 
-导航、命名和渲染位于 `public/`。源码仓库的 `npm test` 包含解析、通道、导航和 HTTP 边界检查；运行包不包含测试。面板不扫描电路设计稿和证据、不监听文件、不聚合工程完成度。
+导航、命名和渲染位于 `public/`。测试统一位于顶层 `tests/view-state/`；本目录的 `npm test` 包含解析、通道、导航和 HTTP 边界检查；运行包不包含测试。面板不扫描电路设计稿和证据、不监听文件、不聚合工程完成度。

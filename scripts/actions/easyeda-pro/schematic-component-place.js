@@ -1,3 +1,33 @@
+// Execution guard is independent of the immutable candidate's source fingerprint.
+async function guardSource(expected, ownedIds = []) {
+  if (expected == null) return;
+  const protect = source => {
+    if (typeof source !== 'string' || !source.trim()) throw Object.assign(new Error('Source guard unavailable.'), { code: 'LOCAL_SOURCE_UNAVAILABLE' });
+    const records = source.split(/\r?\n/).filter(Boolean).map(line => {
+      const split = line.indexOf('||');
+      try {
+        if (split < 0) throw new Error();
+        return { head: JSON.parse(line.slice(0, split)), payload: JSON.parse(line.slice(split + 2).replace(/\|$/, '')) };
+      } catch { throw Object.assign(new Error('Unsupported native source for execution guard.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' }); }
+    }).filter(record => record.head.type !== 'DOCHEAD');
+    if (records.some(record => !record.head.id) || new Set(records.map(record => record.head.id)).size !== records.length) throw Object.assign(new Error('Ambiguous source IDs.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+    const byId = new Map(records.map(record => [record.head.id, record])), owned = new Set(ownedIds);
+    const root = record => {
+      const seen = new Set();
+      const owner = item => item.payload.parentId || (item.head.type === 'LINE' ? item.payload.lineGroup : null);
+      while (owner(record) && byId.has(owner(record))) {
+        if (seen.has(record.head.id)) throw Object.assign(new Error('Cyclic source ownership.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+        seen.add(record.head.id); record = byId.get(owner(record));
+      }
+      return owner(record) || record.head.id;
+    };
+    const stable = value => Array.isArray(value) ? '[' + value.map(stable).join(',') + ']'
+      : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stable(value[key])).join(',') + '}' : JSON.stringify(value);
+    return stable(records.filter(record => !owned.has(root(record))).sort((a, b) => a.head.id.localeCompare(b.head.id)));
+  };
+  if (protect(expected) !== protect(await eda.sys_FileManager.getDocumentSource())) throw Object.assign(new Error('Source changed after preflight; stop and reconcile.'), { code: 'EXECUTION_SOURCE_CHANGED' });
+}
+
 return await (async () => {
   const request = typeof flitrealizeInput === 'undefined' ? { mode: 'inspect' } : flitrealizeInput;
   const MAX_COMPONENTS_PER_APPLY = 50;
@@ -170,7 +200,59 @@ return await (async () => {
       })).sort((left, right) => String(left.primitiveId).localeCompare(String(right.primitiveId))),
     }));
 
-    return { document, components, inspectionFingerprint };
+    let localEvidence;
+    if (request.includeLocalEvidence === true) {
+      const source = await optionalCall('sys_FileManager', 'getDocumentSource');
+      const missing = [], occupancy = [], roots = new Set();
+      const owners = new Map();
+      try {
+        const records = source.value.split(/\r?\n/).filter(Boolean).map(line => {
+          const split = line.indexOf('||');
+          if (split < 0) throw new Error('unsupported source');
+          return { head: JSON.parse(line.slice(0, split)), payload: JSON.parse(line.slice(split + 2).replace(/\|$/, '')) };
+        });
+        const byId = new Map(records.map(record => [record.head.id, record]));
+        const owner = record => record.payload.parentId || (record.head.type === 'LINE' ? record.payload.lineGroup : null);
+        for (let record of records.filter(record => !['DOCHEAD', 'ATTR'].includes(record.head.type))) {
+          const seen = new Set();
+          while (owner(record) && byId.has(owner(record))) {
+            if (seen.has(record.head.id)) throw new Error('cyclic source ownership');
+            seen.add(record.head.id); record = byId.get(owner(record));
+          }
+          roots.add(owner(record) || record.head.id);
+        }
+        for (const record of records.filter(record => record.head.type === 'ATTR')) {
+          if (!record.payload.parentId || !byId.has(record.payload.parentId)) missing.push('owner:' + record.head.id);
+          // Primitive body bounds do not prove attribute/text extents. Query each source attribute as well.
+          let parent = record;
+          const seen = new Set();
+          while (owner(parent) && byId.has(owner(parent))) {
+            if (seen.has(parent.head.id)) throw new Error('cyclic attribute ownership');
+            seen.add(parent.head.id); parent = byId.get(owner(parent));
+          }
+          roots.add(record.head.id);
+          owners.set(record.head.id, owner(parent) || parent.head.id);
+        }
+      } catch { missing.push('native-source-records'); }
+      for (const component of components) {
+        if (!roots.has(component.primitiveId)) missing.push('source:' + component.primitiveId);
+        const pins = await optionalCall('sch_PrimitiveComponent', 'getAllPinsByPrimitiveId', component.primitiveId);
+        component.pins = Array.isArray(pins.value) ? pins.value.map(pin => ({ primitiveId: callGetter(pin, 'getState_PrimitiveId'),
+          number: callGetter(pin, 'getState_PinNumber'), x: finiteOrNull(callGetter(pin, 'getState_X')), y: finiteOrNull(callGetter(pin, 'getState_Y')),
+          rotation: finiteOrNull(callGetter(pin, 'getState_Rotation')), net: callGetter(pin, 'getState_Net'), noConnect: callGetter(pin, 'getState_NoConnected', callGetter(pin, 'getState_NoConnect')) })) : null;
+        if (!component.pins || component.pins.some(pin => !pin.primitiveId || !pin.number || !Number.isFinite(pin.x) || !Number.isFinite(pin.y) || typeof pin.noConnect !== 'boolean')) missing.push('pins:' + component.primitiveId);
+      }
+      for (const id of roots) {
+        const probe = await optionalCall('sch_Primitive', 'getPrimitivesBBox', [id]), bounds = probe.value;
+        if (!id || !bounds || !['minX', 'maxX', 'minY', 'maxY'].every(key => Number.isFinite(bounds[key])) || bounds.minX > bounds.maxX || bounds.minY > bounds.maxY) missing.push('bounds:' + id);
+        else occupancy.push({ id, ownerId: owners.get(id) || id, bounds: { minX: bounds.minX, maxX: bounds.maxX, minY: bounds.minY, maxY: bounds.maxY } });
+      }
+      const afterSource = await optionalCall('sys_FileManager', 'getDocumentSource');
+      if (source.value !== afterSource.value) fail('STATE_CHANGED_DURING_INSPECTION', 'Source changed while reading native occupancy.');
+      await assertTarget(document.uuid, document.parentProjectUuid);
+      localEvidence = { source: source.value, complete: missing.length === 0, missing, occupancy };
+    }
+    return { document, components, inspectionFingerprint, ...(localEvidence ? { localEvidence } : {}) };
   }
 
   async function assertTarget(documentUuid, projectUuid = null) {
@@ -226,6 +308,7 @@ return await (async () => {
       expectedDocumentUuid: expectedDocumentUuid ?? plan.expectedDocumentUuid ?? null,
       expectedProjectUuid: expectedProjectUuid ?? plan.expectedProjectUuid ?? null,
       failurePolicy: plan.failurePolicy === 'preserve' ? 'preserve' : 'rollback',
+      executionSource: plan.executionSource ?? null,
       sourcePlacementPlanFingerprint: placementPlan
         ? plan.fingerprints?.plan ?? null
         : plan.sourcePlacementPlanFingerprint ?? null,
@@ -313,11 +396,18 @@ return await (async () => {
       };
     }
 
+    try { await guardSource(plan.executionSource); }
+    catch (error) { return { status: 'blocked', readOnly: true, error: { code: error.code, message: error.message } }; }
     const created = [];
+    let uncertainWrite = false;
     try {
       for (const item of plan.items) {
+        await guardSource(plan.executionSource, created.map(component => component.primitiveId));
         await assertTarget(plan.expectedDocumentUuid, plan.expectedProjectUuid);
         const componentRef = { libraryUuid: item.libraryUuid, uuid: item.uuid };
+        await guardSource(plan.executionSource, created.map(component => component.primitiveId));
+        await assertTarget(plan.expectedDocumentUuid, plan.expectedProjectUuid);
+        uncertainWrite = true;
         const primitive = await eda.sch_PrimitiveComponent.create(
           componentRef,
           item.x,
@@ -328,7 +418,7 @@ return await (async () => {
           item.addIntoBom,
           item.addIntoPcb,
         );
-        if (!primitive) fail('CREATE_COMPONENT_FAILED', `EasyEDA rejected component at index ${item.index}.`);
+        if (!primitive) { uncertainWrite = false; fail('CREATE_COMPONENT_FAILED', `EasyEDA rejected component at index ${item.index}.`); }
         const primitiveId = callGetter(primitive, 'getState_PrimitiveId');
         if (!primitiveId) fail('CREATE_COMPONENT_WITHOUT_ID', `Component at index ${item.index} has no primitive ID.`);
         if (before.components.some((component) => component.primitiveId === primitiveId)
@@ -338,8 +428,11 @@ return await (async () => {
         // Track ownership immediately, including a failure while setting the designator.
         const receipt = { ...item, primitiveId, requestedValue: item.value };
         created.push(receipt);
+        uncertainWrite = false;
+        await guardSource(plan.executionSource, created.map(component => component.primitiveId));
         await assertTarget(plan.expectedDocumentUuid, plan.expectedProjectUuid);
         let actual = summarizeComponent(primitive);
+        const provisionalSource = plan.executionSource == null ? null : await eda.sys_FileManager.getDocumentSource();
         const valueResolution = item.value === null
           ? { value: actual.value, source: 'provider-default' }
           : await preferredValue(actual, item.value);
@@ -351,8 +444,13 @@ return await (async () => {
             ...(actual.designator !== item.designator ? { designator: item.designator } : {}),
             ...(targetValue === null ? {} : { otherProperty: { ...actual.otherProperty, Value: targetValue } }),
           };
+          receipt.expectedOtherProperty = property.otherProperty || actual.otherProperty;
           await assertTarget(plan.expectedDocumentUuid, plan.expectedProjectUuid);
+          await guardSource(provisionalSource);
+          await assertTarget(plan.expectedDocumentUuid, plan.expectedProjectUuid);
+          uncertainWrite = true;
           const modified = await eda.sch_PrimitiveComponent.modify(primitiveId, property);
+          uncertainWrite = false;
           if (modified === false) fail('SET_COMPONENT_PROPERTIES_FAILED', `EasyEDA rejected properties for ${item.designator}.`);
           const readback = await optionalCall('sch_PrimitiveComponent', 'get', primitiveId);
           if (readback.value) {
@@ -364,11 +462,13 @@ return await (async () => {
       }
 
       const after = await captureState();
+      await guardSource(plan.executionSource, created.map(component => component.primitiveId));
       const afterById = new Map(after.components.map((c) => [c.primitiveId, c]));
       const missing = created.filter((component) => !componentMatches(afterById.get(component.primitiveId), component));
+      const propertyChanges = created.filter(component => component.expectedOtherProperty && stableStringify(afterById.get(component.primitiveId)?.otherProperty) !== stableStringify(component.expectedOtherProperty));
       const collateralMissing = before.components.filter(component => stableStringify(afterById.get(component.primitiveId)) !== stableStringify(component));
-      if (missing.length > 0 || collateralMissing.length > 0) {
-        fail('POST_APPLY_INVARIANT_FAILED', JSON.stringify({ missingOrChanged: missing.length, collateralMissing: collateralMissing.length }));
+      if (missing.length > 0 || collateralMissing.length > 0 || propertyChanges.length > 0) {
+        fail('POST_APPLY_INVARIANT_FAILED', JSON.stringify({ missingOrChanged: missing.length, collateralMissing: collateralMissing.length, propertyChanges: propertyChanges.length }));
       }
       return {
         schemaVersion: 2,
@@ -393,7 +493,7 @@ return await (async () => {
       };
     } catch (error) {
       let rollback = { deleted: false, remaining: null };
-      if (plan.failurePolicy !== 'preserve') {
+      if (!uncertainWrite && plan.failurePolicy !== 'preserve') {
         try { rollback = await rollbackCreated(created, plan.expectedDocumentUuid, plan.expectedProjectUuid); }
         catch (recoveryError) { rollback.error = recoveryError.message; }
       }
@@ -401,10 +501,11 @@ return await (async () => {
       try { restored = await captureState(); } catch { /* Retain known IDs even if readback failed. */ }
       return {
         schemaVersion: 2,
-        status: plan.failurePolicy === 'preserve' ? 'apply-failed' : rollback.remaining === 0 && restored?.inspectionFingerprint === before.inspectionFingerprint
+        status: uncertainWrite ? 'outcome-unknown' : plan.failurePolicy === 'preserve' ? 'apply-failed' : rollback.remaining === 0 && restored?.inspectionFingerprint === before.inspectionFingerprint
           ? 'rolled-back'
           : 'rollback-incomplete',
         error: { code: error.code ?? 'APPLY_FAILED', message: error.message },
+        uncertainWrite,
         createdBeforeFailure: created,
         rollback,
         restoredInspectionFingerprint: restored?.inspectionFingerprint ?? null,
@@ -438,6 +539,7 @@ return await (async () => {
         inspectionFingerprint: state.inspectionFingerprint,
         componentCount: state.components.length,
         components: state.components,
+        ...(state.localEvidence ? { localEvidence: state.localEvidence } : {}),
       },
     };
   }

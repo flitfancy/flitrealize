@@ -7,6 +7,7 @@ import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { sourceChanges, placementOccupancy, targetBounds, assertPreserved } from './lib/schematic-local-state.mjs';
 
 const SCRIPT_ROOT = dirname(fileURLToPath(import.meta.url));
 const PLACE = 'schematic-component-place', SAVE = 'schematic-save-verify';
@@ -85,7 +86,7 @@ function receipts(transaction) {
   }
   return [...owned.values()];
 }
-function reconcile(state, baseline, owned, desired, reportOnly = false) {
+function reconcile(state, baseline, owned, desired, reportOnly = false, ownedState = [], ownedSource = null) {
   const issues = [];
   const issue = (code, message, details = {}) => issues.push({ code, message, ...details });
   const byId = new Map(state.components.map(item => [item.primitiveId, item]));
@@ -93,9 +94,22 @@ function reconcile(state, baseline, owned, desired, reportOnly = false) {
   const ownedIds = new Set(owned.map(item => item.primitiveId));
   const baselineChanges = baseline.components.filter(item => stable(byId.get(item.primitiveId)) !== stable(item))
     .map(item => ({ before: item, current: byId.get(item.primitiveId) ?? null }));
-  if (baselineChanges.length) issue('BASELINE_CHANGED', '原有器件已变化，可能影响剩余布局；可结束旧批次后按现场重新规划', { components: baselineChanges });
   const unaccounted = state.components.filter(item => !baselineIds.has(item.primitiveId) && !ownedIds.has(item.primitiveId));
-  if (unaccounted.length) issue('UNACCOUNTED_COMPONENTS', '发现没有创建回执的新增对象；不自动认领或重复创建', { components: unaccounted });
+  const targetRefs = new Set(desired.map(component => component.designator));
+  for (const item of state.components) if (targetRefs.has(item.designator) && !ownedIds.has(item.primitiveId)) issue('DESIGNATOR_ALREADY_EXISTS', '待创建位号被现场对象占用，不认领或覆盖。', { component: item });
+  if (unaccounted.some(item => targetRefs.has(item.designator))) issue('UNACCOUNTED_COMPONENTS', '目标位号对象没有本批创建回执；不认领或重复创建。', { components: unaccounted });
+  for (const item of state.components.filter(item => !ownedIds.has(item.primitiveId))) for (const component of desired) {
+    if (item.x === component.position.x && item.y === component.position.y) issue('TARGET_OCCUPIED', '对象锚点占据目标器件位置。', { obstacleId: item.primitiveId, designator: component.designator });
+  }
+  for (const ref of targetRefs) if (state.components.filter(item => item.designator === ref).length > 1) issue('DUPLICATE_DESIGNATOR', '目标位号重复。', { designator: ref });
+  let externalSourceChanges = [];
+  try {
+    externalSourceChanges = sourceChanges(baseline.localEvidence?.source, state.localEvidence?.source, [...ownedIds]);
+    if (ownedSource && sourceChanges(ownedSource, state.localEvidence?.source).some(change => change.before && (ownedIds.has(change.root) || ownedIds.has(change.beforeRoot)))) issue('CREATED_COMPONENT_CHANGED', '已创建目标对象的源码属性或引脚发生变化。');
+  } catch (error) {
+    issue(error.code, error.message); // A failed source read never proves that only unrelated components changed.
+  }
+  const preservedChanges = { components: baselineChanges, addedComponents: unaccounted, sourceRecords: externalSourceChanges };
   for (const item of owned) {
     const plan = desired.find(component => component.designator === item.designator);
     if (!plan || item.libraryUuid !== plan.bindings.easyedaPro.libraryUuid || item.uuid !== plan.bindings.easyedaPro.deviceUuid ||
@@ -104,11 +118,21 @@ function reconcile(state, baseline, owned, desired, reportOnly = false) {
         item.addIntoBom !== (plan.includeInBom !== false) || item.addIntoPcb !== (plan.includeInPcb !== false)) issue('RECEIPT_PLAN_MISMATCH', '创建回执与冻结的放置意图不符', { receipt: item });
     if (!matches(byId.get(item.primitiveId), item)) issue('CREATED_COMPONENT_CHANGED', '已创建对象缺失或未符合计划：' + item.designator, { before: item, current: byId.get(item.primitiveId) ?? null });
   }
+  for (const original of ownedState) if (stable(byId.get(original.primitiveId)) !== stable(original)) issue('CREATED_COMPONENT_CHANGED', '已创建器件属性或引脚网络与回读记录不一致。', { before: original, current: byId.get(original.primitiveId) ?? null });
+  const exactOccupancyAvailable = state.localEvidence?.complete && desired.every(component => targetBounds(component));
+  if (baselineChanges.length || unaccounted.length || externalSourceChanges.length || exactOccupancyAvailable) {
+    issues.push(...placementOccupancy(state, desired, [...ownedIds]));
+    // Removed/moved-away obstacles can also be target dependencies. Check their original native bounds.
+    const changedRoots = new Set(externalSourceChanges.map(change => change.beforeRoot).filter(Boolean));
+    const originalObstacles = (baseline.localEvidence?.occupancy || []).filter(obstacle => changedRoots.has(obstacle.ownerId || obstacle.id));
+    if (originalObstacles.length) issues.push(...placementOccupancy({ ...state, localEvidence: { ...state.localEvidence,
+      occupancy: [...state.localEvidence.occupancy, ...originalObstacles] } }, desired, [...ownedIds]));
+  }
   const completedRefs = new Set(owned.map(item => item.designator));
   if (completedRefs.size !== owned.length) issue('DUPLICATE_RECEIPTS', '创建回执存在重复位号');
   if (baseline.components.some(item => desired.some(component => component.designator === item.designator))) issue('DESIGNATOR_ALREADY_EXISTS', '本次请求的位号在批次开始前已存在；不覆盖、不重复放置');
   const pending = desired.filter(item => !completedRefs.has(item.designator));
-  if (reportOnly) return { pending, issues };
+  if (reportOnly) return { pending, issues, preservedChanges };
   if (issues.length) fail(issues[0].code, issues[0].message);
   return pending;
 }
@@ -215,7 +239,7 @@ export async function runComponentBatch(options) {
   }
   function expected(result, status) { if (result.status !== status) fail('ACTION_NOT_COMPLETED', `步骤返回 ${result.status}，需要 ${status}；完整证据在运行目录`); return result; }
   async function inspect(input, includeSource = false) {
-    const result = expected(await dispatch(PLACE, { mode: 'inspect', includeSource }), 'inspected');
+    const result = expected(await dispatch(PLACE, { mode: 'inspect', includeSource, includeLocalEvidence: true }), 'inspected');
     target(result.state, input);
     return result;
   }
@@ -272,7 +296,7 @@ export async function runComponentBatch(options) {
             semanticSha256: sha(stable(index === 0 ? input : scopedContract(contract, input.designators))),
             ...(index === 0 ? {} : { designators: input.designators }), snapshotFile };
         })),
-        toolchain: await Promise.all(['schematic-components.mjs', 'action-runner.mjs', 'actions/manifest.json', 'actions/schematic-layout.js', 'actions/schematic-contract-audit.js', 'actions/easyeda-pro/schematic-resolve-bindings.js', 'actions/easyeda-pro/schematic-component-place.js', 'actions/easyeda-pro/schematic-save-verify.js']
+        toolchain: await Promise.all(['schematic-components.mjs', 'lib/schematic-local-state.mjs', 'action-runner.mjs', 'actions/manifest.json', 'actions/schematic-layout.js', 'actions/schematic-contract-audit.js', 'actions/easyeda-pro/schematic-resolve-bindings.js', 'actions/easyeda-pro/schematic-component-place.js', 'actions/easyeda-pro/schematic-save-verify.js']
           .map(async path => ({ path, sha256: sha(await readFile(join(SCRIPT_ROOT, path))) }))), attempts: [] };
       await persist();
       input = await frozenSource(transaction.sources[0]);
@@ -302,9 +326,10 @@ export async function runComponentBatch(options) {
     }
     let current = await inspect(input, true);
     const unresolved = transaction.attempts.filter(attempt => attempt.mutates && ['unknown', 'in-flight'].includes(attempt.state));
-    const desired = prepared.placementPlan.components;
+    const desired = prepared.placementPlan.components.map(component => ({ ...component,
+      localGeometry: input?.catalog?.[component.designator]?.symbol?.occupancy }));
     let owned = receipts(transaction);
-    const live = reconcile(current.state, prepared.baseline, owned, desired, true);
+    const live = reconcile(current.state, prepared.baseline, owned, desired, true, transaction.ownedComponents, transaction.ownedSource);
     const integrity = await inputIntegrity();
     const issues = [
       ...live.issues,
@@ -314,7 +339,7 @@ export async function runComponentBatch(options) {
     ];
     const sourceChanged = transaction.completedSourceSha256 && sha(canonicalSource(current.backupSource)) !== transaction.completedSourceSha256;
     if (sourceChanged) issues.push({ code: 'COMPLETED_SOURCE_CHANGED', message: '已完成批次之后的源码发生变化，旧保存结论不代表当前现场' });
-    const reconciliation = { checkedAt: new Date().toISOString(), document: current.state.document, integrity, issues,
+    const reconciliation = { checkedAt: new Date().toISOString(), document: current.state.document, integrity, issues, preservedChanges: live.preservedChanges,
       pendingDesignators: live.pending.map(component => component.designator), confirmedCreatedCount: owned.length,
       canResume: !transaction.closedAt && issues.length === 0, canClose: unresolved.length === 0 };
     transaction.reconciliation = reconciliation;
@@ -338,7 +363,8 @@ export async function runComponentBatch(options) {
     if (options.resume && !options.apply && issues.length) return { ok: true, status: 'needs-reconciliation', readOnly: true, runDir,
       saved: null, saveChecked: false, reconciliation, pendingCount: live.pending.length, confirmedCreatedCount: owned.length };
     if (unresolved.length) fail('IN_FLIGHT_OUTCOME_UNKNOWN', '已保存只读回读，但旧写入缺少确定终态；不能启动新写入或结束批次');
-    let pending = reconcile(current.state, prepared.baseline, owned, desired);
+    if (sourceChanged && !live.issues.some(issue => ['CREATED_COMPONENT_CHANGED', 'RECEIPT_PLAN_MISMATCH', 'DUPLICATE_DESIGNATOR'].includes(issue.code))) fail('COMPLETED_SOURCE_CHANGED', '已完成批次的源文件又有变化；旧保存证据不能代表当前现场。');
+    let pending = reconcile(current.state, prepared.baseline, owned, desired, false, transaction.ownedComponents, transaction.ownedSource);
     if (transaction.completedSourceSha256) {
       if (sourceChanged) fail('COMPLETED_SOURCE_CHANGED', '已完成批次的源文件又有变化；不把旧保存结论套用到当前现场');
       need(pending.length === 0, '完成记录与当前对象不一致');
@@ -352,15 +378,23 @@ export async function runComponentBatch(options) {
     if (!options.apply) return { ok: true, status: 'planned', readOnly: true, runDir, pendingCount: pending.length, confirmedCreatedCount: owned.length,
       saved: null, saveChecked: false, limitations: prepared.limitations, reconciliation };
     requireCurrentInputs(integrity);
+    // Preserve the original candidate; protect separately recorded, accepted invocation state.
+    transaction.executionBaseline = { checkedAt: new Date().toISOString(), state: current.state, preservedChanges: live.preservedChanges };
+    await persist();
+    let executionSource = current.backupSource;
     while (pending.length) {
       // Always validate the first representative before scaling to the configured chunk size.
       const size = owned.length ? (input.batchSize ?? 10) : 1;
-      const batchPlan = { ...prepared.placementPlan, components: pending.slice(0, size), failurePolicy: 'preserve' };
+      const batchPlan = { ...prepared.placementPlan, components: pending.slice(0, size), failurePolicy: 'preserve', executionSource };
       const planned = expected(await dispatch(PLACE, { mode: 'plan', plan: batchPlan, expectedDocumentUuid: input.expectedDocumentUuid, expectedProjectUuid: input.expectedProjectUuid }), 'planned');
       const applied = await dispatch(PLACE, planned.applyRequest, true);
-      current = await inspect(input);
+      current = await inspect(input, true);
       owned = receipts(transaction);
-      pending = reconcile(current.state, prepared.baseline, owned, desired);
+      assertPreserved(executionSource, current.backupSource, owned.map(item => item.primitiveId));
+      pending = reconcile(current.state, prepared.baseline, owned, desired, false, transaction.ownedComponents, transaction.ownedSource);
+      transaction.ownedComponents = current.state.components.filter(item => owned.some(receipt => receipt.primitiveId === item.primitiveId));
+      transaction.ownedSource = current.backupSource;
+      executionSource = current.backupSource;
       expected(applied, 'applied'); // A failed chunk stops this invocation, even after a useful partial result.
       const verification = expected(await dispatch(PLACE, { mode: 'verify', created: owned, expectedDocumentUuid: input.expectedDocumentUuid, expectedProjectUuid: input.expectedProjectUuid }), 'verified');
       transaction.verification = verification.verification;
@@ -371,11 +405,14 @@ export async function runComponentBatch(options) {
     // Re-read all owned IDs before saving, including a resume after a failed save.
     const verified = expected(await dispatch(PLACE, { mode: 'verify', created: owned, expectedDocumentUuid: input.expectedDocumentUuid, expectedProjectUuid: input.expectedProjectUuid }), 'verified');
     transaction.verification = verified.verification;
-    const savePlan = expected(await dispatch(SAVE, { mode: 'plan', expectedDocumentUuid: input.expectedDocumentUuid, expectedProjectUuid: input.expectedProjectUuid, runDrc: false }), 'planned');
+    const preSave = await inspect(input, true);
+    assertPreserved(executionSource, preSave.backupSource);
+    const savePlan = expected(await dispatch(SAVE, { mode: 'plan', expectedDocumentUuid: input.expectedDocumentUuid, expectedProjectUuid: input.expectedProjectUuid, runDrc: false, executionSource }), 'planned');
     const saved = expected(await dispatch(SAVE, savePlan.applyRequest, true), 'applied');
     if (saved.saved !== true) fail('SAVE_NOT_CONFIRMED', '没有确认保存');
     current = await inspect(input, true);
-    reconcile(current.state, prepared.baseline, owned, desired);
+    assertPreserved(executionSource, current.backupSource);
+    reconcile(current.state, prepared.baseline, owned, desired, false, transaction.ownedComponents, transaction.ownedSource);
     await writeFile(join(runDir, 'after-' + randomUUID() + '.esch'), current.backupSource, { flag: 'wx' });
     transaction.completedSourceSha256 = sha(canonicalSource(current.backupSource));
     transaction.status = 'completed';
@@ -384,7 +421,7 @@ export async function runComponentBatch(options) {
     await persist();
     await unlink(activePath);
     return { ok: true, status: 'placed-saved', runDir, placedCount: owned.length, saved: true, verification: transaction.verification,
-      drc: 'not-run', scope: 'component-placement-only', limitations: ['未连线、未做整图 DRC；器件库身份回读的未知覆盖见 verification。', '未检查所有非器件图元；完整源码备份供对账，不提供自动整图恢复。'] };
+      drc: 'not-run', scope: 'component-placement-only', preservedChanges: live.preservedChanges, limitations: ['未连线、未做整图 DRC；器件库身份回读的未知覆盖见 verification。', '外部变化放行需完整原生占位与准确目标尺寸；普通未变化批次沿用原入口，不提供自动整图恢复。'] };
   } catch (error) {
     if (transaction) {
       if (!transaction.closedAt) transaction.status = 'needs-reconciliation';

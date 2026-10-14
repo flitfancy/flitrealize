@@ -1,3 +1,33 @@
+// Execution guard is independent of the immutable candidate's source fingerprint.
+async function guardSource(expected, ownedIds = []) {
+  if (expected == null) return;
+  const protect = source => {
+    if (typeof source !== 'string' || !source.trim()) throw Object.assign(new Error('Source guard unavailable.'), { code: 'LOCAL_SOURCE_UNAVAILABLE' });
+    const records = source.split(/\r?\n/).filter(Boolean).map(line => {
+      const split = line.indexOf('||');
+      try {
+        if (split < 0) throw new Error();
+        return { head: JSON.parse(line.slice(0, split)), payload: JSON.parse(line.slice(split + 2).replace(/\|$/, '')) };
+      } catch { throw Object.assign(new Error('Unsupported native source for execution guard.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' }); }
+    }).filter(record => record.head.type !== 'DOCHEAD');
+    if (records.some(record => !record.head.id) || new Set(records.map(record => record.head.id)).size !== records.length) throw Object.assign(new Error('Ambiguous source IDs.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+    const byId = new Map(records.map(record => [record.head.id, record])), owned = new Set(ownedIds);
+    const root = record => {
+      const seen = new Set();
+      const owner = item => item.payload.parentId || (item.head.type === 'LINE' ? item.payload.lineGroup : null);
+      while (owner(record) && byId.has(owner(record))) {
+        if (seen.has(record.head.id)) throw Object.assign(new Error('Cyclic source ownership.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+        seen.add(record.head.id); record = byId.get(owner(record));
+      }
+      return owner(record) || record.head.id;
+    };
+    const stable = value => Array.isArray(value) ? '[' + value.map(stable).join(',') + ']'
+      : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stable(value[key])).join(',') + '}' : JSON.stringify(value);
+    return stable(records.filter(record => !owned.has(root(record))).sort((a, b) => a.head.id.localeCompare(b.head.id)));
+  };
+  if (protect(expected) !== protect(await eda.sys_FileManager.getDocumentSource())) throw Object.assign(new Error('Source changed after preflight; stop and reconcile.'), { code: 'EXECUTION_SOURCE_CHANGED' });
+}
+
 return await (async () => {
   const request = typeof flitrealizeInput === 'undefined' ? { mode: 'inspect' } : flitrealizeInput;
   const VALID_IDENTIFICATIONS = new Set(['Power', 'Ground', 'AnalogGround', 'ProtectGround']);
@@ -176,7 +206,7 @@ return await (async () => {
     });
     const planObject = Array.isArray(value) ? {} : value;
     return { items, expectedDocumentUuid: expectedDocumentUuid ?? planObject?.expectedDocumentUuid ?? null,
-      expectedProjectUuid: expectedProjectUuid ?? planObject?.expectedProjectUuid ?? null };
+      expectedProjectUuid: expectedProjectUuid ?? planObject?.expectedProjectUuid ?? null, executionSource: planObject?.executionSource ?? null };
   }
 
   function analyzePlan(state, plan) {
@@ -260,8 +290,16 @@ return await (async () => {
     if ([...counts].some(([, count]) => count !== 1)) fail('MARKER_NAME_ATTR_UNEXPECTED', 'Expected one Name attribute per hidden marker.');
     const output = source.split(/\r?\n/).map((line, index) => replacements.get(index) ?? line).join('\n');
     if (output !== source) {
-      if (!await eda.sys_FileManager.setDocumentSource(output)) fail('SOURCE_IMPORT_REJECTED', 'Marker display settings were rejected.');
+      // This setter imports the entire source. Recheck the exact source used to build it.
+      await assertTarget(document.uuid, document.parentProjectUuid);
+      await guardSource(source);
+      await assertTarget(document.uuid, document.parentProjectUuid);
+      let imported;
+      try { imported = await eda.sys_FileManager.setDocumentSource(output); }
+      catch (error) { error.uncertainWrite = true; throw error; }
+      if (!imported) fail('SOURCE_IMPORT_REJECTED', 'Marker display settings were rejected.');
       await new Promise(resolve => setTimeout(resolve, 500));
+      await guardSource(output);
     }
     const visibility = nameVisibilityByParent(await eda.sys_FileManager.getDocumentSource());
     if ([...hidden].some(id => visibility.get(id) !== false)) fail('SOURCE_READBACK_MISMATCH', 'Name visibility did not persist.');
@@ -281,11 +319,14 @@ return await (async () => {
       };
     }
 
+    try { await guardSource(plan.executionSource); }
+    catch (error) { return { status: 'blocked', readOnly: true, error: { code: error.code, message: error.message } }; }
     const created = [];
     const existingIds = new Set(before.components.map(item => item.primitiveId));
     let uncertainWrite = false;
     try {
       for (const item of plan.items) {
+        await guardSource(plan.executionSource, created.map(item => item.primitiveId));
         await assertTarget(before.document.uuid, before.document.parentProjectUuid);
         uncertainWrite = true;
         const primitive = item.kind === 'netFlag'
@@ -298,9 +339,11 @@ return await (async () => {
         await assertTarget(before.document.uuid, before.document.parentProjectUuid);
         created.push({ ...item, primitiveId, componentType: callGetter(primitive, 'getState_ComponentType') });
         uncertainWrite = false;
+        await guardSource(plan.executionSource, created.map(item => item.primitiveId));
       }
       await applyNameVisibility(created, before.document);
       const after = await captureState();
+      await guardSource(plan.executionSource, created.map(item => item.primitiveId));
       await assertTarget(before.document.uuid, before.document.parentProjectUuid);
       const afterById = new Map(after.components.map((component) => [component.primitiveId, component]));
       const missingOrChanged = created.filter((item) => !flagMatches(afterById.get(item.primitiveId), item));
@@ -330,6 +373,7 @@ return await (async () => {
         },
       };
     } catch (error) {
+      uncertainWrite ||= error.uncertainWrite === true;
       let rollback = { deleted: false, remaining: null };
       if (!uncertainWrite) {
         try { rollback = await rollbackCreated(created, before.document); }
@@ -372,6 +416,7 @@ return await (async () => {
   }
   if (mode === 'plan') {
     const plan = normalizePlan(request.plan ?? request.items, request.expectedDocumentUuid, request.expectedProjectUuid);
+    plan.executionSource = request.executionSource ?? plan.executionSource;
     const state = await captureState();
     const analysis = analyzePlan(state, plan);
     return {

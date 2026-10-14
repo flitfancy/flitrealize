@@ -1,3 +1,33 @@
+// Execution guard is independent of the immutable candidate's source fingerprint.
+async function guardSource(expected, ownedIds = []) {
+  if (expected == null) return;
+  const protect = source => {
+    if (typeof source !== 'string' || !source.trim()) throw Object.assign(new Error('Source guard unavailable.'), { code: 'LOCAL_SOURCE_UNAVAILABLE' });
+    const records = source.split(/\r?\n/).filter(Boolean).map(line => {
+      const split = line.indexOf('||');
+      try {
+        if (split < 0) throw new Error();
+        return { head: JSON.parse(line.slice(0, split)), payload: JSON.parse(line.slice(split + 2).replace(/\|$/, '')) };
+      } catch { throw Object.assign(new Error('Unsupported native source for execution guard.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' }); }
+    }).filter(record => record.head.type !== 'DOCHEAD');
+    if (records.some(record => !record.head.id) || new Set(records.map(record => record.head.id)).size !== records.length) throw Object.assign(new Error('Ambiguous source IDs.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+    const byId = new Map(records.map(record => [record.head.id, record])), owned = new Set(ownedIds);
+    const root = record => {
+      const seen = new Set();
+      const owner = item => item.payload.parentId || (item.head.type === 'LINE' ? item.payload.lineGroup : null);
+      while (owner(record) && byId.has(owner(record))) {
+        if (seen.has(record.head.id)) throw Object.assign(new Error('Cyclic source ownership.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+        seen.add(record.head.id); record = byId.get(owner(record));
+      }
+      return owner(record) || record.head.id;
+    };
+    const stable = value => Array.isArray(value) ? '[' + value.map(stable).join(',') + ']'
+      : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stable(value[key])).join(',') + '}' : JSON.stringify(value);
+    return stable(records.filter(record => !owned.has(root(record))).sort((a, b) => a.head.id.localeCompare(b.head.id)));
+  };
+  if (protect(expected) !== protect(await eda.sys_FileManager.getDocumentSource())) throw Object.assign(new Error('Source changed after preflight; stop and reconcile.'), { code: 'EXECUTION_SOURCE_CHANGED' });
+}
+
 return await (async () => {
   const request = typeof flitrealizeInput === 'undefined' ? { mode: 'inspect' } : flitrealizeInput;
   const MAX_WIRES_PER_APPLY = 200;
@@ -231,6 +261,7 @@ return await (async () => {
       sourceSnapshotFingerprint: wirePlan ? value.source?.snapshotFingerprint ?? null : value.sourceSnapshotFingerprint ?? null,
       sourceWirePlanFingerprint: wirePlan ? value.fingerprints?.plan ?? null : value.sourceWirePlanFingerprint ?? null,
       unresolved: wirePlan && Array.isArray(value.unresolved) ? value.unresolved : [],
+      executionSource: value.executionSource ?? null,
     };
   }
 
@@ -365,6 +396,8 @@ return await (async () => {
         analysis,
       };
     }
+    try { await guardSource(plan.executionSource); }
+    catch (error) { return { status: 'blocked', readOnly: true, error: { code: error.code, message: error.message } }; }
     const created = [];
     const createdIds = [];
     const existingIds = new Set(before.wires.map(item => item.primitiveId));
@@ -374,6 +407,7 @@ return await (async () => {
         const batch = plan.wires.slice(offset, offset + APPLY_BATCH_SIZE);
         const batchCreated = [];
         for (const item of batch) {
+          await guardSource(plan.executionSource, createdIds);
           const line = item.points.flatMap((point) => [point.x, point.y]);
           await assertTarget(before.document.uuid, before.document.parentProjectUuid);
           uncertainWrite = true;
@@ -385,6 +419,7 @@ return await (async () => {
           await assertTarget(before.document.uuid, before.document.parentProjectUuid);
           createdIds.push(primitiveId);
           uncertainWrite = false;
+          await guardSource(plan.executionSource, createdIds);
           batchCreated.push({ item, primitiveId });
         }
         const readback = await getWiresByIds(batchCreated.map((entry) => entry.primitiveId));
@@ -408,6 +443,7 @@ return await (async () => {
       const mismatches = created.filter((wire) => !wireMatchesRecord(targetedById.get(wire.primitiveId), wire));
       if (mismatches.length) fail('POST_APPLY_TARGETED_VERIFY_FAILED', `${mismatches.length} created wire(s) failed ID-based verification.`);
       const after = await captureState();
+      await guardSource(plan.executionSource, createdIds);
       await assertTarget(before.document.uuid, before.document.parentProjectUuid);
       const expectedCreatedFingerprint = targetedFingerprint(created);
       return {

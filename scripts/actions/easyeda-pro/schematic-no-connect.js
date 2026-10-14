@@ -1,3 +1,33 @@
+// Execution guard is independent of the immutable candidate's source fingerprint.
+async function guardSource(expected, ownedIds = []) {
+  if (expected == null) return;
+  const protect = source => {
+    if (typeof source !== 'string' || !source.trim()) throw Object.assign(new Error('Source guard unavailable.'), { code: 'LOCAL_SOURCE_UNAVAILABLE' });
+    const records = source.split(/\r?\n/).filter(Boolean).map(line => {
+      const split = line.indexOf('||');
+      try {
+        if (split < 0) throw new Error();
+        return { head: JSON.parse(line.slice(0, split)), payload: JSON.parse(line.slice(split + 2).replace(/\|$/, '')) };
+      } catch { throw Object.assign(new Error('Unsupported native source for execution guard.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' }); }
+    }).filter(record => record.head.type !== 'DOCHEAD');
+    if (records.some(record => !record.head.id) || new Set(records.map(record => record.head.id)).size !== records.length) throw Object.assign(new Error('Ambiguous source IDs.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+    const byId = new Map(records.map(record => [record.head.id, record])), owned = new Set(ownedIds);
+    const root = record => {
+      const seen = new Set();
+      const owner = item => item.payload.parentId || (item.head.type === 'LINE' ? item.payload.lineGroup : null);
+      while (owner(record) && byId.has(owner(record))) {
+        if (seen.has(record.head.id)) throw Object.assign(new Error('Cyclic source ownership.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+        seen.add(record.head.id); record = byId.get(owner(record));
+      }
+      return owner(record) || record.head.id;
+    };
+    const stable = value => Array.isArray(value) ? '[' + value.map(stable).join(',') + ']'
+      : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stable(value[key])).join(',') + '}' : JSON.stringify(value);
+    return stable(records.filter(record => !owned.has(root(record))).sort((a, b) => a.head.id.localeCompare(b.head.id)));
+  };
+  if (protect(expected) !== protect(await eda.sys_FileManager.getDocumentSource())) throw Object.assign(new Error('Source changed after preflight; stop and reconcile.'), { code: 'EXECUTION_SOURCE_CHANGED' });
+}
+
 return await (async () => {
   const request = typeof flitrealizeInput === 'undefined' ? { mode: 'inspect', items: [] } : flitrealizeInput;
   const MAX_PINS_PER_APPLY = 30;
@@ -112,15 +142,44 @@ return await (async () => {
   function pinReport(state) {
     return state.pins.map(({ key, actualNoConnected }) => ({ key, noConnected: actualNoConnected }));
   }
+  async function advanceSource(expected, pin, intended) {
+    if (expected == null) return expected;
+    const current = await eda.sys_FileManager.getDocumentSource();
+    const records = source => source.split(/\r?\n/).filter(Boolean).map(line => {
+      const split = line.indexOf('||');
+      if (split < 0) fail('LOCAL_SOURCE_UNSUPPORTED', 'Cannot prove the NC source delta.');
+      return { head: JSON.parse(line.slice(0, split)), payload: JSON.parse(line.slice(split + 2).replace(/\|$/, '')) };
+    }).filter(record => record.head.type !== 'DOCHEAD');
+    const before = records(expected), after = records(current), old = new Map(before.map(record => [record.head.id, record]));
+    const now = new Map(after.map(record => [record.head.id, record]));
+    const pinRecord = old.get(pin.identity.pinId);
+    const position = pinRecord?.payload || { x: pin.identity.x, y: -pin.identity.y };
+    const trimPin = record => { const payload = { ...record.payload }; delete payload.noConnected; return { ...record, payload }; };
+    for (const id of new Set([...old.keys(), ...now.keys()])) {
+      const original = old.get(id), record = now.get(id);
+      if (stableStringify(original) === stableStringify(record)) continue;
+      if (record?.head.type === 'PIN' && id === pin.identity.pinId && original && record.payload.noConnected === intended
+        && stableStringify(trimPin(original)) === stableStringify(trimPin(record))) continue;
+      if (record?.head.type === 'ATTR' && record.payload.key === 'NO_CONNECT' && record.payload.parentId === pin.identity.pinId
+        && record.payload.value === (intended ? 'yes' : 'no') && record.payload.x === position.x && record.payload.y === position.y
+        && (!original || stableStringify({ ...original, payload: { ...original.payload, value: record.payload.value } }) === stableStringify(record))) continue;
+      fail('EXECUTION_SOURCE_CHANGED', 'Unexpected source change during the NC write; no next pin write was started.');
+    }
+    return current;
+  }
   async function mutate(items, source, mode) {
     if (!source.expectedDocumentUuid) fail('DOCUMENT_IDENTITY_REQUIRED', 'A write requires expectedDocumentUuid.');
     if (mode === 'apply' && !source.expectedPlanFingerprint) fail('INVALID_APPLY_REQUEST', 'Apply requires expectedPlanFingerprint from a fresh plan.');
     if (mode === 'rollback' && (!source.expectedCurrentFingerprint || !source.expectedRestoredFingerprint)) fail('INVALID_ROLLBACK_REQUEST', 'Rollback requires current and restored fingerprints from the apply receipt.');
     const before = await capture(items, source);
+    try { await guardSource(source.executionSource); }
+    catch (error) { return { status: 'blocked', readOnly: true, error: { code: error.code, message: error.message } }; }
     if (mode === 'apply' && planFingerprint(before, items) !== source.expectedPlanFingerprint) fail('STALE_PLAN', 'Target pins or schematic connectivity changed after planning.');
     if (mode === 'rollback' && before.inspectionFingerprint !== source.expectedCurrentFingerprint) fail('STALE_ROLLBACK', 'Target pins or schematic connectivity changed after apply.');
     const attempted = [];
     let expected = before;
+    let executionSource = source.executionSource;
+    let uncertainWrite = false;
     try {
       for (const item of before.pins) {
         if (item.actualNoConnected === item.noConnected) continue;
@@ -129,10 +188,15 @@ return await (async () => {
         if (current.inspectionFingerprint !== fingerprint(stateEvidence(expectedPinState))) fail('STATE_CHANGED_DURING_APPLY', 'Target pins or connectivity changed during the batch.');
         const live = current.pins.find((pin) => pin.key === item.key);
         assertExpected(await documentIdentity(), source);
+        await guardSource(executionSource);
+        assertExpected(await documentIdentity(), source);
         // A provider can mutate and then throw, so record the attempt before awaiting.
         attempted.push({ key: item.key, identity: item.identity, before: item.actualNoConnected, intended: item.noConnected });
+        uncertainWrite = source.executionSource != null;
         const modified = await eda.sch_PrimitivePin.modify(live.pinObject, { noConnected: item.noConnected });
+        uncertainWrite = false;
         if (!modified) fail('MODIFY_FAILED', 'Failed to set no-connect=' + item.noConnected + ' on ' + item.key + '.');
+        executionSource = await advanceSource(executionSource, live, item.noConnected);
         const expectedPins = expected.pins.map((pin) => pin.key === item.key ? { ...pin, actualNoConnected: item.noConnected } : pin);
         expected = { ...expected, pins: expectedPins };
         expected.inspectionFingerprint = fingerprint(stateEvidence(expected));
@@ -151,6 +215,8 @@ return await (async () => {
         } } } : {}),
       };
     } catch (error) {
+      if (uncertainWrite || error.code === 'EXECUTION_SOURCE_CHANGED') return { schemaVersion: 2, status: uncertainWrite ? 'outcome-unknown' : 'apply-failed',
+        readOnly: false, saved: false, uncertainWrite, attempted, error: { code: error.code || 'APPLY_FAILED', message: error.message } };
       const recovery = { attempted: [], failures: [], restored: false };
       let restored = null;
       try {
@@ -200,7 +266,7 @@ return await (async () => {
       ...(mode === 'plan' ? {
         planFingerprint: planFingerprint(state, items),
         applyRequest: { mode: 'apply', request: { items, expectedDocumentUuid: state.document.uuid,
-          expectedProjectUuid: state.document.parentProjectUuid, expectedPlanFingerprint: planFingerprint(state, items) } },
+          expectedProjectUuid: state.document.parentProjectUuid, expectedPlanFingerprint: planFingerprint(state, items), executionSource: source.executionSource ?? null } },
       } : {}),
     };
   }

@@ -7,13 +7,16 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const testRoots = [join(root, 'tests'), join(root, 'view-state', 'tests')];
-const testFiles = (await Promise.all(testRoots.map(async (testRoot) =>
-  (await readdir(testRoot))
-    .filter((name) => name.endsWith('.test.mjs'))
-    .sort()
-    .map((name) => join(testRoot, name))
-))).flat();
+const excludedDirectories = new Set(['fixtures', 'helpers', 'manual', '__pycache__', 'node_modules']);
+async function collectTests(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  return (await Promise.all(entries.map(async entry => {
+    const file = join(directory, entry.name);
+    if (entry.isDirectory() && !excludedDirectories.has(entry.name)) return collectTests(file);
+    return entry.isFile() && entry.name.endsWith('.test.mjs') ? [file] : [];
+  }))).flat();
+}
+const testFiles = (await collectTests(join(root, 'tests'))).sort();
 
 if (testFiles.length === 0) {
   process.stderr.write('No Node test files found.\n');

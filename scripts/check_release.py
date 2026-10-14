@@ -62,8 +62,8 @@ def main() -> int:
     checks = Checks()
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     tag_name = f"v{version}"
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    readme_zh = (ROOT / "README.zh-CN.md").read_text(encoding="utf-8")
+    readme = (ROOT / "README-EN.md").read_text(encoding="utf-8")
+    readme_zh = (ROOT / "README.md").read_text(encoding="utf-8")
     changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 
     marker = "\x60" + tag_name + "\x60"

@@ -57,7 +57,7 @@ node <skill>/scripts/pcb-block-layout.mjs --project-root <项目> --input <请�
 
 CP-SAT 与原搜索后端共用 `prepareLayoutInputs`、位号模板、`validatePlan` 和报告。选定完整候选沿用 `pcb-layout.mjs --mode apply`，现场和实现指纹变化后重新准备。块内/带铜块结果不是完整原生写入计划，不直接套用 apply。
 
-实现指纹从布局入口追踪相对导入、求解 Worker/Python、准备与验收代码、原生阶段片段及宿主通道依赖。独立布线实现和纯 HTML 展示模块不使布局候选失效；布局复用的铜几何仍参与指纹。外部注册适配器、EDA 可执行文件和已安装 Python 环境不属于随包实现指纹，现场身份、基线和运行结果仍按原执行流程核对。
+实现指纹从布局入口追踪相对导入、求解 Worker/Python、准备与验收代码、原生阶段片段及宿主通道依赖。独立布线实现和纯 HTML 展示模块不使布局候选失效；布局复用的铜几何仍参与指纹。格式约定的标题、说明、注释和示例不参与指纹，字段、约束与默认值仍参与；代码文件继续按内容核对。外部注册适配器、EDA 可执行文件和已安装 Python 环境不属于随包实现指纹，现场身份、基线和运行结果仍按原执行流程核对。
 
 独立布局入口可调用 `layoutEngineIdentity({entrypoints:[skill根内的相对入口]})`，在公共依赖上增加自己的导入闭包；测试可另传 `skillRoot`。新非字面动态资源必须在 `pcb-layout-engine.mjs` 声明并补失效对照测试，不能靠目录扫描猜测。
 

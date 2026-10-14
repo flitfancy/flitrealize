@@ -1,3 +1,33 @@
+// Execution guard is independent of the immutable candidate's source fingerprint.
+async function guardSource(expected, ownedIds = []) {
+  if (expected == null) return;
+  const protect = source => {
+    if (typeof source !== 'string' || !source.trim()) throw Object.assign(new Error('Source guard unavailable.'), { code: 'LOCAL_SOURCE_UNAVAILABLE' });
+    const records = source.split(/\r?\n/).filter(Boolean).map(line => {
+      const split = line.indexOf('||');
+      try {
+        if (split < 0) throw new Error();
+        return { head: JSON.parse(line.slice(0, split)), payload: JSON.parse(line.slice(split + 2).replace(/\|$/, '')) };
+      } catch { throw Object.assign(new Error('Unsupported native source for execution guard.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' }); }
+    }).filter(record => record.head.type !== 'DOCHEAD');
+    if (records.some(record => !record.head.id) || new Set(records.map(record => record.head.id)).size !== records.length) throw Object.assign(new Error('Ambiguous source IDs.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+    const byId = new Map(records.map(record => [record.head.id, record])), owned = new Set(ownedIds);
+    const root = record => {
+      const seen = new Set();
+      const owner = item => item.payload.parentId || (item.head.type === 'LINE' ? item.payload.lineGroup : null);
+      while (owner(record) && byId.has(owner(record))) {
+        if (seen.has(record.head.id)) throw Object.assign(new Error('Cyclic source ownership.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+        seen.add(record.head.id); record = byId.get(owner(record));
+      }
+      return owner(record) || record.head.id;
+    };
+    const stable = value => Array.isArray(value) ? '[' + value.map(stable).join(',') + ']'
+      : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stable(value[key])).join(',') + '}' : JSON.stringify(value);
+    return stable(records.filter(record => !owned.has(root(record))).sort((a, b) => a.head.id.localeCompare(b.head.id)));
+  };
+  if (protect(expected) !== protect(await eda.sys_FileManager.getDocumentSource())) throw Object.assign(new Error('Source changed after preflight; stop and reconcile.'), { code: 'EXECUTION_SOURCE_CHANGED' });
+}
+
 return await (async () => {
   const request = typeof flitrealizeInput === 'undefined' ? { mode: 'inspect' } : flitrealizeInput;
 
@@ -137,6 +167,7 @@ return await (async () => {
   }
   if (mode === 'plan') {
     const state = await captureState();
+    await guardSource(request.executionSource);
     const expectedDocumentUuid = request.expectedDocumentUuid ?? state.document?.uuid;
     assertIdentity(state, expectedDocumentUuid, null, request.expectedProjectUuid);
     const strict = request.strict !== false;
@@ -153,6 +184,7 @@ return await (async () => {
           expectedInspectionFingerprint: state.inspectionFingerprint,
           strict,
           runDrc: request.runDrc !== false,
+          executionSource: request.executionSource ?? null,
         },
       },
     };
@@ -161,6 +193,9 @@ return await (async () => {
     const input = operationRequest(request);
     const before = await captureState();
     assertIdentity(before, input.expectedDocumentUuid, input.expectedInspectionFingerprint, input.expectedProjectUuid);
+    await guardSource(input.executionSource);
+    const immediateTarget = await optionalCall('dmt_SelectControl', 'getCurrentDocumentInfo');
+    if (immediateTarget.value?.uuid !== before.document.uuid || immediateTarget.value?.parentProjectUuid !== before.document.parentProjectUuid || immediateTarget.value?.documentType !== 1) fail('DOCUMENT_MISMATCH', 'Target changed before saving.');
     const save = await saveDocument();
     const after = await captureState();
     const targetChanged = after.document?.uuid !== before.document?.uuid || after.document?.parentProjectUuid !== before.document?.parentProjectUuid;
@@ -169,6 +204,7 @@ return await (async () => {
       : input.runDrc === false ? { available: null, passed: null, skipped: true } : await runDrc(input.strict !== false);
     const final = await captureState();
     const issues = [];
+    try { await guardSource(input.executionSource); } catch (error) { issues.push({ code: error.code, message: error.message }); }
     if (!save.saved) issues.push({ code: 'SAVE_FAILED', message: save.error });
     if (save.saved && input.runDrc !== false && !drc.available) issues.push({ code: 'DRC_UNAVAILABLE', message: drc.error });
     else if (drc.available && !drc.passed) issues.push({ code: 'DRC_FAILED', message: drc.error });

@@ -16,9 +16,12 @@ export function mockComponents() {
   eda.sch_PrimitiveComponent = {
     async getAll() { if (eda.readError) throw new Error('read failure'); return eda.records.map(wrap); },
     async get(id) { return eda.records.find(r => r.id === id) ? wrap(eda.records.find(r => r.id === id)) : null; },
+    async getAllPinsByPrimitiveId(id) { return (eda.records.find(row => row.id === id)?.pins || []).map(pin => Object.fromEntries(Object.entries({
+      PrimitiveId: id + ':' + pin.number, PinNumber: pin.number, X: pin.x, Y: pin.y, Rotation: pin.rotation ?? 0, Net: pin.net ?? '', NoConnected: pin.noConnect ?? false,
+    }).map(([key, value]) => ['getState_' + key, () => value]))); },
     async create(component, x, y, subPartName, rotation, mirror, addIntoBom, addIntoPcb) {
       eda.createCount++;
-      if (eda.failCreateAt === eda.createCount) throw new Error('injected create failure');
+      if (eda.failCreateAt === eda.createCount) return null; // Conclusive provider rejection, distinct from a lost write reply.
       const row = { id: 'id-' + eda.createCount, designator: 'AUTO' + eda.createCount, ...component, x, y, subPartName, rotation, mirror, addIntoBom, addIntoPcb };
       eda.records.push(row);
       eda.afterCreate?.(row);
@@ -33,7 +36,15 @@ export function mockComponents() {
     async delete(ids) { eda.records = eda.records.filter(row => !ids.includes(row.id)); return true; },
   };
   eda.sch_PrimitiveWire = { async getAll() { return []; } };
-  eda.sys_FileManager = { async getDocumentSource() { return JSON.stringify({ doc: eda.document, records: eda.records, note: eda.note || '' }); } };
+  const line = (type, id, payload) => JSON.stringify({ type, id }) + '||' + JSON.stringify(payload) + '|';
+  eda.sys_FileManager = { async getDocumentSource() { return [line('DOCHEAD', 'head', eda.document), ...eda.records.map(row => line('COMPONENT', row.id, row)),
+    ...(eda.note ? [line('TEXT', 'note', { text: eda.note, x: 10000, y: 10000 })] : [])].join('\n'); } };
+  eda.sch_Primitive = { async getPrimitivesBBox([id]) {
+    if (eda.boundsUnavailable) return null;
+    if (id === 'note') return { minX: 10000, maxX: 10010, minY: 10000, maxY: 10010 };
+    const row = eda.records.find(item => item.id === id);
+    return row ? row.bounds || { minX: row.x - 10, maxX: row.x + 10, minY: row.y - 10, maxY: row.y + 10 } : null;
+  } };
   eda.sch_Document = { async save() { eda.saveCount++; eda.afterSave?.(); return eda.saveResult; } };
   eda.sch_Drc = { async check() { eda.drcCount++; return false; } };
   return eda;

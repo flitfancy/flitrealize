@@ -8,6 +8,7 @@ import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { planConnections } from './lib/schematic-connect-plan.mjs';
+import { stable, sourceChanges, sourceRecords, assertPreserved } from './lib/schematic-local-state.mjs';
 
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
@@ -61,7 +62,7 @@ export async function runSchematicConnect(options) {
   const reportFile = join(runDir, 'result.json');
   const summary = { schemaVersion: 1, kind: 'flitrealize.schematic-connect', projectRoot, target, runDir, reportFile,
     inputPaths: { pathBase, inputFile, contractFile },
-    status: 'started', ok: false, readOnly: true, saved: null, checks: {}, steps: [] };
+    status: 'started', ok: false, readOnly: true, saved: null, checks: {}, steps: [], preservedChanges: [] };
   const lockFile = join(base, createHash('sha256').update(JSON.stringify(target)).digest('hex') + '.active.json');
   const invoke = options.invoke || invokeRunner;
   let ownsLock = false, unresolvedWrite = false;
@@ -99,7 +100,7 @@ export async function runSchematicConnect(options) {
     if (result?.drc) summary.checks.drc = result.drc;
     await persist();
     if (uncertain || response?.success !== true || !statuses.includes(result?.status)) {
-      fail(uncertain ? 'OUTCOME_UNKNOWN' : result?.error?.code || 'ACTION_FAILED', `${name}: ${result?.error?.message || response?.error?.message || item.status}. See ${item.reportFile}`);
+      fail(uncertain ? 'OUTCOME_UNKNOWN' : result?.error?.code || result?.issues?.[0]?.code || 'ACTION_FAILED', `${name}: ${result?.error?.message || response?.error?.message || item.status}. See ${item.reportFile}`);
     }
     return result;
   }
@@ -109,9 +110,9 @@ export async function runSchematicConnect(options) {
     if (snapshot?.document?.nativeId !== target.expectedDocumentUuid || snapshot?.project?.nativeId !== target.expectedProjectUuid) fail('DOCUMENT_MISMATCH', 'Readback belongs to another schematic/project.');
     if (includeSource) {
       if (typeof result.backupSource !== 'string' || !result.backupSource.trim()) fail('BACKUP_UNAVAILABLE', 'Source backup is unavailable.');
-      await writeFile(join(runDir, 'before.esch'), result.backupSource, { flag: 'wx' });
+      await writeFile(join(runDir, name === 'initial-inspect' ? 'before.esch' : name + '.esch'), result.backupSource, { flag: 'wx' });
     }
-    return snapshot;
+    return { ...snapshot, executionSource: result.backupSource };
   }
   async function assess(snapshot, phase, name) {
     const plan = await planConnections(input, snapshot, { phase });
@@ -120,9 +121,59 @@ export async function runSchematicConnect(options) {
     if (!plan.applyReady) fail('CONNECTIONS_BLOCKED', `Connection ${phase} has unresolved items; see ${name}.json.`);
     return plan;
   }
-  async function assertSame(snapshot) {
-    const current = await inspect('pre-write-inspect');
-    if (current.fingerprints.document !== snapshot.fingerprints.document) fail('STALE_SCHEMATIC', 'Schematic changed after planning; no new write was started.');
+  async function assertSame(snapshot, global = false) {
+    const current = await inspect('pre-write-inspect-' + summary.steps.length, true);
+    const refs = new Set(input.designators || input.contract.components.map(component => component.designator));
+    const beforeParts = new Map(snapshot.components.map(component => [component.nativeId, component]));
+    const afterParts = new Map(current.components.map(component => [component.nativeId, component]));
+    for (const component of snapshot.components.filter(component => refs.has(component.designator))) {
+      if (stable(component) !== stable(afterParts.get(component.nativeId))) fail('RELATED_SCHEMATIC_CHANGED', 'A target component, property, pin, or network changed after planning.');
+    }
+    if (current.components.some(component => refs.has(component.designator) && !beforeParts.has(component.nativeId))) fail('RELATED_SCHEMATIC_CHANGED', 'A target designator is duplicated or replaced.');
+    const relevantNets = nets => nets.map(net => ({ ...net, endpoints: (net.endpoints || []).filter(endpoint => refs.has(endpoint.component)) })).filter(net => net.endpoints.length);
+    if (stable(relevantNets(snapshot.nets)) !== stable(relevantNets(current.nets))) fail('RELATED_SCHEMATIC_CHANGED', 'Target pin/network membership changed after planning.');
+    const changes = sourceChanges(snapshot.executionSource, current.executionSource);
+    const targetIds = new Set(snapshot.components.filter(component => refs.has(component.designator)).map(component => component.nativeId));
+    const changedParts = current.components.filter(component => stable(component) !== stable(beforeParts.get(component.nativeId)));
+    if (!changes.length && !changedParts.length && current.fingerprints.document === snapshot.fingerprints.document) return current;
+    if (global) fail('STALE_SCHEMATIC', 'Whole-source reflow still requires an unchanged document.');
+    // Only nonspatial BOM/PCB inclusion flags can be proved irrelevant with current reads.
+    // Wire-create retains the original whole-geometry fingerprint, never a refreshed substitute.
+    const withoutFlags = component => { const copy = { ...component }; delete copy.includeInBom; delete copy.includeInPcb; return copy; };
+    const safePart = component => !refs.has(component.designator) && beforeParts.has(component.nativeId)
+      && stable(withoutFlags(component)) === stable(withoutFlags(beforeParts.get(component.nativeId)));
+    const safeRecord = change => {
+      if (targetIds.has(change.root) || !change.before || !change.current || change.before.head.type !== 'COMPONENT' || !safePart(afterParts.get(change.root) || {})) return false;
+      const trim = record => { const payload = { ...record.payload }; delete payload.addIntoBom; delete payload.addIntoPcb; return { ...record, payload }; };
+      return stable(trim(change.before)) === stable(trim(change.current));
+    };
+    if (current.components.length !== snapshot.components.length || changedParts.some(component => !safePart(component)) || changes.some(change => !safeRecord(change))) {
+      fail('LOCAL_CHANGE_UNPROVEN', 'Current reads cannot prove this source/geometry change safe. Wire-create still requires the original SOURCE_GEOMETRY; marker display imports whole source.');
+    }
+    summary.preservedChanges.push({ checkedAt: new Date().toISOString(), beforeFingerprint: snapshot.fingerprints.document,
+      currentFingerprint: current.fingerprints.document, components: changedParts.map(component => ({ before: beforeParts.get(component.nativeId), current: component })), sourceRecords: changes });
+    await persist();
+    return current;
+  }
+  function assertNcDelta(before, after, items) {
+    const pinPositions = new Map(before.components.flatMap(component => component.pins.map(pin => [pin.nativeId, { x: pin.position?.x, y: -pin.position?.y }])));
+    const pinIds = new Map(items.flatMap(item => before.components.filter(component => component.designator === item.designator)
+      .flatMap(component => component.pins.filter(pin => String(pin.number) === String(item.pin)).map(pin => [pin.nativeId, item.noConnected !== false]))));
+    for (const change of sourceChanges(before.executionSource, after.executionSource)) {
+      const trim = record => { const payload = { ...record.payload }; delete payload.noConnected; return { ...record, payload }; };
+      const record = change.current;
+      if (record?.head.type === 'ATTR' && record.payload.key === 'NO_CONNECT' && pinIds.has(record.payload.parentId)
+        && record.payload.value === (pinIds.get(record.payload.parentId) ? 'yes' : 'no')) {
+        const pinRecord = sourceRecords(before.executionSource).find(item => item.head.id === record.payload.parentId);
+        const position = pinRecord?.payload || pinPositions.get(record.payload.parentId);
+        if (position && record.payload.x === position.x && record.payload.y === position.y
+          && (!change.before || stable({ ...change.before, payload: { ...change.before.payload, value: record.payload.value } }) === stable(record))) continue;
+      }
+      if (!change.before || !change.current || !pinIds.has(change.id) || change.current.head.type !== 'PIN'
+        || change.current.payload.noConnected !== pinIds.get(change.id) || stable(trim(change.before)) !== stable(trim(change.current))) {
+        fail('NC_SOURCE_DELTA_UNPROVEN', 'NC source changed beyond the declared pin Boolean; reconcile the recorded readback.');
+      }
+    }
   }
   async function verifyDrc() {
     const result = await step('schematic-save-verify', 'strict-drc-verify', { mode: 'verify', ...target, strict: true, runDrc: true }, ['verified']);
@@ -159,53 +210,62 @@ export async function runSchematicConnect(options) {
     // Plan each bounded batch against the immediate live state. Never replay an uncertain write.
     let wireBatchPlan = plan;
     for (let i = 0; wireBatchPlan.wirePlan.wires.length; i += 1) {
-      await assertSame(snapshot);
+      snapshot = await assertSame(snapshot);
       const wires = wireBatchPlan.wirePlan.wires.slice(0, 30);
-      const wirePlan = { ...wireBatchPlan.wirePlan, wires };
+      const wirePlan = { ...wireBatchPlan.wirePlan, wires, executionSource: snapshot.executionSource };
+      const beforeWire = snapshot;
+      let created = [];
       const planned = await step('schematic-wire-create', `wire-${i}-plan`, { mode: 'plan', plan: wirePlan }, ['planned', 'planned-noop']);
       if (planned.status === 'planned') {
         const applied = await step('schematic-wire-create', `wire-${i}-apply`, planned.applyRequest, ['applied']);
+        created = applied.created;
         await step('schematic-wire-create', `wire-${i}-verify`, { mode: 'verify', request: { ...target, created: applied.created } }, ['verified']);
       }
-      snapshot = await inspect(`wire-${i}-readback`);
+      snapshot = await inspect(`wire-${i}-readback`, true);
+      assertPreserved(beforeWire.executionSource, snapshot.executionSource, created.map(item => item.primitiveId));
       const refreshed = await assess(snapshot, 'plan', `wire-${i}-remaining`);
       if (refreshed.wirePlan.wires.length >= wireBatchPlan.wirePlan.wires.length) fail('WIRE_NO_PROGRESS', 'Wire batch did not reduce missing endpoints.');
       wireBatchPlan = refreshed;
     }
     const afterWires = await assess(snapshot, 'plan', 'after-wires-plan');
     for (const [i, items] of chunks(afterWires.missingFlagItems).entries()) {
-      await assertSame(snapshot);
-      const planned = await step('schematic-net-flag', `marker-${i}-plan`, { mode: 'plan', ...target, items }, ['planned']);
+      snapshot = await assertSame(snapshot);
+      const beforeMarker = snapshot;
+      const planned = await step('schematic-net-flag', `marker-${i}-plan`, { mode: 'plan', ...target, items, executionSource: snapshot.executionSource }, ['planned']);
       const applied = await step('schematic-net-flag', `marker-${i}-apply`, planned.applyRequest, ['applied']);
       await step('schematic-net-flag', `marker-${i}-verify`, { mode: 'verify', request: { ...target, created: applied.created } }, ['verified']);
-      snapshot = await inspect(`marker-${i}-readback`);
+      snapshot = await inspect(`marker-${i}-readback`, true);
+      assertPreserved(beforeMarker.executionSource, snapshot.executionSource, applied.created.map(item => item.primitiveId));
     }
     // NC assessment is mandatory, including a recorded empty result. Only Contract/explicit provider pins qualify.
     summary.checks.noConnect = { status: 'pending', declaredCount: afterWires.noConnectItems.length };
     for (const [i, items] of chunks(afterWires.pendingNoConnectItems).entries()) {
-      await assertSame(snapshot);
-      const planned = await step('schematic-no-connect', `nc-${i}-plan`, { mode: 'plan', ...target, items }, ['planned']);
+      snapshot = await assertSame(snapshot);
+      const beforeNc = snapshot;
+      const planned = await step('schematic-no-connect', `nc-${i}-plan`, { mode: 'plan', ...target, items, executionSource: snapshot.executionSource }, ['planned']);
       await step('schematic-no-connect', `nc-${i}-apply`, planned.applyRequest, ['applied']);
       await step('schematic-no-connect', `nc-${i}-verify`, { mode: 'verify', ...target, items }, ['verified']);
-      snapshot = await inspect(`nc-${i}-readback`);
+      snapshot = await inspect(`nc-${i}-readback`, true);
+      assertNcDelta(beforeNc, snapshot, items);
     }
     summary.checks.noConnect.status = afterWires.noConnectItems.length ? 'verified' : 'not-applicable';
     await assess(snapshot, 'verify', 'connected-audit');
     if (reflowInput) {
-      await assertSame(snapshot);
+      snapshot = await assertSame(snapshot, true);
       const planned = await step('schematic-reflow', 'reflow-plan', { ...reflowInput, mode: 'plan' }, ['planned']);
       await writeFile(join(runDir, 'before-reflow.esch'), planned.backupSource, { flag: 'wx' });
       await step('schematic-reflow', 'reflow-apply', planned.applyRequest, ['applied']);
       await step('schematic-reflow', 'reflow-verify', { ...reflowInput, mode: 'verify' }, ['verified']);
       summary.checks.reflow = { status: 'verified' };
-      snapshot = await inspect('reflow-readback');
+      snapshot = await inspect('reflow-readback', true);
       await assess(snapshot, 'verify', 'reflow-audit');
     }
-    await assertSame(snapshot);
-    const savePlan = await step('schematic-save-verify', 'save-plan', { mode: 'plan', ...target, strict: true, runDrc: true }, ['planned']);
+    snapshot = await assertSame(snapshot);
+    const savePlan = await step('schematic-save-verify', 'save-plan', { mode: 'plan', ...target, strict: true, runDrc: true, executionSource: snapshot.executionSource }, ['planned']);
     const saved = await step('schematic-save-verify', 'save-apply', savePlan.applyRequest, ['applied']);
     if (saved.saved !== true || saved.drc?.passed !== true) fail('FINALIZE_FAILED', 'Saving and strict DRC must both pass.');
-    const final = await inspect('saved-readback');
+    const final = await inspect('saved-readback', true);
+    assertPreserved(snapshot.executionSource, final.executionSource);
     await assess(final, 'verify', 'saved-audit');
     if (final.fingerprints.document !== snapshot.fingerprints.document) fail('SAVE_CHANGED_SOURCE', 'Saving changed the schematic; inspect the recorded before/after evidence.');
     summary.status = 'connected-saved'; summary.ok = true;

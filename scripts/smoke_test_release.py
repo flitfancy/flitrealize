@@ -200,7 +200,7 @@ def main(archive: Path | None = None) -> int:
             **environment, "FLITREALIZE_TEST_VIEW_STATE_ROOT": str(extracted_root / "view-state"),
         }
         view_state_http = run(
-            [node, "--test", str(ROOT / "view-state/tests/view-state-http.test.mjs")],
+            [node, "--test", str(ROOT / "tests/view-state/view-state-http.test.mjs")],
             cwd=extracted_root, environment=view_state_environment,
         )
         if view_state_http.returncode != 0 or isolated_state.exists() or handoff_file.read_bytes() != handoff_bytes:

@@ -13,6 +13,24 @@ async function evidenceFiles(root,name) {
   await visit(path.join(root,'evidence'));return found;
 }
 
+// A damaged summary may belong to another document. Use its existing execution
+// input to establish that fact; a directory name or an absent input proves nothing.
+async function unrelatedExecution(root, file, target, providerId) {
+  let unrelated = false;
+  for (const name of ['layout-apply-input.json', 'layout-preflight-input.json', 'layout-verify-input.json']) {
+    let value;
+    try { value = (await projectJson(root, path.join(path.dirname(file), name))).value; }
+    catch (error) { if (error.code === 'ENOENT') continue; if (error instanceof SyntaxError) return false; throw error; }
+    const config = value.config, provider = value.snapshot?.layout?.provider ?? value.snapshot?.provider;
+    if (!config?.expectedProjectUuid || !config?.expectedDocumentUuid || !provider) return false;
+    const different = provider !== providerId || config.expectedProjectUuid !== target.expectedProjectUuid
+      || config.expectedDocumentUuid !== target.expectedDocumentUuid;
+    if (!different) return false;
+    unrelated = true;
+  }
+  return unrelated;
+}
+
 /** Discover existing core evidence only; do not create another state ledger. */
 export async function findFineExecution(input,config) {
   const target = config ?? input.inputs.mechanical;
@@ -20,7 +38,10 @@ export async function findFineExecution(input,config) {
   for(const file of await evidenceFiles(root,'layout-execution-result.json')) {
     let workflow;
     try { workflow = await readJson(file); }
-    catch (error) { fail('FINE_HISTORY_UNREADABLE', file + ': ' + error.message); }
+    catch (error) {
+      if (await unrelatedExecution(root, file, target, input.options.providerId)) continue;
+      fail('FINE_HISTORY_UNREADABLE', file + ': ' + error.message);
+    }
     if(workflow.kind!=='flitrealize.pcb-layout.execution'||workflow.provider!==input.options.providerId
       ||workflow.target?.expectedProjectUuid!==target.expectedProjectUuid||workflow.target?.expectedDocumentUuid!==target.expectedDocumentUuid)continue;
     if(await fs.realpath(workflow.projectRoot)!==root)fail('FINE_APPLICATION_RECEIPT_MISMATCH');

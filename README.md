@@ -1,46 +1,46 @@
 # FlitRealize
 
-**Develop a hardware project from requirements and part selection through prototype validation.**
+**从需求与器件选择推进到原理图、PCB、制造准备和样机验证。**
 
-[简体中文](README.zh-CN.md) · [First run](first-run.md) · [Changelog](CHANGELOG.md) · [Releases](https://github.com/flitfancy/flitrealize/releases)
+[English](README-EN.md) · [首次使用](first-run.md) · [更新记录](CHANGELOG.md) · [发布包](https://github.com/flitfancy/flitrealize/releases)
 
-FlitRealize is a skill for developing electronic hardware projects. Start at the project's current stage and keep the design rationale, actual results, and open issues so work can continue.
+FlitRealize 是用于推进电子硬件项目的 Skill。可以从项目当前阶段开始，保留设计依据、实际结果和待解决问题，方便继续推进。
 
-Current release: `v3.0.0`. Changes are in the [release notes](CHANGELOG.md#300---2026-10-14).
+当前发行版为 `v3.0.0`；变更见[发行说明](CHANGELOG.md#300---2026-10-14)。
 
-## Start or continue
+## 开始或继续
 
-Put the repository in the host's skill directory, with `SKILL.md` directly inside `flitrealize/`. Open a new task after installation:
+将仓库放到宿主的 Skill 目录，确保 `flitrealize/` 下直接有 `SKILL.md`。安装后新开任务：
 
 ```text
-$flitrealize Start a hardware project in <PROJECT_ROOT>; develop requirements, architecture, and part candidates.
-$flitrealize Continue <PROJECT_ROOT> and work on its current PCB placement issues.
+$flitrealize 从 <PROJECT_ROOT> 开始硬件项目，这次完成需求、架构和器件候选。
+$flitrealize 继续 <PROJECT_ROOT>，处理当前 PCB 布局问题。
 ```
 
-Keep the project separate from the skill. Each project has one `CURRENT_HANDOFF.md`: the top records the current design, results, blockers, and next step; the body keeps design reasons and evidence links. Circuit design drafts (电路设计稿), EDA files, and original reports hold connection and geometry facts.
+项目与 Skill 分开。每个项目保留一份 `CURRENT_HANDOFF.md`：顶部写当前方案、结果、卡点和下一步，正文保留设计理由及证据入口。实际连接和几何由电路设计稿、EDA 文件及原始报告保存。
 
-For ordinary continuation, read the handoff top, relevant chapters, and the current operation guide. See [the main entry](SKILL.md) for the workflow and discovery, the [stage map](docs/0.0-overview.md) for transitions, and [first run](first-run.md) for dependencies and channels. [View State](view-state/README.md) provides a read-only project panel, opened at project creation or first takeover and reused afterward.
+普通续接读项目顶部、本次相关章节和当前操作说明。工作顺序与能力查找见[主入口](SKILL.md)，跨阶段查[阶段导航](docs/0.0-overview.md)，依赖和接入见[首次使用](first-run.md)。[项目状态面板](view-state/README.md)提供只读项目面板，新建或首次接管时打开，后续复用。
 
-## Scope
+## 工作范围
 
-Work covers requirements and part selection, schematic design, PCB placement and routing, manufacturing preparation, and prototype power-up, functional tests, and revisions. The agent makes circuit and engineering decisions; existing scripts handle repeatable searches, conversion, placement, connections, and readback.
+覆盖需求与器件选择、原理图设计、PCB 布局与走线、制造准备，以及样机上电、功能测试和改版。AI 负责电路与工程判断；已有脚本处理重复检索、转换、放置、连接和回读。
 
-EasyEDA Pro is currently supported through the desktop official CLI or the web/desktop Bridge. Work follows the user's current request, with candidates, actual changes, saved designs, and validation results recorded separately.
+当前支持 EasyEDA Pro（嘉立创 EDA 专业版），通过桌面官方 CLI 或网页／桌面 Bridge 操作 EDA 项目。按用户本次要求推进，分别记录候选、实际修改、保存和验证结果。
 
-See the [stage guides](docs/0.0-overview.md) for the workflow. Specific algorithms, commands, support conditions, and verification limits are documented in the [technical references](docs/technical/).
+工作流程见[阶段导航](docs/0.0-overview.md)。具体算法、命令、支持条件和验证边界见[技术参考目录](docs/technical/)。
 
-## Develop and verify
+## 开发与验证
 
-Use Node.js 22+. Repository validation and packaging use Python 3.10+. Numerical backends need Python 3.12+ and [pinned dependencies](requirements-pcb.txt); configure them through [first run](first-run.md#数值与路由环境). In a source checkout:
+Node.js 22+；仓库校验和打包使用 Python 3.10+。数值后端需要 Python 3.12+ 与[固定依赖](requirements-pcb.txt)，配置见[首次使用](first-run.md#数值与路由环境)。在源码目录运行：
 
 ```sh
 python scripts/validate.py
 npm test
-python -m unittest discover -s tests -p "test_*.py"
+python -m unittest discover -s tests/repository -p "test_*.py"
 ```
 
-Numerical tests need the configured interpreter. Bridge integration tests need the channel dependencies. `./scripts/release.ps1 -DryRun` runs repository, regression, and clean ZIP checks. See [Action and provider development](docs/0.6-tool-development.md) for development conventions.
+数值测试需要已配置的解释器，Bridge 集成测试需要通道依赖。`./scripts/release.ps1 -DryRun` 运行仓库、回归和干净 ZIP 检查。开发约定见 [操作与软件适配层](docs/0.6-tool-development.md)。
 
-There is one Chinese execution source: `SKILL.md` and `docs/`. The root `first-run.md` covers setup; stage, technical, provider, domain, and development guides live under `docs/`. Runtime packages contain tools, guides, the dependency manifest, and the panel; project records, tests, and installed dependency directories stay outside the package.
+中文执行说明只有一套：`SKILL.md` 和 `docs/`。首次使用见根目录 `first-run.md`；阶段、技术、软件适配层、专项领域和开发说明统一放在 `docs/`。运行包包含工具、说明、依赖清单和面板，项目记录、测试及依赖安装目录留在包外。
 
 [MIT](LICENSE) · Copyright (c) 2026 FlitFancy.

@@ -22,7 +22,23 @@ const declared = (table, file, expression) => (table[file] ?? []).some(value => 
 const roots = ['scripts/pcb-layout.mjs', 'scripts/pcb-block-layout.mjs', 'schemas/pcb-layout-intent.v1.schema.json'];
 const digest = value => createHash('sha256').update(value).digest('hex');
 
+// Only schema annotations are excluded. Property names, defaults, constraints
+// and unknown extension keywords remain part of the identity.
+function schemaIdentity(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  const maps = new Set(['properties','patternProperties','$defs','definitions','dependentSchemas']);
+  const single = new Set(['additionalProperties','unevaluatedProperties','propertyNames','items','additionalItems','contains','unevaluatedItems','not','if','then','else']);
+  const arrays = new Set(['allOf','anyOf','oneOf','prefixItems']);
+  return Object.fromEntries(Object.entries(value).filter(([key]) => !['title','description','$comment','examples'].includes(key)).sort(([a],[b]) => a.localeCompare(b)).map(([key, item]) => {
+    if (maps.has(key) && item && typeof item === 'object' && !Array.isArray(item)) item = Object.fromEntries(Object.entries(item).sort(([a],[b]) => a.localeCompare(b)).map(([name,schema]) => [name,schemaIdentity(schema)]));
+    else if (single.has(key)) item = Array.isArray(item) ? item.map(schemaIdentity) : schemaIdentity(item);
+    else if (arrays.has(key) && Array.isArray(item)) item = item.map(schemaIdentity);
+    return [key,item];
+  }));
+}
+
 function dependencyContent(file, content) {
+  if (file === 'schemas/pcb-layout-intent.v1.schema.json') return JSON.stringify(schemaIdentity(JSON.parse(content)));
   // Host execution reads provider kind, not action descriptions/workflows.
   if (file === 'scripts/actions/manifest.json') return JSON.stringify({ easyedaProKind: JSON.parse(content).providers?.['easyeda-pro']?.kind ?? null });
   if (file === 'adapters/easyeda-pro/package.json') {

@@ -19,19 +19,19 @@ export function mockConnections(count = 2, withNc = true) {
   const pinObject = (part, pin) => ({ ...wrap({ PrimitiveId: `${part.id}:${pin.number}`, PinNumber: pin.number,
     PinName: pin.name, X: pin.x, Y: pin.y, Rotation: 0, NoConnected: pin.noConnected }), _row: pin });
   const partObject = row => wrap({ PrimitiveId: row.id, Designator: row.designator, ComponentType: 'part',
-    X: row.x, Y: row.y, Rotation: 0, Mirror: false, OtherProperty: { Value: row.value }, AddIntoBom: true, AddIntoPcb: true,
+    X: row.x, Y: row.y, Rotation: 0, Mirror: false, OtherProperty: { Value: row.value }, AddIntoBom: row.addIntoBom !== false, AddIntoPcb: row.addIntoPcb !== false,
     Component: { libraryUuid: 'fixture-library', uuid: 'fixture-device' } });
   const markerObject = row => wrap({ PrimitiveId: row.id, Designator: '', ComponentType: row.type, Net: row.net,
     X: row.x, Y: row.y, Rotation: row.rotation, Mirror: row.mirror });
   const wireObject = row => wrap({ PrimitiveId: row.id, Net: row.net, Line: row.points, Color: row.color,
     LineWidth: row.lineWidth, LineType: row.lineType });
   eda.source = () => [line('DOCHEAD', 'head', { title: 'Fixture' }),
-    ...eda.parts.flatMap(part => [line('COMPONENT', part.id, { x: part.x, y: part.y }),
+    ...eda.parts.flatMap(part => [line('COMPONENT', part.id, { x: part.x, y: part.y, value: part.value, addIntoBom: part.addIntoBom !== false, addIntoPcb: part.addIntoPcb !== false }),
       ...part.pins.map(pin => line('PIN', `${part.id}:${pin.number}`, { ...pin, parentId: part.id }))]),
     ...eda.wires.flatMap(wire => [line('WIRE', wire.id, { points: wire.points }),
       line('ATTR', `net-${wire.id}`, { parentId: wire.id, key: 'NET', value: wire.net, valueVisible: wire.visible !== false })]),
-    ...eda.markers.flatMap(marker => [line('COMPONENT', marker.id, { componentType: marker.type, x: marker.x, y: marker.y }),
-      line('ATTR', `name-${marker.id}`, { parentId: marker.id, key: 'Name', value: marker.net, valueVisible: marker.visible !== false })]),
+    ...eda.markers.flatMap(marker => [line('COMPONENT', marker.id, { componentType: marker.type, x: marker.x, y: marker.y, rotation: marker.rotation }),
+      line('ATTR', `name-${marker.id}`, { parentId: marker.id, key: 'Name', value: marker.net, valueVisible: marker.visible !== false, keyVisible: marker.keyVisible !== false })]),
     ...(eda.note ? [line('TEXT', 'note', { text: eda.note })] : []),
   ].join('\n');
   eda.dmt_SelectControl = { async getCurrentDocumentInfo() { return { ...eda.document }; } };
@@ -43,7 +43,7 @@ export function mockConnections(count = 2, withNc = true) {
         const data = JSON.parse(entry.slice(split + 2).replace(/\|$/, ''));
         if (head.type === 'ATTR') {
           const row = [...eda.wires, ...eda.markers].find(item => item.id === data.parentId);
-          if (row) row.visible = data.valueVisible !== false;
+          if (row) { row.visible = data.valueVisible !== false; row.keyVisible = data.keyVisible !== false; }
         }
       }
       return true;
