@@ -13,6 +13,7 @@ import { writeFinePreview } from './preview.mjs';
 import { verifyFineRoutingReceipt } from './routing.mjs';
 import { solveFineLabels } from './labels.mjs';
 import { fineLabelRules } from './label-geometry.mjs';
+import { inspectCandidate } from '../pcb-layout-solver-core.mjs';
 import { recordFineAcceptance, fineApplicationEvidence, findFineExecution, findFineRouting, fineHistoricalState } from './evidence.mjs';
 
 export const fineEngineIdentity=()=>layoutEngineIdentity();
@@ -112,15 +113,40 @@ async function fineApplicationContext({inputs,request,candidate,result,options,.
   const prepared=prepareLayoutInputs(inputs);if(!prepared.state.ready)fail('FINE_INPUTS_NOT_READY');
   const scope=normalizeFineRequest(prepared.model,request),compiled=compileFineProblem(scope),audit=auditFineCandidate(scope,compiled,candidate.plan);
   if(!audit.localAccepted)fail('FINE_CANDIDATE_REJECTED');
-  if(!audit.nativeEligible)fail('FINE_NATIVE_PREFLIGHT_REQUIRES_CLEAN_BOARD','The public writer rejects existing global geometry failures; this local candidate stays offline.');
-  const validateReadback=async actual=>{verifyFineReadback(prepared.model,candidate.plan,actual);if(options?.validateReadback)await options.validateReadback(actual);};
-  const glyphRules=fineLabelRules(prepared.model,scope.request.labels),config={...prepared.model.mechanical,labelGeometryMode:scope.request.labels.mode,labelClearanceMil:glyphRules.clearanceMil,labelGapByOwner:glyphRules.gapByOwner,labelOwnerMaxDistanceMil:glyphRules.maxOwnerDistanceMil};
-  return {scope,config,validateReadback};
+  if(!audit.nativeEligible)fail('FINE_NATIVE_ACCEPTANCE_REQUIRED');
+  let current;
+  function currentContext(baseline) {
+    if(current?.sourceHash===baseline.sourceHash)return current;
+    const livePrepared=baseline.sourceHash===inputs.snapshot.sourceHash?prepared:prepareLayoutInputs({...inputs,snapshot:baseline});
+    if(!livePrepared.state.ready)fail('FINE_LIVE_INPUTS_NOT_READY',JSON.stringify(livePrepared.diagnostics));
+    const liveScope=normalizeFineRequest(livePrepared.model,request);
+    // Reuse the current native geometry for acceptance. The candidate's
+    // original relation distances remain the improvement/non-regression basis.
+    const liveCompiled={...compiled,baseline:inspectCandidate(liveScope.model)};
+    return current={sourceHash:baseline.sourceHash,scope:liveScope,compiled:liveCompiled};
+  }
+  function checkCurrent(baseline,effective,writeSet) {
+    const live=currentContext(baseline),plan={...effective,
+      labels:effective.labels.map(l=>writeSet.labels.includes(l.id)?l:live.compiled.baseline.plan.labels.find(a=>a.id===l.id)),
+      testPads:effective.testPads.map(p=>writeSet.pads.includes(p.id)?p:live.compiled.baseline.plan.testPads.find(a=>a.id===p.id))};
+    const audit=auditFineCandidate(live.scope,live.compiled,plan,{liveBaseline:true});
+    if(!audit.localAccepted)fail('FINE_LIVE_CANDIDATE_REJECTED',JSON.stringify(audit));
+    return {live,plan,audit};
+  }
+  const validatePreflight=async native=>checkCurrent(native.live,native.geometry.effectivePlan,native.geometry.writeSet).audit;
+  const validateReadback=async actual=>{
+    if(actual.writeBaseline&&actual.effectivePlan&&actual.writeSet){const {live,plan}=checkCurrent(actual.writeBaseline,actual.effectivePlan,actual.writeSet);verifyFineReadback(live.scope.model,plan,actual);}
+    else verifyFineReadback(prepared.model,candidate.plan,actual);
+    if(options?.validateReadback)await options.validateReadback(actual);
+  };
+  const glyphRules=fineLabelRules(prepared.model,scope.request.labels),dependencyPadIds=[...new Set([...scope.request.relations.flatMap(r=>[r.from,r.to].flatMap(e=>(e.pads??[e]).map(p=>p.padId))),...prepared.model.limits.filter(l=>[...l.left,...l.right].some(p=>scope.moving.has(p.owner))).flatMap(l=>[...l.left,...l.right].map(p=>p.id))])];
+  const config={...prepared.model.mechanical,labelGeometryMode:scope.request.labels.mode,labelClearanceMil:glyphRules.clearanceMil,labelGapByOwner:glyphRules.gapByOwner,labelOwnerMaxDistanceMil:glyphRules.maxOwnerDistanceMil,fineAcceptance:{schemaVersion:1,baselinePolicy:scope.request.baselinePolicy,sourceHash:inputs.snapshot.sourceHash,liveScope:true,dependencyPadIds,dependencyRefs:[...new Set([...prepared.model.fixed.keys(),...scope.request.fixedRefs])]}};
+  return {scope,config,validateReadback,validatePreflight};
 }
 function applicationResult(input, execution, evidence) {
   return {schemaVersion:1,kind:'flitrealize.fine-layout.application',source:input.result.source,candidateHash:input.candidate.candidateHash,status:execution.status,
     state:{placement:'candidate-passed',native:execution.applyState==='applied'?'applied':execution.status,saved:execution.saved??null,verified:execution.status==='verified'},
-    acceptanceEvidence:evidence,execution};
+    acceptanceEvidence:evidence,preservedChanges:execution.preservedChanges??[],execution};
 }
 function sourceDifference(before,live) {
   const objects={};
@@ -134,7 +160,7 @@ function sourceDifference(before,live) {
   }
   const lines=s=>String(s??'').split('\n').filter(l=>!l.startsWith('{"type":"DOCHEAD"')),old=new Set(lines(before.source)),now=new Set(lines(live.source));
   return {expectedSourceHash:before.sourceHash,actualSourceHash:live.sourceHash,objects,routing:{before:before.routing,after:live.routing},sourceRecords:{removed:[...old].filter(l=>!now.has(l)),added:[...now].filter(l=>!old.has(l))},
-    nextAction:'Review these differences and the frozen inputs against the live snapshot. Explicitly prepare/review a new candidate for the changed source, or restore the intended source under separate authorization; do not replace the hash.'};
+    nextAction:'Retain changes proved outside this write and its dependencies. Resolve only reported conflicts; keep the candidate bound to its original inputs.'};
 }
 
 /** Same audited candidate and native checkPlan as apply, with no modification. */
@@ -154,7 +180,7 @@ export async function preflightFineLayout(input) {
   const routingReceipt=input.routingReceipt??(context.scope.request.routing.required?await findFineRouting(input):undefined);
   if(context.scope.request.routing.required&&!routingReceipt)fail('FINE_REQUIRED_ROUTING_NOT_VERIFIED');
   if(routingReceipt)await verifyFineRoutingReceipt(context.scope,input.candidate,routingReceipt);
-  const prepared=performance.now(),native=await (input.execution??preflightLayout)({...input.options,config:context.config,plan:input.candidate.plan,snapshot:input.inputs.snapshot});
+  const prepared=performance.now(),native=await (input.execution??preflightLayout)({...input.options,config:context.config,plan:input.candidate.plan,snapshot:input.inputs.snapshot,validatePreflight:context.validatePreflight});
   return {schemaVersion:1,kind:'flitrealize.fine-layout.preflight',status:native.status,source:input.result.source,candidateHash:input.candidate.candidateHash,
     state:{native:'unconfirmed',saved:null,nativeWrites:0},nextAction:native.status==='preflight-passed'?'apply':'review-source-and-preflight',native,
     ...(native.live.sourceHash!==input.inputs.snapshot.sourceHash?{sourceDifference:sourceDifference(input.inputs.snapshot,native.live)}:{}),
@@ -183,7 +209,7 @@ async function applyWithContext(input, context) {
   if(context.scope.request.routing.required&&!routingReceipt)fail('FINE_REQUIRED_ROUTING_NOT_VERIFIED');
   if(routingReceipt)await verifyFineRoutingReceipt(context.scope,candidate,routingReceipt);
   const acceptanceEvidence=await recordFineAcceptance({inputs,request,candidate,result},context.scope.request.routing.required,routingReceipt,options);
-  const executed=await execution({...options,config:context.config,plan:candidate.plan,snapshot:inputs.snapshot,validateReadback:context.validateReadback,acceptanceEvidence});
+  const executed=await execution({...options,config:context.config,plan:candidate.plan,snapshot:inputs.snapshot,validateReadback:context.validateReadback,validatePreflight:context.validatePreflight,acceptanceEvidence});
   return applicationResult(input,executed,acceptanceEvidence);
 }
 async function fineRecoveryContext(input, reference, context, existingBound) {
@@ -212,7 +238,7 @@ async function verifyWithContext(input, context, existingBound, started=performa
   const prepared=performance.now();
   let verified;
   try {
-    verified=await (input.execution??verifyLayout)({...input.options,config:bound.receipt.config,plan:bound.receipt.plan,snapshot:bound.receipt.snapshot,expectedSourceHash:bound.receipt.expectedSourceHash,validateReadback});
+    verified=await (input.execution??verifyLayout)({...input.options,config:bound.receipt.config,plan:bound.receipt.plan,snapshot:bound.receipt.snapshot,writeBaseline:bound.receipt.writeBaseline,expectedSourceHash:bound.receipt.expectedSourceHash,validateReadback});
   } catch(error) { verified={status:'verification-failed',error:{code:error.code??'FINE_VERIFICATION_FAILED',message:error.message}}; }
   return {schemaVersion:1,kind:'flitrealize.fine-layout.verification',source:input.result.source,candidateHash:input.candidate.candidateHash,status:verified.status,
     state:{placement:'candidate-passed',native:'read-only',saved:bound.save.saved,verified:verified.status==='verified',savePending:bound.save.pending,saveUnsettled:bound.save.unsettled,nativeWrites:0},

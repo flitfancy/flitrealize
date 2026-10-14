@@ -4,6 +4,8 @@ import { createHash } from 'node:crypto';
 const defaultCorpus = new URL('../../adapters/easyeda-pro/api-reference/corpus.json', import.meta.url);
 const entryKinds = new Set(['class', 'interface', 'enum', 'type']);
 const queryKinds = new Set([...entryKinds, 'method', 'property']);
+const domains = new Map(Object.entries({ pcb: 'pcb', schematic: 'schematic', sch: 'schematic', document: 'document', dmt: 'document', pnl: 'document', library: 'library', lib: 'library', system: 'system', sys: 'system' }));
+const domainPrefixes = { PCB: 'pcb', SCH: 'schematic', DMT: 'document', PNL: 'document', LIB: 'library', SYS: 'system' };
 const digest = text => createHash('sha256').update(text).digest('hex');
 const fail = (code, message) => { throw Object.assign(new Error(message), { code }); };
 const unescape = text => String(text).replace(/\\([_\[\]()*#.])/g, '$1');
@@ -137,15 +139,30 @@ function documentationNotes(item) {
 }
 const descriptor = item => ({ id: item.id, kind: item.kind, ...(item.entryId ? { entryId: item.entryId } : {}), summary: item.summary, sourceUrl: item.sourceUrl, ...documentationNotes(item) });
 
-export function searchReference(corpus, { query, kind, limit = 8 } = {}) {
+function domainOf(item) {
+  const owner = item.entryId ?? item.id;
+  const name = owner === 'EDA' ? item.name ?? '' : owner;
+  const prefix = name.match(/^(?:I|E|T)?(PCB|SCH|DMT|PNL|LIB|SYS)_/i)?.[1].toUpperCase();
+  return domainPrefixes[prefix] ?? null;
+}
+
+export function searchReference(corpus, { query, kind, limit = 8, domain, class: className, offset } = {}) {
   if (typeof query !== 'string' || !query.trim() || query.length > 240) fail('INVALID_QUERY', 'Provide a nonempty query of at most 240 characters.');
   limitValue(limit);
   if (kind !== undefined && !queryKinds.has(kind)) fail('INVALID_KIND', 'Use class, interface, enum, type, method or property.');
+  const pageOffset = offset === undefined ? 0 : offset;
+  if (!Number.isSafeInteger(pageOffset) || pageOffset < 0) fail('INVALID_OFFSET', 'offset must be a nonnegative safe integer.');
+  const domainFilter = typeof domain === 'string' ? domains.get(domain.trim().toLowerCase()) : undefined;
+  if (domain !== undefined && !domainFilter) fail('INVALID_DOMAIN', 'Use pcb, schematic, document, library or system (aliases: sch/dmt/pnl/lib/sys).');
+  if (className !== undefined && (typeof className !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(unescape(className.trim())))) fail('INVALID_CLASS', 'class must be an exact owning entry id, not a path or member id.');
+  const classKey = className === undefined ? null : normalized(className.trim());
   const words = normalized(query.trim()).split(/\s+/);
   const groups = words.map(word => [...new Set([word, ...(glossary[word] ?? [])])]);
   const matches = [];
   for (const item of corpus.items) {
     if (kind && item.kind !== kind) continue;
+    if (domainFilter && domainOf(item) !== domainFilter) continue;
+    if (classKey && normalized(item.entryId ?? item.id) !== classKey) continue;
     const id = normalized(item.id), title = normalized(item.summary), text = normalized(item.text);
     const tokenSets = {};
     const contains = (field, word, translated) => {
@@ -167,7 +184,12 @@ export function searchReference(corpus, { query, kind, limit = 8 } = {}) {
     if (score) matches.push({ item, score });
   }
   matches.sort((a, b) => b.score - a.score || a.item.id.localeCompare(b.item.id));
-  return { ...envelope(corpus), status: matches.length ? 'matched' : 'no-match', query, expandedTerms: groups, total: matches.length, limit, results: matches.slice(0, limit).map(({ item }) => descriptor(item)) };
+  const paging = domain !== undefined || className !== undefined || offset !== undefined
+    ? { offset: pageOffset, hasMore: matches.length - pageOffset > limit,
+      ...(domainFilter ? { domain: domainFilter } : {}),
+      ...(classKey ? { class: corpus.byId.get(classKey)?.id ?? unescape(className.trim()) } : {}) }
+    : {};
+  return { ...envelope(corpus), status: matches.length ? 'matched' : 'no-match', query, expandedTerms: groups, total: matches.length, limit, ...paging, results: matches.slice(pageOffset, pageOffset + limit).map(({ item }) => descriptor(item)) };
 }
 
 function resolveItem(corpus, input) {

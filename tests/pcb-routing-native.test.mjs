@@ -1,11 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import {digest} from '../scripts/pcb-routing/provider.mjs';
-const root=new URL('../scripts/',import.meta.url);
-const shared=['pcb-routing/geometry.mjs','providers/easyeda-pro/source-invariant.mjs','providers/easyeda-pro/drc-summary.mjs','providers/easyeda-pro/routing-compatibility.mjs'].map(p=>fs.readFileSync(new URL(p,root),'utf8').replace(/\bexport\s+/g,'')).join('\n');
-const code=shared+'\n'+fs.readFileSync(new URL('providers/easyeda-pro/routing-native.js',root),'utf8');
-const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor,run=new AsyncFunction('eda','flitrealizeInput',code);
+import fs from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {basename,dirname,join,resolve} from 'node:path';
+import {digest,prepareNativeSource} from '../scripts/providers/easyeda-pro/routing-provider.mjs';
+
+const directory=await fs.mkdtemp(join(tmpdir(),'routing-native-source-'));
+let run;
+try {
+ const code=await fs.readFile(await prepareNativeSource(directory),'utf8');
+ const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
+ run=new AsyncFunction('eda','flitrealizeInput',code);
+} finally {
+ assert.equal(dirname(resolve(directory)),resolve(tmpdir()));
+ assert.ok(basename(directory).startsWith('routing-native-source-'));
+ await fs.rm(directory,{recursive:true,force:true});
+}
 function fixture(){
  delete globalThis.__flitrealizeRoutingTransaction;
  const objects={lines:[],vias:[],arcs:[],polylines:[],pours:[]},calls={save:0,create:0},source='';

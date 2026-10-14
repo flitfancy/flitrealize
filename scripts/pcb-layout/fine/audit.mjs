@@ -11,7 +11,8 @@ import { relationDistance, relationMeasurements } from './compile.mjs';
 import { scopeLayoutModel } from '../pcb-layout-scope.mjs';
 import { independentLabelGeometry, fineLabelRules } from './label-geometry.mjs';
 import { layoutLabelAlignment } from '../pcb-layout-provider.mjs';
-import { digest, fail, finiteBox, issueKey, issueRefs, near, samePose, sameBox, union, within } from './common.mjs';
+import { digest, fail, finiteBox, issueKey, near, samePose, sameBox, union, within } from './common.mjs';
+import { classifyFineIssues } from './issue-policy.mjs';
 
 /** Reconstruct a complete external plan from the frozen native geometry.
  * This accepts target poses, never the producer's asserted acceptance status. */
@@ -113,10 +114,10 @@ export function materializeFineCandidate(scope,compilation,result,{labels,bodyOn
 export function auditFineCandidate(scope,compilation,plan,options={}) {
   return options.timing?options.timing.sync('audit',()=>auditFineCandidateCore(scope,compilation,plan,options)):auditFineCandidateCore(scope,compilation,plan,options);
 }
-function auditFineCandidateCore(scope,compilation,plan,{bodyOnly=false}={}) {
-  const {model,request,moving}=scope,actual=review(scope,plan,bodyOnly),before=review(scope,compilation.baseline.plan,bodyOnly),oldKeys=new Set(before.issues.map(issueKey));
-  const isOutside=i=>{const refs=issueRefs(i),active=i.code?.includes('LABEL')?scope.labelMoving:moving;return refs.length&&refs.every(r=>!active.has(r));};
-  const retainedOutsideIssues=actual.issues.filter(i=>oldKeys.has(issueKey(i))&&isOutside(i)),blockingIssues=actual.issues.filter(i=>!(request.baselinePolicy==='retain-outside-issues'&&oldKeys.has(issueKey(i))&&isOutside(i)));
+function auditFineCandidateCore(scope,compilation,plan,{bodyOnly=false,liveBaseline=false}={}) {
+  const {model,request,moving}=scope,actual=review(scope,plan,bodyOnly),before=review(scope,compilation.baseline.plan,bodyOnly);
+  const frame=(p,r)=>({components:p.components,labels:bodyOnly?[]:p.labels,pads:r.geometry.pads,boardBounds:p.boardBounds});
+  const {retainedOutsideIssues,blockingIssues,retainedOutsideProofs,changedObjects}=classifyFineIssues({issues:actual.issues,baselineIssues:before.issues,before:frame(compilation.baseline.plan,before),after:frame(plan,actual),labelMode:request.labels.mode,baselinePolicy:liveBaseline?'retain-outside-issues':request.baselinePolicy});
   const outsidePoseChanges=scope.frozenRefs.filter(ref=>!samePose(model.components.get(ref),plan.components.find(c=>c.ref===ref)));
   const outsideLabelChanges=compilation.baseline.plan.labels.filter(l=>!scope.labelMoving.has(l.owner)).filter(l=>digest(l)!==digest(plan.labels.find(p=>p.id===l.id))).map(l=>l.id);
   const standaloneChanges=compilation.baseline.plan.testPads.filter(p=>{const q=plan.testPads.find(q=>q.id===p.id);return !q||!near(p.x,q.x)||!near(p.y,q.y)||!sameBox(p.bbox,q.bbox)||p.net!==q.net;}).map(p=>p.id);
@@ -143,6 +144,6 @@ function auditFineCandidateCore(scope,compilation,plan,{bodyOnly=false}={}) {
   const borrowedRefs=request.region.referenceBoundsMil?actual.geometry.physical.filter(p=>moving.has(p.ref)&&!within(p.bbox,request.region.referenceBoundsMil)).map(p=>p.ref):[];
   const localAccepted=!blockingIssues.length&&!outsidePoseChanges.length&&!outsideLabelChanges.length&&!standaloneChanges.length&&!areaViolations.length&&!physicalIssues.length&&!reservationIssues.length&&sourceLimits.filter(l=>l.active).every(l=>l.passed)&&relations.every(r=>r.passed===true)&&!unboundCritical.length;
   const wholeBoardAccepted=!actual.issues.length&&sourceLimits.every(l=>l.passed)&&localAccepted;
-  return {localAccepted,wholeBoardAccepted,blockingIssues,retainedOutsideIssues,outsidePreserved:!outsidePoseChanges.length&&!outsideLabelChanges.length&&!standaloneChanges.length,outsidePoseChanges,outsideLabelChanges,standaloneChanges,areaViolations,physicalIssues,reservationIssues,sourceLimits,relations,unboundCritical,weightedBeforeMil,weightedAfterMil,regressions:relations.filter(r=>r.regressed).map(r=>r.id),borrowedRefs,region:request.region,lockSources:scope.lockSources,crossingNets:scope.crossingNets,selection:scope.selection,objectiveComposition:compilation.objectiveComposition,
-    labelStatus:bodyOnly?'pending':request.labels.mode==='separate'?'individual-native-glyphs-checked':'joint-templates-and-placement-envelope-checked',assemblyStatus:model.assemblyPolicy?'configured-policy-checked':'explicit-envelopes-only; absent envelopes are not assembly acceptance',measurement:'Manhattan native pad positions or pad-bbox centres, declared per relation; no actual copper-length, return-current or thermal claim',nativeEligible:wholeBoardAccepted&&!bodyOnly};
+  return {localAccepted,wholeBoardAccepted,blockingIssues,retainedOutsideIssues,retainedOutsideProofs,changedObjects,outsidePreserved:!outsidePoseChanges.length&&!outsideLabelChanges.length&&!standaloneChanges.length,outsidePoseChanges,outsideLabelChanges,standaloneChanges,areaViolations,physicalIssues,reservationIssues,sourceLimits,relations,unboundCritical,weightedBeforeMil,weightedAfterMil,regressions:relations.filter(r=>r.regressed).map(r=>r.id),borrowedRefs,region:request.region,lockSources:scope.lockSources,crossingNets:scope.crossingNets,selection:scope.selection,objectiveComposition:compilation.objectiveComposition,
+    labelStatus:bodyOnly?'pending':request.labels.mode==='separate'?'individual-native-glyphs-checked':'joint-templates-and-placement-envelope-checked',assemblyStatus:model.assemblyPolicy?'configured-policy-checked':'explicit-envelopes-only; absent envelopes are not assembly acceptance',measurement:'Manhattan native pad positions or pad-bbox centres, declared per relation; no actual copper-length, return-current or thermal claim',nativeEligible:localAccepted&&!bodyOnly};
 }

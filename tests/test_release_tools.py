@@ -56,19 +56,18 @@ class RuntimePackagingTests(unittest.TestCase):
     def test_nested_provider_references_are_packaged(self) -> None:
         packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
         self.assertIn(
-            "references/providers/easyeda-pro/0.4-environment.md",
+            "docs/providers/easyeda-pro/0.4-environment.md",
             packaged,
         )
         self.assertIn(
-            "references/providers/easyeda-pro/3.2-pcb-foundation.md",
+            "docs/providers/easyeda-pro/3.2-pcb-foundation.md",
             packaged,
         )
         for entry in (
-            "references/providers/easyeda-pro/3.3-pcb-grounding.md",
-            "references/providers/easyeda-pro/3.9.1-pcb-ground-pours.md",
-            "references/providers/easyeda-pro/3.9.2-pcb-grounding.md",
-            "references/technical/pcb-ground-space.md",
-            "references/3.3-pcb-layout-inputs.md",
+            "docs/providers/easyeda-pro/3.9.1-pcb-ground-pours.md",
+            "docs/providers/easyeda-pro/3.9.2-pcb-grounding.md",
+            "docs/technical/pcb-ground-space.md",
+            "docs/3.3-pcb-layout-inputs.md",
         ):
             self.assertIn(entry, packaged)
 

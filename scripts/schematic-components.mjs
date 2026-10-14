@@ -18,7 +18,7 @@ node scripts/schematic-components.mjs --project-root <绝对路径> --resume <�
 --apply 允许本次放件和保存。续接也必须显式传 --apply 才能写入。
 --resume 默认只读对账；--close 在确认无未知写入后结束旧批次、保留现场，供重新规划。
 不连线、不重排已有对象、不运行整图 DRC、不自动删除或回滚。不重放结果未知的写入。
-输入格式、恢复边界和完整示例见 references/providers/easyeda-pro/2.3-component-batch.md。`;
+输入格式、恢复边界和完整示例见 docs/providers/easyeda-pro/2.3-component-batch.md。`;
 const stable = value => Array.isArray(value) ? '[' + value.map(stable).join(',') + ']'
   : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + stable(value[k])).join(',') + '}' : JSON.stringify(value);
 const sha = value => createHash('sha256').update(value).digest('hex');

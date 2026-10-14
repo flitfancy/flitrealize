@@ -1,5 +1,5 @@
 // Current reference filenames are stable English identifiers. Chinese labels
-// are a display layer; docs/en-backup is historical, not a naming authority.
+// are a display layer; the Chinese execution guides in docs are the naming authority.
 const reference = (path, zh) => ({path, zh});
 const provider = 'providers/easyeda-pro/';
 export const references = {
@@ -45,7 +45,7 @@ function referenceTitle(path) {
 }
 export function nameFor(code) {
   const ref=references[code];
-  if(ref)return {title:referenceTitle(ref.path),titleZh:ref.zh,reference:'references/'+ref.path};
+  if(ref)return {title:referenceTitle(ref.path),titleZh:ref.zh,reference:'docs/'+ref.path};
   const ui=uiNames[code];
   return {title:ui?.[0]||code,titleZh:ui?.[1]||null,reference:null};
 }

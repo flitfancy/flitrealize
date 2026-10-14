@@ -1,6 +1,6 @@
 # Bridge 请求与恢复
 
-只在执行中断、查询旧结果或开发控制接口时读取。普通连接见本通道 [README](../README.md)；硬件流程与 Provider 入口见 [SKILL.md](../../../SKILL.md)。
+只在执行中断、查询旧结果或开发控制接口时读取。普通连接见本通道 [README](../README.md)；硬件流程与软件适配层入口见 [SKILL.md](../../../SKILL.md)。
 
 ## 一个请求，一份结果记录
 
@@ -17,14 +17,16 @@ node <adapter>/scripts/bridge-control.mjs request --request-id <原请求ID> --s
 
 查询成功只表示读到了记录，具体看 `request.status`：
 
-普通 execute 的业务返回值在 `result`，查询取得的在 `request.result`；网关错误在 `request.error`。即使查询退出码为 0、顶层 `success: true`，也须检查内层状态和业务结果。
+执行与查询的业务返回位置见[执行数据约定](../../../schemas/execution.md#bridge-返回位置)。
 
-| 状态 | 含义 | 下一步 |
-| --- | --- | --- |
-| running | 已接受，尚未收到终态 | 不发重复写入；稍后查询 |
-| unknown | 超时、断连、重启或无法证明终态 | 保留现场，查询迟到结果或人工对账 |
-| succeeded | 收到本请求对应网关的返回值 | 检查返回的 Action 结果，再回读现场 |
-| failed | 收到对应网关的错误结果 | 核对可能已发生的部分修改，不把失败当成零写入 |
+| 状态 | 下一步 |
+| --- | --- |
+| running | 不发重复写入；稍后查询 |
+| unknown | 保留现场，查询迟到结果或人工对账 |
+| succeeded | 检查返回的操作结果，再回读现场 |
+| failed | 核对可能已发生的部分修改，不把失败当成零写入 |
+
+状态字段定义见[请求状态约定](../../../schemas/execution.md#bridge-请求状态)。
 
 查询返回 not-found、读盘错误或 Bridge 不可用时，不推断“没有执行过”。原输入、提交回执和上层报告仍保留。
 
@@ -46,7 +48,7 @@ FlitRealize 的报告保留 Bridge 请求句柄，主机入口提供对应只读
 node <skill>/scripts/eda-host.mjs request --eda easyeda-pro --request-id <原请求ID> --session-id <原会话ID>
 ```
 
-取得迟到结果后，应核对请求、代码版本、目标和实际对象，作为补充证据处理。原来的 Action / 批次 / 保存占用记录不会因查询自动改变；不能手改回执或删除锁来伪造完成。这个能力补齐“结果能找回来”，不是自动恢复所有事务。
+取得迟到结果后，应核对请求、代码版本、目标和实际对象，作为补充证据处理。原来的操作／批次／保存占用记录不会因查询自动改变；不能手改回执或删除锁来伪造完成。这个能力补齐“结果能找回来”，不是自动恢复所有事务。
 
 ## 开发接口
 
@@ -55,4 +57,4 @@ node <skill>/scripts/eda-host.mjs request --eda easyeda-pro --request-id <原请
 - 协议主版本保持 2，通过 `request-status` 能力标识区分是否支持查询。
 - 网关原执行消息仍带 `id` 和 `code`，不要求改造官方扩展。
 
-Bridge 的 succeeded / failed 是传输终态，不代表 Action 成功、文档保存、DRC 或电路功能通过。
+Bridge 的 succeeded / failed 是传输终态，不代表操作成功、文档保存、DRC 或电路功能通过。

@@ -148,15 +148,15 @@ test('actual copper and return inspection follow routing without changing source
     ['3.9.2 最终走线与接地状态','局部回流待核对。'],
   ].map(([heading,summary])=>'### '+heading+'\nViewState: '+summary+'\n').join('');
   const snapshot=parseHandoff(text),before=structuredClone(snapshot),nodes=navigation(snapshot)[3].children;
-  assert.equal(nodes.find(n=>n.code==='3.3').reference,'references/3.3-pcb-layout-inputs.md');
+  assert.equal(nodes.find(n=>n.code==='3.3').reference,'docs/3.3-pcb-layout-inputs.md');
   assert.equal(nodes.find(n=>n.code==='3.3').sources[0].summary,'当前输入已冻结。');
   assert.ok(nodes.findIndex(n=>n.code==='3.8')<nodes.findIndex(n=>n.code==='3.9.1'));
   assert.ok(nodes.findIndex(n=>n.code==='3.9.1')<nodes.findIndex(n=>n.code==='3.9.2'));
   const pours=nodes.find(n=>n.code==='3.9.1'),returns=nodes.find(n=>n.code==='3.9.2');
   assert.equal(pours.sources[0].summary,'实际铜待重铺。');
   assert.equal(returns.sources[0].summary,'局部回流待核对。');
-  assert.equal(pours.reference,'references/providers/easyeda-pro/3.9.1-pcb-ground-pours.md');
-  assert.equal(returns.reference,'references/providers/easyeda-pro/3.9.2-pcb-grounding.md');
+  assert.equal(pours.reference,'docs/providers/easyeda-pro/3.9.1-pcb-ground-pours.md');
+  assert.equal(returns.reference,'docs/providers/easyeda-pro/3.9.2-pcb-grounding.md');
   assert.ok(!pours.title.includes('3.9.1'));assert.ok(!returns.title.includes('3.9.2'));
   for(const n of [pours,returns])assert.ok((await readFile(new URL('../../'+n.reference,import.meta.url),'utf8')).length);
   assert.deepEqual(snapshot,before);

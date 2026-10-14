@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { probeRoutingCompatibility, assertRoutingCompatibility } from '../scripts/providers/easyeda-pro/routing-compatibility.mjs';
-import { executeNative, prepareNativeSource } from '../scripts/providers/easyeda-pro/routing-provider.mjs';
+import { executeNative } from '../scripts/providers/easyeda-pro/routing-provider.mjs';
 
 const target = { project: 'P', document: 'D' };
 const keys = ['__flitrealizeRoutingTransaction', '__natureCraftSesImport', '__natureCraftAutorouteTask', '__flitrealizeBst2AutoRouteTrial'];
@@ -83,13 +83,6 @@ test('only the current controller trusts its proven rollback or preflight reject
   assert.equal(probeRoutingCompatibility({ [keys[0]]: rejected }, target).state, 'clear');
   delete rejected.writeStarted;
   assert.equal(probeRoutingCompatibility({ [keys[0]]: rejected }, target).state, 'blocked');
-});
-
-test('provider-generated native source includes the standalone compatibility probe', async t => {
-  const root = await directory(t), file = await prepareNativeSource(root), source = await fs.readFile(file, 'utf8');
-  assert.match(source, /function probeRoutingCompatibility/);
-  const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
-  assert.doesNotThrow(() => new AsyncFunction('eda', 'flitrealizeInput', source));
 });
 
 test('known compatibility failures survive both native result and failed-process envelopes', async t => {

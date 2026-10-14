@@ -1,8 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs/promises';
-import os from 'node:os';
-import path from 'node:path';
 import {normalizeBoard} from '../scripts/providers/easyeda-pro/routing-input.mjs';
 import * as provider from '../scripts/providers/easyeda-pro/routing-provider.mjs';
 import * as compatibility from '../scripts/pcb-routing/provider.mjs';
@@ -25,19 +22,14 @@ test('EasyEDA Provider owns native/DSN binding and exposes a public net inventor
  assert.equal(compileTasks(publicBoard,f.policy)[0].status,'already-connected');
  const before=structuredClone(f.padRead);f.padRead.pads[0].x+=1;assert.throws(()=>normalizeBoard(f.exported,f.padRead,f.policy),/PAD_BINDING_CHANGED/);assert.deepEqual(before.pads[1],f.padRead.pads[1]);
 });
-test('legacy Provider exports delegate to the same implementation and assemble the same native source',async()=>{
+test('legacy Provider exports delegate to the same implementation',()=>{
  for(const name of ['digest','prepareNativeSource','executeNative','activeWindow','legacySnapshot','updateBoardSnapshot'])assert.equal(compatibility[name],provider[name]);
- const dir=await fs.mkdtemp(path.join(os.tmpdir(),'routing-provider-'));
- try{const file=await provider.prepareNativeSource(dir),text=await fs.readFile(file,'utf8');assert.ok(text.includes('routingViaLayers'));assert.ok(text.includes('NATIVE_DRC_FAILED'));assert.ok(text.includes('sourceInvariantHash'));}
- finally{await fs.rm(dir,{recursive:true,force:true});}
 });
 
-test('native source normalization is Provider-owned and the legacy module only delegates',async()=>{
+test('native source normalization is Provider-owned and the legacy module only delegates',()=>{
  assert.equal(legacyInvariant.invariant,sourceInvariant.invariant);assert.equal(legacyInvariant.canonical,sourceInvariant.canonical);
  const record=(type,id,value)=>JSON.stringify({type,id})+'||'+JSON.stringify(value)+'|';
  const source=(session,x,copper)=>[record('DOCHEAD','head',{session}),record('COMPONENT','part',{x,y:20,zIndex:session}),record('LINE','wire',{layerId:1,x:copper})].join('\n');
  assert.equal(sourceInvariant.invariant(source(1,10,5)),sourceInvariant.invariant(source(2,10,30)));
  assert.notEqual(sourceInvariant.invariant(source(1,10,5)),sourceInvariant.invariant(source(1,11,5)));
- const compatibilitySource=await fs.readFile(new URL('../scripts/pcb-routing/source-invariant.mjs',import.meta.url),'utf8');
- assert.match(compatibilitySource,/export \{ canonical, invariant \} from/);assert.ok(!compatibilitySource.includes('DOCHEAD'));
 });

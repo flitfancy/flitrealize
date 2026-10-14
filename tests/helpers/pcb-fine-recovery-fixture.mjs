@@ -8,7 +8,7 @@ import { loadLayoutProject } from '../../scripts/pcb-layout/pcb-layout-project.m
 import { solveFineLayout } from '../../scripts/pcb-layout/fine/workflow.mjs';
 import { routeFineCandidate } from '../../scripts/pcb-layout/fine/routing.mjs';
 
-export async function fineFixture(t, { requiredRouting = false, moveMil = 20 } = {}) {
+export async function fineFixture(t, { requiredRouting = false, moveMil = 20, configureNative, configureRequest, expectedStatus = 'candidate-passed' } = {}) {
   const f = await nativeFixture(t), bounds = { minX: 0, minY: 0, maxX: 900, maxY: 300 };
   for (const item of [...f.components, ...f.pads, ...f.attributes]) {
     item.X += 150; item.Y += 100;
@@ -16,6 +16,7 @@ export async function fineFixture(t, { requiredRouting = false, moveMil = 20 } =
     for (const key of ['minY', 'maxY']) item.bbox[key] += 100;
   }
   f.routing.Polyline.push(f.primitive({ PrimitiveId: 'board', Layer: 11, Polygon: { getSource: () => [0,0,'L',0,300,900,300,900,0,0,0] } }));
+  if(configureNative)configureNative(f);
   const snapshot = await inspectLayout(f.options()), inputs = prepareFixture(); inputs.snapshot = snapshot;
   inputs.contract.components = [...snapshot.components.map(c => ({ designator: c.ref, role: 'fixture', includeInPcb: true, pins: [{ number: '1' }] })), { designator: 'TP1', role: 'test point', includeInPcb: true, pins: [{ number: '1' }] }];
   inputs.contract.blocks = [{ id: 'fixture', purpose: 'mock only', components: ['U1', 'U2'] }];
@@ -29,12 +30,13 @@ export async function fineFixture(t, { requiredRouting = false, moveMil = 20 } =
   Object.assign(inputs, { config: loaded.config, contract: loaded.contract, mechanical: loaded.mechanical });
   const request = { schemaVersion: 1, blockId: 'fixture', movableRefs: ['U1'], fixedRefs: ['U2'], region: { mode: 'available-space', basis: 'Mock scope' }, labels: { mode: 'separate', clearanceMil: 0 }, objective: { retainSource: false } };
   if (requiredRouting) request.routing = { required: true, nets: ['N0'], policy: { layers: [{ id: 1, purpose: 'top-copper' }, { id: 2, purpose: 'bottom-copper' }], nets: [{ net: 'N0', defaultWireWidthMil: 2, preroute: { sourceOwners: ['U1'], allowedLayers: [1] } }] }, options: { clearanceMil: 2, copperEdgeMil: 0, gridMil: 2 } };
+  if(configureRequest)configureRequest(request);
   const solveDirectory = path.join(f.projectRoot, 'solve');
   const solved = await solveFineLayout({ inputs, request, directory: solveDirectory, settings: { timeLimitSeconds: 5, resolutionMil: .5 }, executor: async problem => ({ status: 'FEASIBLE', sourceHash: problem.sourceHash, placements: problem.entities.map(entity => {
     if (problem.coverage.stage === 'independent-labels') { const old = snapshot.items.find(label => label.id === entity.id); return { ref: entity.ref, dx: entity.fixed ? 0 : old.original.bbox.minX / problem.settings.resolutionMil, dy: entity.fixed ? 0 : old.original.bbox.minY / problem.settings.resolutionMil, variant: 0 }; }
     return { ref: entity.ref, dx: entity.fixed ? 0 : moveMil / problem.settings.resolutionMil, dy: 0, variant: entity.preferredVariant ?? 0 };
   }), solver: { wallSeconds: 0 } }) });
-  assert.equal(solved.result.status, 'candidate-passed', JSON.stringify(solved.result));
+  assert.equal(solved.result.status, expectedStatus, JSON.stringify(solved.result));
   const modify = f.eda.pcb_PrimitiveAttribute.modify;
   f.eda.pcb_PrimitiveAttribute.modify = async (id, values) => {
     const changed = await modify(id, values), item = f.attributes.find(a => a.PrimitiveId === id), old = snapshot.items.find(a => a.id === id);

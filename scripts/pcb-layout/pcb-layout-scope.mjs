@@ -1,4 +1,5 @@
 import { measure } from './pcb-layout-solver-core.mjs';
+import { angle } from './pcb-layout-geometry.mjs';
 
 // A view of the prepared public model, never a second editable source model.
 // Every backend uses this projection for subsets, optional labels and open space.
@@ -43,7 +44,7 @@ export function scopeLayoutModel(full, { refs = [...full.components.keys()], pla
     if (retainedGauge && !samePose(gauge, retainedGauge)) throw Error('OPEN_GAUGE_FIXED_POSE_CONFLICT ' + gaugeRef);
     fixed.set(gaugeRef, gauge); lockProvenance.set(gaugeRef, [...new Set([...(lockProvenance.get(gaugeRef) ?? []), 'open.gauge'])]);
   }
-  for (const p of fixed.values()) if (!['x', 'y', 'rotation'].every(k => Number.isFinite(p[k])) || !full.allowedRotations.get(p.ref).includes(p.rotation)) throw Error('INVALID_OPEN_FIXED_POSE ' + p.ref);
+  for (const p of fixed.values()) if (!['x', 'y', 'rotation'].every(k => Number.isFinite(p[k])) || !full.allowedRotations.get(p.ref).includes(angle(p.rotation))) throw Error('INVALID_OPEN_FIXED_POSE ' + p.ref);
   const assembly = full.assemblyPolicy ? { ...full.assemblyPolicy, records: full.assemblyPolicy.records.filter(include), pads: full.assemblyPolicy.pads.filter(includePad), pairClearancesMil: (full.assemblyPolicy.pairClearancesMil ?? []).filter(p => placementRefs.has(p.a) && placementRefs.has(p.b)) } : null;
   const scopedRelations = (full.spatialRules.relations ?? []).filter(r => selected.has(r.a) && r.anchors.every(ref => selected.has(ref)));
   const model = { ...full,

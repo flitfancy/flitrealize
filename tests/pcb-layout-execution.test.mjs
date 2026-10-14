@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile, writeFile, copyFile, symlink, unlink, realpath, access } from 'node:fs/promises';
 import { join } from 'node:path';
-import { applyLayout, inspectLayout, resumeLayoutSave, verifyLayout } from '../scripts/pcb-layout/pcb-layout-execution.mjs';
+import { applyLayout, inspectLayout, preflightLayout, resumeLayoutSave, verifyLayout } from '../scripts/pcb-layout/pcb-layout-execution.mjs';
 import { fixture } from './helpers/pcb-layout-execution-fixture.mjs';
 import { compileAssemblyPolicy } from '../scripts/pcb-layout/pcb-layout-assembly-policy.mjs';
 
@@ -108,7 +108,7 @@ test('unknown save preserves pending marker and blocks original or copied apply 
 test('changed scene blocks apply before the first mutation', async t => {
   const f = await ready(t); f.pads[0].Net = 'manual-edit';
   const result = await applyLayout({ ...f.options(), plan: f.proposed, snapshot: f.snapshot });
-  assert.equal(result.status, 'apply-failed'); assert.match(result.error.message, /SOURCE_CHANGED_REPLAN/); assert.equal(f.control.modifications.length, 0);
+  assert.equal(result.status, 'apply-failed'); assert.match(result.error.message, /PAD_BASELINE_CHANGED/); assert.equal(f.control.modifications.length, 0);
 });
 for (const obstacle of ['locked', 'routing', 'region', 'bottom']) test(obstacle + ' is rejected before mutation, not silently omitted', async t => {
   const f = await fixture(t);
@@ -345,4 +345,68 @@ test('source mutation during optional netlist reading rejects the whole snapshot
   const f=await fixture(t);f.eda.pcb_Net={getNetlist:async()=>{f.pads[0].Net='concurrent-edit';return '{}';}};
   await assert.rejects(inspectLayout(f.options()),/SOURCE_CHANGED_DURING_READ/);
   assert.equal(f.control.modifications.length,0);
+});
+
+test('outside body and pad poses can change safely while only the original target is written',async t=>{
+ const f=await ready(t);for(const a of [f.components[1],f.pads[1],f.attributes[1]]){a.X+=40;a.bbox.minX+=40;a.bbox.maxX+=40;}
+ const result=await applyLayout({...f.options(),snapshot:f.snapshot,plan:f.proposed});assert.equal(result.status,'verified',result.error?.message);
+ assert.equal(f.components[1].X,340);assert.equal(f.pads[1].X,340);assert.equal(f.attributes[1].X,340);
+ assert.deepEqual(f.control.modifications,[f.components[0].PrimitiveId,f.attributes[0].PrimitiveId]);assert.equal(result.preservedChanges.length,3);
+ assert.equal(result.verification.writeBaseline.components[1].x,340);assert.equal(result.verification.placements[1].x,340);assert.equal(f.control.saves,1);
+});
+
+test('a new harmless unowned silkscreen string survives native apply and saved readback',async t=>{
+ const f=await ready(t);f.strings.push(f.primitive({PrimitiveId:'external-silk',Layer:3,Text:'manual note',X:600,Y:100,bbox:{minX:590,maxX:610,minY:98,maxY:102}}));
+ const result=await applyLayout({...f.options(),snapshot:f.snapshot,plan:f.proposed});assert.equal(result.status,'verified',result.error?.message);
+ assert.equal(f.strings[0].Text,'manual note');assert.ok(result.preservedChanges.some(r=>r.id==='external-silk'));assert.equal(f.control.modifications.includes('external-silk'),false);assert.equal(f.control.saves,1);
+});
+
+test('an unowned silkscreen obstacle within the necessary target gap stops every write',async t=>{
+ const f=await ready(t);f.strings.push(f.primitive({PrimitiveId:'external-silk',Layer:3,Text:'note',X:117,Y:0,bbox:{minX:116,maxX:118,minY:-1,maxY:1}}));
+ const result=await applyLayout({...f.options(),snapshot:f.snapshot,plan:f.proposed});assert.equal(result.status,'apply-failed');assert.match(result.error.message,/LAYOUT_OBSTACLE_GAP/);
+ assert.deepEqual(f.control.modifications,[]);assert.equal(f.control.saves,0);
+});
+
+test('metadata changes on a written object are detected by native source records even if getters agree',async t=>{
+ const f=await ready(t);f.components[0].DisplayOrder=9;
+ const result=await applyLayout({...f.options(),snapshot:f.snapshot,plan:f.proposed});assert.equal(result.status,'apply-failed');assert.match(result.error.message,/SOURCE_WRITE_DEPENDENCY_CHANGED/);
+ assert.deepEqual(f.control.modifications,[]);assert.equal(f.control.saves,0);
+});
+
+test('source metadata changing during apply prevents saving despite matching target poses',async t=>{
+ const f=await ready(t);f.control.afterComponentModify=()=>{f.attributes[1].DisplayOrder=2;};
+ const result=await applyLayout({...f.options(),snapshot:f.snapshot,plan:f.proposed});assert.equal(result.applyState,'apply-verification-failed');assert.equal(f.control.saves,0);
+ const report=JSON.parse(await readFile(join(result.reportDir,'layout-apply-result.json')));assert.ok(report.response.result.after.issues.some(i=>i.code==='SOURCE_READBACK_CHANGED'&&i.id===f.attributes[1].PrimitiveId));
+});
+
+for(const [kind,oldNet,newNet] of [['owned','N1','N0'],['standalone','N1','N0'],['owned','N0','N1'],['standalone','N0','N1'],['owned','','N0'],['owned','N0','']])test(`${kind} pad ${oldNet||'unassigned'} -> ${newNet||'unassigned'} changes related net membership and stops before writes`,async t=>{
+ const f=await fixture(t),pad=f.pads[kind==='owned'?1:2];pad.Net=oldNet;
+ const snapshot=await inspectLayout(f.options()),plan=f.plan(snapshot);pad.Net=newNet;
+ const pre=await preflightLayout({...f.options(),snapshot,plan});assert.equal(pre.status,'preflight-blocked');assert.match(pre.error.message,/PAD_BASELINE_CHANGED/);
+ const result=await applyLayout({...f.options(),snapshot,plan});assert.equal(result.status,'apply-failed');assert.equal(result.applyState,'blocked');assert.match(result.error.message,/PAD_BASELINE_CHANGED/);
+ assert.deepEqual(f.control.modifications,[]);assert.equal(f.control.saves,0);
+});
+
+test('swapping outside related and unrelated pad nets cannot hide a new related endpoint',async t=>{
+ const f=await ready(t);f.pads[1].Net='N0';f.pads[2].Net='N1';
+ const result=await applyLayout({...f.options(),snapshot:f.snapshot,plan:f.proposed});assert.equal(result.status,'apply-failed');assert.match(result.error.message,/PAD_BASELINE_CHANGED component-1\/pad-1/);
+ assert.deepEqual(f.control.modifications,[]);assert.equal(f.control.saves,0);
+});
+
+for(const change of ['add','remove','replace'])test('related pad '+change+' is rejected by the complete native inventory before writes',async t=>{
+ const f=await ready(t);
+ if(change==='add')f.pads.push(f.primitive({...f.pads[2],PrimitiveId:'new-related-pad',PadNumber:'TP2',X:700,bbox:{minX:698,maxX:702,minY:-2,maxY:2}}));
+ if(change==='remove')f.pads.splice(2,1);
+ if(change==='replace')f.pads[2].PrimitiveId='replacement-related-pad';
+ const pre=await preflightLayout({...f.options(),snapshot:f.snapshot,plan:f.proposed});assert.equal(pre.status,'preflight-blocked');assert.match(pre.error.message,/LIVE_OBJECT_IDS pads/);
+ const result=await applyLayout({...f.options(),snapshot:f.snapshot,plan:f.proposed});assert.equal(result.status,'apply-failed');assert.match(result.error.message,/LIVE_OBJECT_IDS pads/);
+ assert.deepEqual(f.control.modifications,[]);assert.equal(f.control.saves,0);
+});
+
+test('an outside pad changing between unrelated nets is retained through apply, save and readback',async t=>{
+ const f=await ready(t);f.pads[1].Net='N2';
+ const pre=await preflightLayout({...f.options(),snapshot:f.snapshot,plan:f.proposed});assert.equal(pre.status,'preflight-passed');
+ const result=await applyLayout({...f.options(),snapshot:f.snapshot,plan:f.proposed});assert.equal(result.status,'verified',result.error?.message);assert.equal(result.saved,true);
+ assert.equal(f.pads[1].Net,'N2');assert.equal(result.verification.pads.find(p=>p.id===f.pads[1].PrimitiveId).net,'N2');assert.equal(result.verification.writeBaseline.pads[1].net,'N2');
+ assert.ok(result.preservedChanges.some(c=>c.id===f.pads[1].PrimitiveId&&c.fields.includes('Net')));assert.deepEqual(f.control.modifications,[f.components[0].PrimitiveId,f.attributes[0].PrimitiveId]);assert.equal(f.control.saves,1);
 });

@@ -87,12 +87,28 @@ test('independent extra label scope preserves native label locks',()=>{
   assert.throws(()=>compile(f,request({labels:{mode:'separate',additionalOwnerRefs:['U1']}})),/FINE_LOCKED_LABEL_OWNER/);
   assert.deepEqual([...compile(f).scope.labelMoving],['C1']);
 });
-test('stable relation reference inherits one prepared objective with its actual scaled weight',()=>{
-  const c=compile(inputs(),request({relations:[reference()]})),r=c.effectiveRelations[0];
-  assert.equal(r.id,'supply-filter');assert.equal(r.from.padId,'U1:1');assert.equal(r.to.padId,'C1:1');
-  const source=c.problem.links.find(l=>l.id===r.composition.objectiveId);
-  assert.equal(r.weight,source.weight);assert.ok(!c.problem.links.some(l=>l.id.startsWith('fine-soft:')));
-  assert.equal(r.source,'contract.extensions.pcbLayout.relations[0]');
+test('inherit, replace and append compose exactly the declared objective weights without duplicate scoring',()=>{
+  const f=inputs(), original=structuredClone(f);
+  f.config.comparisonWeights.bypass=8;
+  const base=compile(f,request({relations:[reference()]})),sourceWeight=base.effectiveRelations[0].weight;
+  assert.ok(sourceWeight>0);
+  for(const [change,expectedWeights,sourceRetained] of [
+    [{},[sourceWeight],true],
+    [{merge:'replace-objective',weight:4,geometry:'bbox-center'},[4],false],
+    [{merge:'append-objective',weight:2,geometry:'bbox-center'},[sourceWeight,2],true],
+    [{merge:'replace-objective',weight:0},[],false]
+  ]){
+    const c=compile(f,request({relations:[reference(change)]})),r=c.effectiveRelations[0];
+    assert.equal(r.id,'supply-filter');assert.equal(r.from.padId,'U1:1');assert.equal(r.to.padId,'C1:1');
+    assert.equal(r.source,'contract.extensions.pcbLayout.relations[0]');
+    const weights=c.problem.links.map(l=>l.weight).sort((a,b)=>a-b);
+    assert.deepEqual(weights,[...expectedWeights].sort((a,b)=>a-b),JSON.stringify(change));
+    assert.equal(new Set(c.problem.links.map(l=>l.id)).size,c.problem.links.length);
+    assert.equal(c.problem.links.some(l=>l.id===r.composition.objectiveId),sourceRetained);
+    assert.equal(c.objectiveComposition.relations[0].mode,change.merge??'inherit');
+    assert.deepEqual(c.objectiveComposition.effectiveLinks.map(l=>l.weight).sort((a,b)=>a-b),weights);
+  }
+  assert.deepEqual(f,{...original,config:{...original.config,comparisonWeights:{...original.config.comparisonWeights,bypass:8}}});
 });
 test('reference follows the compiled objective identity when an existing exact link is reversed',()=>{
   const f=inputs();f.config.groups[2].links=[{a:'C1',aPin:'1',b:'U1',bPin:'1',nets:['SUPPLY']}];
@@ -134,11 +150,6 @@ test('referenced existing source caps bind critical acceptance without changing 
 test('unbound critical references remain uncovered despite inherited soft objectives',()=>{
   const c=compile(inputs(),request({relations:[reference({critical:true})]}));
   assert.deepEqual(auditFineCandidate(c.scope,c,c.baseline.plan).unboundCritical,['supply-filter']);
-});
-test('explicit append retains source and reports its added objective separately',()=>{
-  const c=compile(inputs(),request({relations:[reference({merge:'append-objective',weight:2,geometry:'bbox-center'})]}));
-  assert.ok(c.problem.links.some(l=>l.id===c.effectiveRelations[0].composition.objectiveId));assert.equal(c.problem.links.find(l=>l.id==='fine-soft:supply-filter').weight,2);
-  assert.equal(c.objectiveComposition.relations[0].mode,'append-objective');
 });
 test('explicit new physical goals at the same endpoints are retained instead of blindly deduplicated',()=>{
   const c=compile(inputs(),request({relations:[reference(),{id:'different-proxy',merge:'append-objective',from:{ref:'U1',pin:'1'},to:{ref:'C1',pin:'1'},geometry:'bbox-center',basis:'Separate declared physical metric',weight:2}]}));

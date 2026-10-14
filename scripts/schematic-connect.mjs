@@ -225,7 +225,7 @@ if (isDirectExecution(import.meta.url)) {
     for (let i = 2; i < process.argv.length; i += 1) {
       const arg = process.argv[i];
       if (arg === '--help') {
-        console.log('node scripts/schematic-connect.mjs --project-root PROJECT --input-file INPUT [--path-base project|legacy] [--window-id WINDOW] [--apply | --check]\nPaths: project resolves input and Contract from PROJECT; legacy (default) keeps cwd-relative input and input-directory-relative Contract.\nDefault: plan only. --apply connects, audits, optionally reflows, saves and runs strict DRC. --check verifies without writes. See references/providers/easyeda-pro/2.4-schematic-connect.md.');
+        console.log('node scripts/schematic-connect.mjs --project-root PROJECT --input-file INPUT [--path-base project|legacy] [--window-id WINDOW] [--apply | --check]\nPaths: project resolves input and Contract from PROJECT; legacy (default) keeps cwd-relative input and input-directory-relative Contract.\nDefault: plan only. --apply connects, audits, optionally reflows, saves and runs strict DRC. --check verifies without writes. See docs/providers/easyeda-pro/2.4-schematic-connect.md.');
         process.exit(0);
       }
       if (arg === '--apply' || arg === '--check') { options[arg.slice(2)] = true; continue; }

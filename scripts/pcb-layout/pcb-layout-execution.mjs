@@ -59,11 +59,16 @@ export async function inspectLayout(options) {
 }
 export async function preflightLayout(options) {
   const ctx=await context(options);ctx.provider.target(options.config);
-  return (await invoke(ctx,'preflight',{config:options.config,plan:options.plan,snapshot:options.snapshot})).result;
+  const result=(await invoke(ctx,'preflight',{config:options.config,plan:options.plan,snapshot:options.snapshot})).result;
+  if(result.status==='preflight-passed'&&options.validatePreflight){
+    try { result.audit=await options.validatePreflight(result); }
+    catch(error){return {...result,status:'preflight-blocked',error:{code:error.code??'LAYOUT_PREFLIGHT_CONSTRAINT_FAILED',message:error.message}};}
+  }
+  return result;
 }
 export async function verifyLayout(options) {
   const ctx = await context(options); ctx.provider.target(options.config);
-  const { result } = await invoke(ctx, 'verify', { config: options.config, plan: options.plan, snapshot: options.snapshot, expectedSourceHash: options.expectedSourceHash }, options.phaseName ?? 'verify');
+  const { result } = await invoke(ctx, 'verify', { config: options.config, plan: options.plan, snapshot: options.snapshot, writeBaseline:options.writeBaseline, expectedSourceHash: options.expectedSourceHash }, options.phaseName ?? 'verify');
   if (result.status === 'verified' && options.validateReadback) await options.validateReadback(result);
   return result;
 }
@@ -144,6 +149,7 @@ async function workflow(options, resume) {
   const summary = { schemaVersion: 1, kind: 'flitrealize.pcb-layout.execution', executionVersion: LAYOUT_EXECUTION_VERSION, projectRoot: ctx.projectRoot, provider: ctx.provider.id, target: ctx.provider.target(config), applicationId: resumed?.applicationId ?? randomUUID(), status: 'started', saved: resumed ? false : null, applyState: resumed ? 'applied' : 'not-started', saveState: 'not-started', steps: [], reportFile, reportDir: ctx.reportDir };
   await writeFile(reportFile, JSON.stringify(summary, null, 2) + '\n', { flag: 'wx' });
   let receipt = resumed, markers, ownsMarker = false, saveUnknown = false;
+  let writeBaseline = resumed?.writeBaseline ?? options.writeBaseline;
   const persist = () => atomic(reportFile, summary);
   async function step(phase, name = phase) {
     const mutates = phase === 'apply' || phase === 'save', item = { phase, name, mutates, status: 'in-flight' };
@@ -152,7 +158,7 @@ async function workflow(options, resume) {
     if (phase === 'save') { summary.saveState = 'in-flight'; summary.saved = null; saveUnknown = true; }
     await persist();
     let result;
-    try { const reply = await invoke(ctx, phase, { config, plan, snapshot, ...(receipt ? { expectedSourceHash: receipt.expectedSourceHash } : {}) }, name); result = reply.result; item.reportFile = reply.reportFile; item.status = result.status; }
+    try { const reply = await invoke(ctx, phase, { config, plan, snapshot, ...(writeBaseline?{writeBaseline}:{}), ...(receipt ? { expectedSourceHash: receipt.expectedSourceHash } : {}) }, name); result = reply.result; item.reportFile = reply.reportFile; item.status = result.status; }
     catch (error) {
       item.status = error.code === 'LAYOUT_OUTCOME_UNKNOWN' ? 'unknown' : 'failed';
       if (phase === 'apply') { summary.applyState = item.status; summary.saved = item.status === 'unknown' ? null : false; }
@@ -160,24 +166,33 @@ async function workflow(options, resume) {
       error.workflowStatus = item.status === 'unknown' ? 'outcome-unknown' : name + '-failed'; await persist(); throw error;
     }
     if (phase === 'apply') { summary.applyState = result.status; summary.saved = result.saved ?? null; }
+    if(phase==='apply'&&result.preservedChanges){summary.preservedChanges=result.preservedChanges;summary.writeSet=result.writeSet;}
     if (phase === 'save') { saveUnknown = false; summary.saveState = result.status; summary.saved = result.saved === true; }
     await persist();
-    const expected = phase === 'apply' ? 'applied' : phase === 'save' ? 'saved' : 'verified';
+    const expected = phase === 'apply' ? 'applied' : phase === 'save' ? 'saved' : phase === 'preflight' ? 'preflight-passed' : 'verified';
     if (result.status !== expected || phase === 'save' && result.saved !== true) throw Object.assign(Error(result.error?.message ?? name + ' failed.'), { code: result.error?.code ?? 'LAYOUT_' + name.toUpperCase() + '_FAILED', workflowStatus: name + '-failed' });
     if (phase === 'verify' && options.validateReadback) {
       try { await options.validateReadback(result); }
       catch (error) { item.status = 'constraint-verification-failed'; error.workflowStatus = name + '-failed'; throw error; }
     }
+    if(phase==='preflight'&&options.validatePreflight){
+      try { item.audit=await options.validatePreflight(result); }
+      catch(error){item.status='constraint-verification-failed';error.workflowStatus='preflight-failed';throw error;}
+    }
     return result;
   }
   try {
     if (!receipt) {
+      if(options.validatePreflight){const checked=await step('preflight');writeBaseline=checked.live;summary.preservedChanges=checked.geometry.preservedChanges;}
       const applied = await step('apply');
-      receipt = { schemaVersion: 1, kind: 'flitrealize.pcb-layout.apply-receipt', executionVersion: LAYOUT_EXECUTION_VERSION, applicationId: summary.applicationId, projectRoot: ctx.projectRoot, provider: ctx.provider.id, workflowFile: reportFile, status: 'applied', saved: false, config, plan, snapshot, expectedSourceHash: applied.sourceHash ?? applied.after?.sourceHash, ...(acceptanceEvidence ? { acceptanceEvidence } : {}) };
+      writeBaseline=applied.writeBaseline??writeBaseline;
+      summary.preservedChanges=applied.preservedChanges??summary.preservedChanges;summary.writeSet=applied.writeSet??applied.attempted;
+      receipt = { schemaVersion: 1, kind: 'flitrealize.pcb-layout.apply-receipt', executionVersion: LAYOUT_EXECUTION_VERSION, applicationId: summary.applicationId, projectRoot: ctx.projectRoot, provider: ctx.provider.id, workflowFile: reportFile, status: 'applied', saved: false, config, plan, snapshot, ...(writeBaseline?{writeBaseline,writeSet:applied.writeSet,preservedChanges:applied.preservedChanges}:{}), expectedSourceHash: applied.sourceHash ?? applied.after?.sourceHash, ...(acceptanceEvidence ? { acceptanceEvidence } : {}) };
       if (!sourceFingerprint(receipt.expectedSourceHash)) fail('APPLIED_FINGERPRINT_MISSING');
       summary.resumeSaveReport = join(ctx.reportDir, 'layout-apply-receipt.json'); summary.receiptHash = digest(receipt);
       await writeFile(summary.resumeSaveReport, JSON.stringify(receipt, null, 2) + '\n', { flag: 'wx' });
     } else {
+      summary.preservedChanges=receipt.preservedChanges;summary.writeSet=receipt.writeSet;
       // Keep the immutable successful apply receipt directly addressable even
       // when another known save failure is resumed through this wrapper.
       summary.resumeSaveReport = join(ctx.reportDir, 'layout-apply-receipt.json'); summary.receiptHash = digest(receipt);

@@ -202,11 +202,23 @@ test('explicit invalid provider identity and live context cannot fall through to
   for (const windowId of [undefined, {}, false, 7, '']) assert.throws(() => getLayoutProvider().validateContext({ windowId }), /confirmed EasyEDA windowId/);
 });
 
-test('native operation construction contains only the current runtime input binding', async () => {
-  const operation = await getLayoutProvider().buildOperation('inspect', { config: {} });
-  assert.match(operation.code, /const layoutExecutionInput=/);
-  assert.ok(!operation.code.includes('mechanicalLayoutInput'));
-  assert.ok(!operation.code.includes('mechanicalVerifyInput'));
+test('generated native inspection consumes the supplied target and returns the mocked source without writes', async t => {
+  const f = await liveFixture(t), input = { config: f.options().config }, original = structuredClone(input);
+  const run = async value => {
+    const operation = await getLayoutProvider().buildOperation('inspect', value);
+    assert.equal(operation.extension, '.js');
+    const AsyncFunction = Object.getPrototypeOf(async function() {}).constructor;
+    return new AsyncFunction('eda', operation.code)(f.eda);
+  };
+  const inspected = await run(input);
+  assert.equal(inspected.document.uuid, input.config.expectedDocumentUuid);
+  assert.equal(inspected.document.parentProjectUuid, input.config.expectedProjectUuid);
+  assert.deepEqual(inspected.components.map(c => c.ref), f.components.map(c => c.Designator));
+  assert.deepEqual(inspected.pads.map(p => p.id).sort(), f.pads.map(p => p.PrimitiveId).sort());
+  await assert.rejects(run({ config: { ...input.config, expectedDocumentUuid: 'wrong-pcb' } }), /TARGET_MISMATCH/);
+  assert.deepEqual(input, original);
+  assert.deepEqual(f.control.modifications, []);
+  assert.equal(f.control.saves, 0);
 });
 
 test('pad ownership accepts explicit declarations only, including explicitly standalone pads', () => {

@@ -8,6 +8,7 @@ import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { flitHome, statePathEnvironment } from './lib/state-paths.mjs';
+import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 
 const SCHEMA_VERSION = 1;
 const actionManifest = JSON.parse(await readFile(new URL('./actions/manifest.json', import.meta.url), 'utf8'));
@@ -101,15 +102,17 @@ async function saveProfile(profile) {
   await rename(temporary, PROFILE_FILE);
 }
 
-async function registerAdapter(eda, adapterRoot, options = {}) {
+export async function registerAdapter(eda, adapterRoot, options = {}) {
   validateEda(eda);
   const channel = options.channel || process.env.FLITREALIZE_EDA_CHANNEL || 'bridge';
   if (channel === 'cli') {
-    const { resolveOfficialCli } = await cliChannel(eda);
+    const { resolveOfficialCli, probeOfficialCliCodeFile } = await cliChannel(eda);
     const profile = await loadProfile(true);
     profile.adapters[eda] = { ...profile.adapters[eda], channel, cliExecutable: resolveOfficialCli(options.cliExecutable), registeredAt: utcNow() };
+    if (options.windowId) profile.adapters[eda].selectedWindowId = String(options.windowId);
+    profile.adapters[eda].codeFileCapability = await probeOfficialCliCodeFile(profile.adapters[eda].cliExecutable, { home: STATE_ROOT, windowId: profile.adapters[eda].selectedWindowId, timeoutMs: options.timeoutMs ?? edaActionTimeoutMs(), runner: options.runner });
     await saveProfile(profile);
-    return { status: 'registered', hostId: profile.hostId, edaId: eda, channel, cliExecutable: profile.adapters[eda].cliExecutable, profile: PROFILE_FILE };
+    return { status: 'registered', hostId: profile.hostId, edaId: eda, channel, cliExecutable: profile.adapters[eda].cliExecutable, profile: PROFILE_FILE, codeFileCapability: profile.adapters[eda].codeFileCapability };
   }
   if (!adapterRoot) throw new Error('--adapter-root is required');
   const root = resolve(adapterRoot);
@@ -263,8 +266,8 @@ async function cliChannel(eda) {
   return import(module.href);
 }
 
-async function runCliControl(arguments_, profile, adapter) {
-  const { officialCliControl, resolveOfficialCli } = await cliChannel(arguments_.eda);
+export async function runCliControl(arguments_, profile, adapter, { runner } = {}) {
+  const { officialCliControl, resolveOfficialCli, probeOfficialCliCodeFile, confirmedFileBudget } = await cliChannel(arguments_.eda);
   const binding = await checkProjectBinding(arguments_.projectRoot, arguments_.eda);
   let effectiveCodeFile = arguments_.codeFile ? resolve(arguments_.codeFile) : null;
   let temporaryCodeFile;
@@ -277,7 +280,16 @@ async function runCliControl(arguments_, profile, adapter) {
     effectiveCodeFile = temporaryCodeFile;
   }
   try {
-    const result = await officialCliControl({ ...arguments_, codeFile: effectiveCodeFile }, { executable: resolveOfficialCli(arguments_.cliExecutable || process.env.FLITREALIZE_EASYEDA_CLI || adapter.cliExecutable), home: STATE_ROOT, selectedWindowId: adapter.selectedWindowId, timeoutMs: edaActionTimeoutMs() });
+    const result = await officialCliControl({ ...arguments_, codeFile: effectiveCodeFile }, { executable: resolveOfficialCli(arguments_.cliExecutable || process.env.FLITREALIZE_EASYEDA_CLI || adapter.cliExecutable), home: STATE_ROOT, selectedWindowId: adapter.selectedWindowId, timeoutMs: edaActionTimeoutMs(), codeFileCapability: adapter.codeFileCapability, runner });
+    if (arguments_.command === 'ensure' && result.status === 'ready') {
+      const executable = resolveOfficialCli(arguments_.cliExecutable || process.env.FLITREALIZE_EASYEDA_CLI || adapter.cliExecutable);
+      const budget = await confirmedFileBudget(executable, { versionMatch: result.bridge.versionMatch, bridgeVersion: result.bridge.version }, adapter.codeFileCapability);
+      if (budget === null) {
+        adapter.codeFileCapability = await probeOfficialCliCodeFile(executable, { home: STATE_ROOT, windowId: arguments_.windowId || adapter.selectedWindowId, timeoutMs: edaActionTimeoutMs(), runner });
+        await saveProfile(profile);
+      }
+      result.codeFileCapability = adapter.codeFileCapability;
+    }
     if (arguments_.command === 'select') { adapter.selectedWindowId = result.selectedWindowId; await saveProfile(profile); }
     result.hostId = profile.hostId;
     if (binding) result.projectBinding = binding;
@@ -305,7 +317,7 @@ async function main() {
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }
 
-main().catch((error) => {
+if (isDirectExecution(import.meta.url)) main().catch((error) => {
   process.stderr.write(`${JSON.stringify({
     status: 'error',
     success: false,

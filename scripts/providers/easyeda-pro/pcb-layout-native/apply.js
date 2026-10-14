@@ -1,6 +1,13 @@
 return await (async () => {
   const n = await layoutNative(eda, layoutExecutionInput), { plan, snapshot } = layoutExecutionInput;
-  try { const live = await n.read(); n.checkPlan(live); }
+  let checked;
+  try {
+    if(layoutExecutionInput.writeBaseline){
+      await n.target();
+      if(n.sourceHash(await eda.sys_FileManager.getDocumentSource())!==layoutExecutionInput.writeBaseline.sourceHash)n.fail('SOURCE_CHANGED_AFTER_PREFLIGHT');
+      checked=n.checkPlan(layoutExecutionInput.writeBaseline);
+    }else checked=n.checkPlan(await n.read());
+  }
   catch (error) { return { status: 'blocked', saved: false, attempted: [], error: { code: 'LAYOUT_PREFLIGHT_FAILED', message: error.message } }; }
   const attempted = [];
   try {
@@ -14,10 +21,10 @@ return await (async () => {
     }
     for (const p of plan.testPads) if (n.moved(snapshot.pads.find(a => a.id === p.id), p)) { attempted.push(p.id); if (!await eda.pcb_PrimitivePad.modify(p.id, { x: p.x, y: p.y })) n.fail('TESTPAD_MOVE_FAILED ' + p.id); }
     const after = await n.verify();
-    if (after.issues.length) return { status: 'apply-verification-failed', saved: false, attempted, after };
-    return { status: 'applied', saved: false, attempted, after, sourceHash: after.sourceHash };
+    if (after.issues.length) return { status: 'apply-verification-failed', saved: false, attempted, after, writeBaseline:n.writeBaseline, writeSet:checked.writeSet, preservedChanges:checked.preservedChanges };
+    return { status: 'applied', saved: false, attempted, after, sourceHash: after.sourceHash, writeBaseline:n.writeBaseline, writeSet:checked.writeSet, preservedChanges:checked.preservedChanges };
   } catch (error) {
     let current = null; try { current = await n.read(); } catch {}
-    return { status: 'partial-failed', saved: false, attempted, error: { code: 'NATIVE_APPLY_FAILED', message: error.message }, current };
+    return { status: 'partial-failed', saved: false, attempted, error: { code: 'NATIVE_APPLY_FAILED', message: error.message }, current, writeBaseline:n.writeBaseline, writeSet:checked.writeSet, preservedChanges:checked.preservedChanges };
   }
 })();

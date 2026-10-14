@@ -1,6 +1,9 @@
 // Included in each native request. Coordinates are native mil; no UI-unit conversion.
 async function layoutNative(eda, input) {
   const { config: cfg, plan, snapshot: before } = input;
+  let writeBaseline = input.writeBaseline ?? before;
+  const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k => [k, stable(value[k])])) : value;
+  const equal = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(b));
   const get = (o, k, fallback = null) => typeof o?.['getState_' + k] === 'function' ? o['getState_' + k]() : fallback;
   const angle = n => ((n % 360) + 360) % 360;
   const fail = message => { throw Error(message); };
@@ -114,14 +117,17 @@ async function layoutNative(eda, input) {
       items.push(await label(a, 'attribute', c, get(a, 'Value')));
     }
     for (const c of components) if (items.filter(i => i.type === 'attribute' && i.owner === c.ref).length !== 1) unsupported.push({ code: 'VISIBLE_DESIGNATOR_COUNT', ref: c.ref });
-    if (cfg.includeFunctionalLabels !== false) for (const a of await eda.pcb_PrimitiveString.getAll()) {
+    const rawStrings = await eda.pcb_PrimitiveString.getAll();
+    if (cfg.includeFunctionalLabels !== false) for (const a of rawStrings) {
       const ref = cfg.functionalOwners?.[get(a, 'Text')], c = components.find(c => c.ref === ref);
       if (c && get(a, 'Layer') === 3) items.push(await label(a, 'string', c, get(a, 'Text')));
     }
-    const routing = {}, outlines = [], regions = [];
+    const routing = {}, outlines = [], regions = [], obstacles = [];
+    for (const a of rawStrings) if (get(a, 'Layer') === 3 && !items.some(l => l.id === get(a, 'PrimitiveId'))) obstacles.push({ id: get(a, 'PrimitiveId'), kind: 'string', layer: 3, bbox: await box(get(a, 'PrimitiveId')) });
     for (const type of ['Line', 'Arc', 'Polyline', 'Via', 'Pour']) {
       const all = await eda['pcb_Primitive' + type].getAll();
       routing[type] = all.filter(a => ['Via', 'Pour'].includes(type) || [1, 2].includes(get(a, 'Layer')) || get(a, 'Layer') >= 15 && get(a, 'Layer') <= 44).length;
+      if (['Line', 'Arc', 'Polyline'].includes(type)) for (const a of all.filter(a => get(a, 'Layer') === 3)) obstacles.push({ id: get(a, 'PrimitiveId'), kind: type, layer: 3, bbox: await box(get(a, 'PrimitiveId')) });
       if (type === 'Polyline') for (const a of all.filter(a => get(a, 'Layer') === 11)) outlines.push({ id: get(a, 'PrimitiveId'), path: get(a, 'Polygon')?.getSource?.() ?? null });
       if (['Line', 'Arc'].includes(type)) for (const a of all.filter(a => get(a, 'Layer') === 11)) outlines.push({ id: get(a, 'PrimitiveId'), kind: type });
     }
@@ -132,7 +138,7 @@ async function layoutNative(eda, input) {
     ]);
     const padOwnership = { status: 'verified', source: 'native-component-pins', queriedComponents: components.length, ownedPads: ownership.size, standalonePads: pads.length - ownership.size, methods: ownershipMethods };
     if (sourceHash(await eda.sys_FileManager.getDocumentSource()) !== sourceHash(source)) fail('SOURCE_CHANGED_DURING_READ');
-    return { status: 'inspected', units: 'mil', coordinateSystem: 'eda-y-up', sourceHash: sourceHash(source), source, document, components, pads, items, routing, outlines, regions, padOwnership, nativeNetlist, nativeNetNames, capabilities: { units: 'mil', axes: 'native-y-up', componentLayers: [1], padLayers: [1, 12], labelLayers: [3], relativeRotationStep: 90, routedMovement: false, unsupported } };
+    return { status: 'inspected', units: 'mil', coordinateSystem: 'eda-y-up', sourceHash: sourceHash(source), source, document, components, pads, items, routing, outlines, regions, obstacles, padOwnership, nativeNetlist, nativeNetNames, capabilities: { units: 'mil', axes: 'native-y-up', componentLayers: [1], padLayers: [1, 12], labelLayers: [3], relativeRotationStep: 90, routedMovement: false, unsupported } };
   }
   function transform(p, old, next) {
     const q = angle(next.rotation - old.rotation) / 90;
@@ -146,10 +152,58 @@ async function layoutNative(eda, input) {
     return { minX: Math.min(...ps.map(p => p.x)), minY: Math.min(...ps.map(p => p.y)), maxX: Math.max(...ps.map(p => p.x)), maxY: Math.max(...ps.map(p => p.y)) };
   }
   const moved = (a, b) => Math.abs(a.x - b.x) > .001 || Math.abs(a.y - b.y) > .001 || Math.abs(angle(a.rotation ?? 0) - angle(b.rotation ?? 0)) > 1e-7;
+  function changes() {
+    const components = plan.components.filter(c => moved(before.components.find(a => a.id === c.id), c)).map(c => c.id);
+    const labels = plan.labels.filter(l => { const old = before.items.find(a => a.id === l.id); return before.components.some(c => c.ref === l.owner && components.includes(c.id)) || moved(old.original, l) || old.original.alignMode !== l.alignMode; }).map(l => l.id);
+    const pads = before.pads.filter(p => components.includes(p.parentComponentId) || !p.owner && moved(p, plan.testPads.find(a => a.id === p.id))).map(p => p.id);
+    return { components, labels, pads };
+  }
+  function dependencies(writeSet, live = writeBaseline) {
+    // A pad may join or leave a relevant net after candidate creation. Compare
+    // membership on both snapshots, rather than trusting only its old net.
+    const pads = [...before.pads, ...live.pads];
+    const nets = new Set(pads.filter(p => writeSet.pads.includes(p.id)).map(p => p.net).filter(Boolean));
+    const refs = new Set([...(cfg.fineAcceptance?.dependencyRefs ?? []), ...(cfg.lockedDesignators ?? [])]);
+    const padIds = new Set([...(cfg.fineAcceptance?.dependencyPadIds ?? []), ...pads.filter(p => nets.has(p.net) || refs.has(p.owner)).map(p => p.id)]);
+    return { nets, refs, padIds };
+  }
+  function records(snapshot) {
+    const rows = sourceRecords(snapshot.source).filter(r => !['DOCHEAD', 'CANVAS'].includes(r.type));
+    const out = new Map(rows.map(r => [r.type + ':' + r.id, r]));
+    if (out.size !== rows.length) fail('SOURCE_RECORD_IDENTITY');
+    return out;
+  }
+  function sourceChanges(old, live, writeSet, dependency) {
+    if (old.sourceHash === live.sourceHash) return [];
+    let a, b;
+    try { a = records(old); b = records(live); } catch (error) { fail('SOURCE_CHANGE_UNCLASSIFIED ' + error.message); }
+    const affected = new Set([...writeSet.components, ...writeSet.labels, ...writeSet.pads, ...dependency.padIds, ...old.components.filter(c => dependency.refs.has(c.ref)).map(c => c.id)]);
+    const observed = new Set([...old.components, ...live.components, ...old.pads, ...live.pads, ...old.items, ...live.items, ...(old.obstacles ?? []), ...(live.obstacles ?? [])].map(o => o.id));
+    const preserved = [];
+    for (const key of new Set([...a.keys(), ...b.keys()])) {
+      const previous = a.get(key), current = b.get(key);
+      if (equal(previous, current)) continue;
+      const row = current ?? previous;
+      if (affected.has(row.id)) fail('SOURCE_WRITE_DEPENDENCY_CHANGED ' + row.id);
+      // Unobserved rule/stackup/constraint changes cannot be proved irrelevant.
+      // Every changed geometry record must have a current or prior native bbox.
+      if (!observed.has(row.id)) fail('SOURCE_CHANGE_UNCLASSIFIED ' + row.type + ':' + row.id);
+      const object=[...live.components,...live.items,...live.pads,...old.components,...old.items,...old.pads].find(o=>o.id===row.id);
+      preserved.push({ type: row.type, id: row.id, ref:object?.ref??object?.owner??object?.number??null,change:!previous?'added':!current?'removed':'modified',fields: [...new Set([...Object.keys(previous?.value ?? {}), ...Object.keys(current?.value ?? {})])].filter(k => !equal(previous?.value[k], current?.value[k])) });
+    }
+    return preserved;
+  }
+  function effectivePlan(baseline, writeSet) {
+    const components = baseline.components.map(c => { const next = writeSet.components.includes(c.id) ? plan.components.find(a => a.id === c.id) : c; return { ...next, dx:next.x-c.x,dy:next.y-c.y,deltaRotation:angle(next.rotation-c.rotation),body: transformBox(c.bbox, c, next) }; });
+    const labels = baseline.items.map(l => writeSet.labels.includes(l.id) ? plan.labels.find(a => a.id === l.id) : { ...l, ...l.original });
+    const testPads = baseline.pads.filter(p => !padComponent(p, baseline.components)).map(p => writeSet.pads.includes(p.id) ? plan.testPads.find(a => a.id === p.id) : p);
+    const pads = baseline.pads.map(p => { const c = padComponent(p, baseline.components), old = c ?? { ...p, rotation: 0 }, next = c ? components.find(a => a.id === c.id) : { ...testPads.find(a => a.id === p.id), rotation: 0 }; return { ...p, ...transform(p, old, next), bbox: transformBox(p.bbox, old, next) }; });
+    return { ...plan, components, labels, testPads, pads, bundles: components.map(c => ({ ref: c.ref, bbox: union([c.body, ...(cfg.labelGeometryMode === 'separate' ? [] : labels.filter(l => l.owner === c.ref).map(l => l.bbox))]) })).concat(testPads.map(p => ({ ref: p.number, bbox: p.bbox }))) };
+  }
   function checkPlan(live) {
     if (!plan || !before || !Array.isArray(plan.issues) || plan.issues.length) fail('PLAN_INVALID');
     if(!['joint','separate'].includes(cfg.labelGeometryMode??'joint')||(plan.geometryPolicy?.labelMode??'joint')!==(cfg.labelGeometryMode??'joint'))fail('PLAN_LABEL_GEOMETRY_POLICY');
-    if (plan.sourceHash !== before.sourceHash || live.sourceHash !== before.sourceHash) fail('SOURCE_CHANGED_REPLAN');
+    if (plan.sourceHash !== before.sourceHash) fail('SOURCE_CHANGED_REPLAN');
     if (live.capabilities.unsupported.length) fail('NATIVE_CAPABILITY_UNSUPPORTED ' + JSON.stringify(live.capabilities.unsupported));
     const boardBounds = resolveBoardBounds(decodeBoard(live.outlines), cfg.boardBounds).bounds;
     if (boardBounds ? !sameBox(boardBounds,plan.boardBounds,.001) : plan.boardBounds != null) fail('PLAN_BOARD_BOUNDS_MISMATCH');
@@ -157,9 +211,12 @@ async function layoutNative(eda, input) {
     for (const [name, wanted] of [['components', before.components], ['labels', before.items], ['testPads', before.pads.filter(p => !padComponent(p, before.components))]]) {
       if (!Array.isArray(plan[name]) || plan[name].length !== wanted.length || new Set(plan[name].map(o => o.id)).size !== wanted.length || plan[name].some(o => !wanted.some(a => a.id === o.id))) fail('PLAN_OBJECT_IDS ' + name);
     }
+    const writeSet = changes(), dependency = dependencies(writeSet, live);
+    for (const key of ['components', 'items', 'pads']) if (live[key].length !== before[key].length || live[key].some(o => !before[key].some(a => a.id === o.id))) fail('LIVE_OBJECT_IDS ' + key);
     for (const c of plan.components) {
       const old = before.components.find(a => a.id === c.id), actual = live.components.find(a => a.id === c.id);
-      if (!actual || c.ref !== old.ref || actual.ref !== old.ref || ![c.x, c.y, c.rotation].every(Number.isFinite) || moved(old, actual) || !sameBox(old.bbox, actual.bbox)) fail('PLAN_COMPONENT_IDENTITY');
+      if (!actual || c.ref !== old.ref || actual.ref !== old.ref || ![c.x, c.y, c.rotation].every(Number.isFinite)) fail('PLAN_COMPONENT_IDENTITY');
+      if ((writeSet.components.includes(c.id) || dependency.refs.has(c.ref)) && !equal(old, actual)) fail('SOURCE_WRITE_DEPENDENCY_CHANGED ' + c.id);
       if ((actual.locked || cfg.lockedDesignators?.includes(c.ref)) && moved(old, c)) fail('LOCKED_COMPONENT ' + c.ref);
       if (moved(old, c) && live.pads.some(p => p.owner === c.ref && p.locked)) fail('LOCKED_COMPONENT_PAD ' + c.ref);
       transform({ x: old.x, y: old.y }, old, c);
@@ -167,20 +224,40 @@ async function layoutNative(eda, input) {
     }
     for (const l of plan.labels) {
       const old = before.items.find(a => a.id === l.id), actual = live.items.find(a => a.id === l.id);
-      if (!actual || l.type !== old.type || l.owner !== old.owner || l.parentId !== old.parentId || l.text !== old.text || ![l.x, l.y, l.rotation].every(Number.isFinite) || !finiteBox(l.bbox) || actual.parentId !== old.parentId || actual.text !== old.text || !sameBox(actual.original.bbox, old.original.bbox, .1)) fail('PLAN_LABEL_IDENTITY');
+      if (!actual || l.type !== old.type || l.owner !== old.owner || l.parentId !== old.parentId || l.text !== old.text || ![l.x, l.y, l.rotation].every(Number.isFinite) || !finiteBox(l.bbox) || actual.parentId !== old.parentId || actual.owner !== old.owner) fail('PLAN_LABEL_IDENTITY');
+      if (writeSet.labels.includes(l.id) && !equal(actual, old)) fail('SOURCE_WRITE_DEPENDENCY_CHANGED ' + l.id);
       if (actual.locked && (moved(old.original, l) || old.original.alignMode !== l.alignMode)) fail('LOCKED_LABEL ' + l.id);
       if(cfg.labelGeometryMode==='separate'&&(l.fontSize!==old.fontSize||l.lineWidth!==old.lineWidth))fail('PLAN_LABEL_FORMAT_CHANGED '+l.id);
     }
     if (live.pads.length !== before.pads.length) fail('PAD_BASELINE_COUNT');
-    for (const p of before.pads) { const actual = live.pads.find(a => a.id === p.id); if (!actual || actual.owner !== p.owner || actual.parentComponentId !== p.parentComponentId) fail('PAD_OWNER_CHANGED ' + p.id); if (actual.net !== p.net || actual.number !== p.number || actual.layer !== p.layer || !sameBox(actual.bbox, p.bbox)) fail('PAD_BASELINE_CHANGED ' + p.id); }
+    for (const p of before.pads) { const actual = live.pads.find(a => a.id === p.id); if (!actual || actual.owner !== p.owner || actual.parentComponentId !== p.parentComponentId) fail('PAD_OWNER_CHANGED ' + p.id); if ((writeSet.pads.includes(p.id) || dependency.padIds.has(p.id)) && !equal(actual, p)) fail('PAD_BASELINE_CHANGED ' + p.id); }
     for (const p of plan.testPads) { const old = before.pads.find(a => a.id === p.id), actual = live.pads.find(a => a.id === p.id); if (!actual || ![p.x, p.y].every(Number.isFinite) || p.number !== old.number || p.net !== old.net) fail('PLAN_TESTPAD_IDENTITY'); if (actual.locked && moved(old, p)) fail('LOCKED_TESTPAD ' + p.id); }
     const hasMoves = plan.components.some(c => moved(before.components.find(a => a.id === c.id), c)) || plan.testPads.some(p => moved(before.pads.find(a => a.id === p.id), p));
     if (hasMoves && Object.values(live.routing).some(n => n)) fail('ROUTED_BOARD_MOVE_UNSUPPORTED');
     if (hasMoves && live.regions.length) fail('REGION_MOVEMENT_UNSUPPORTED');
-    const placements = plan.components.map(c => ({ ...c, body: transformBox(before.components.find(a => a.id === c.id).bbox, before.components.find(a => a.id === c.id), c) }));
-    const pads = before.pads.map(p => { const c = padComponent(p, before.components); const old = c ?? { ...p, rotation: 0 }, next = c ? plan.components.find(a => a.id === c.id) : { ...plan.testPads.find(a => a.id === p.id), rotation: 0 }; const { nativeGeometry, ...identity } = p; return { ...identity, ...transform(p, old, next), bbox: transformBox(p.bbox, old, next) }; });
-    const proposed = geometry(placements, plan.labels, pads, boardBounds);
-    if (proposed.issues.length) fail('PLAN_GEOMETRY_ISSUES ' + JSON.stringify(proposed.issues));
+    const preservedChanges = sourceChanges(before, live, writeSet, dependency);
+    writeBaseline = live;
+    const effective = effectivePlan(live, writeSet), { components: placements, labels, pads } = effective;
+    const proposed = geometry(placements, labels, pads, boardBounds);
+    proposed.issues.push(...obstacleIssues(live.obstacles, placements, labels, pads, writeSet));
+    const qualified=qualifyGeometry(proposed,placements,labels,pads,boardBounds);
+    if (qualified.issues.length) fail('PLAN_GEOMETRY_ISSUES ' + JSON.stringify(qualified.issues));
+    return { ...qualified, effectivePlan: effective, writeSet, preservedChanges };
+  }
+  function qualifyGeometry(checked,components,labels,pads,boardBounds) {
+    const policy=cfg.fineAcceptance;
+    if(!policy)return {...checked,retainedOutsideIssues:[],wholeBoardAccepted:!checked.issues.length};
+    if(policy.schemaVersion!==1||!['require-clean','retain-outside-issues'].includes(policy.baselinePolicy)||policy.sourceHash!==before.sourceHash||plan.sourceHash!==before.sourceHash)fail('FINE_BASELINE_BINDING_INVALID');
+    const sourceComponents=writeBaseline.components.map(c=>({...c,body:c.bbox})),sourceLabels=writeBaseline.items.map(l=>({...l,...l.original}));
+    const baseline=geometry(sourceComponents,sourceLabels,writeBaseline.pads,boardBounds);
+    const partition=classifyFineIssues({issues:checked.issues,baselineIssues:baseline.issues,before:{components:sourceComponents,labels:sourceLabels,pads:writeBaseline.pads,boardBounds},after:{components,labels,pads,boardBounds},labelMode:cfg.labelGeometryMode??'joint',baselinePolicy:policy.liveScope ? 'retain-outside-issues' : policy.baselinePolicy});
+    return {...checked,...partition,geometryIssues:checked.issues,issues:partition.blockingIssues,wholeBoardAccepted:!checked.issues.length};
+  }
+  function obstacleIssues(obstacles = [], placements, labels, pads, writeSet) {
+    const gap=(a,b)=>Math.max(a.minX-b.maxX,b.minX-a.maxX,a.minY-b.maxY,b.minY-a.maxY),issues=[];
+    const targets=[...placements.filter(c=>writeSet.components.includes(c.id)).map(c=>({id:c.id,bbox:c.body??c.bbox})),...labels.filter(l=>writeSet.labels.includes(l.id)),...pads.filter(p=>writeSet.pads.includes(p.id))];
+    for(const obstacle of obstacles)for(const target of targets){const requiredMil=cfg.labelClearanceMil??cfg.clearanceMil??8,gapMil=gap(obstacle.bbox,target.bbox);if(gapMil<requiredMil-.001)issues.push({code:'LAYOUT_OBSTACLE_GAP',id:obstacle.id,targetId:target.id,gapMil,requiredMil});}
+    return issues;
   }
   function geometry(placements, labels, pads, boardBounds = null) {
     if (cfg.assemblyPolicy && typeof assemblyRuntime !== 'function') fail('ASSEMBLY_RUNTIME_MISSING');
@@ -203,32 +280,38 @@ async function layoutNative(eda, input) {
   async function verify(expectedSourceHash) {
     const live = await read(), issues = [];
     if (expectedSourceHash != null && live.sourceHash !== expectedSourceHash) fail('SOURCE_CHANGED_RECONCILE');
-    if (live.components.length !== before.components.length || live.pads.length !== before.pads.length || live.items.length !== before.items.length) issues.push({ code: 'OBJECT_COUNT_CHANGED' });
+    const writeSet = changes(), expected = effectivePlan(writeBaseline, writeSet);
+    if (live.components.length !== writeBaseline.components.length || live.pads.length !== writeBaseline.pads.length || live.items.length !== writeBaseline.items.length) issues.push({ code: 'OBJECT_COUNT_CHANGED' });
     const placements = live.components.map(c => ({ ...c, body: c.bbox }));
-    for (const c of plan.components) { const a = live.components.find(a => a.id === c.id), old = before.components.find(b => b.id === c.id); if (!a || a.ref !== c.ref || moved(a, c) || a.layer !== old?.layer || a.locked !== old?.locked || JSON.stringify(a.footprint) !== JSON.stringify(old?.footprint) || !sameBox(a.bbox, transformBox(old.bbox, old, c))) issues.push({ code: 'COMPONENT_READBACK_FAILED', ref: c.ref }); }
+    for (const c of expected.components) { const a = live.components.find(a => a.id === c.id), old = writeBaseline.components.find(b => b.id === c.id); if (!a || a.ref !== c.ref || moved(a, c) || a.layer !== old?.layer || a.locked !== old?.locked || !equal(a.footprint, old?.footprint) || !sameBox(a.bbox, c.body)) issues.push({ code: 'COMPONENT_READBACK_FAILED', ref: c.ref }); }
     const labels = [];
-    for (const l of plan.labels) {
-      const a = live.items.find(a => a.id === l.id), old = before.items.find(a => a.id === l.id);
+    for (const l of expected.labels) {
+      const a = live.items.find(a => a.id === l.id), old = writeBaseline.items.find(a => a.id === l.id);
       if (!a || a.parentId !== l.parentId || a.text !== old.text || a.layer !== old.layer || !sameBox(a.original.bbox, l.bbox, .1) || moved(a.original, l) || a.original.alignMode !== l.alignMode) issues.push({ code: 'LABEL_READBACK_FAILED', id: l.id });
       if(cfg.labelGeometryMode==='separate'&&(a?.fontSize!==old.fontSize||a?.lineWidth!==old.lineWidth))issues.push({code:'LABEL_READBACK_FORMAT_CHANGED',id:l.id});
       if (a) labels.push({ ...l, ...a.original, layer: a.layer });
     }
-    for (const p of before.pads) {
-      const a = live.pads.find(a => a.id === p.id), c = padComponent(p, before.components);
-      const old = c ?? { ...p, rotation: 0 }, next = c ? plan.components.find(a => a.id === c.id) : { ...plan.testPads.find(a => a.id === p.id), rotation: 0 };
+    for (const p of writeBaseline.pads) {
+      const a = live.pads.find(a => a.id === p.id), target = expected.pads.find(a => a.id === p.id);
       if (!a || a.owner !== p.owner || a.parentComponentId !== p.parentComponentId) issues.push({ code: 'PAD_OWNER_CHANGED', id: p.id });
-      if (!a || a.net !== p.net || a.number !== p.number || a.layer !== p.layer || a.locked !== p.locked || !sameBox(a.bbox, transformBox(p.bbox, old, next))) issues.push({ code: 'PAD_READBACK_FAILED', id: p.id });
+      if (!a || a.net !== p.net || a.number !== p.number || a.layer !== p.layer || a.locked !== p.locked || !sameBox(a.bbox, target.bbox)) issues.push({ code: 'PAD_READBACK_FAILED', id: p.id });
     }
     let boardBounds = null;
     try {
       boardBounds = resolveBoardBounds(decodeBoard(live.outlines),cfg.boardBounds).bounds;
       if (boardBounds ? !sameBox(boardBounds,plan.boardBounds,.001) : plan.boardBounds != null) issues.push({code:'PLAN_BOARD_BOUNDS_MISMATCH'});
     } catch(error) { issues.push({code:error.code??'INVALID_BOARD_BOUNDS'}); }
-    const checked = geometry(placements, labels, live.pads,boardBounds); issues.push(...checked.issues);
-    if (before.routing && JSON.stringify(live.routing) !== JSON.stringify(before.routing)) issues.push({ code: 'ROUTING_CHANGED' });
-    if (before.regions && JSON.stringify(live.regions) !== JSON.stringify(before.regions)) issues.push({ code: 'REGIONS_CHANGED' });
-    if (before.outlines && JSON.stringify(live.outlines) !== JSON.stringify(before.outlines)) issues.push({ code: 'OUTLINES_CHANGED' });
-    return { ...checked, status: issues.length ? 'verification-failed' : 'verified', saved: null, issues, source: live.source, sourceHash: live.sourceHash, document: live.document, placements, components: placements.length, labels, pads: live.pads, routing: live.routing, outlines: live.outlines, padOwnership: live.padOwnership, nativeNetlist: live.nativeNetlist, nativeNetNames: live.nativeNetNames };
+    const proposed=geometry(placements, labels, live.pads,boardBounds);proposed.issues.push(...obstacleIssues(live.obstacles,placements,labels,live.pads,writeSet));
+    const checked = qualifyGeometry(proposed,placements,labels,live.pads,boardBounds); issues.push(...checked.issues);
+    for(const [key,code] of [['routing','ROUTING_CHANGED'],['regions','REGIONS_CHANGED'],['outlines','OUTLINES_CHANGED'],['obstacles','OBSTACLES_CHANGED']]) if (!equal(live[key] ?? [], writeBaseline[key] ?? [])) issues.push({ code });
+    // The SDK getters do not expose every native field. Preserve all source
+    // records outside the write set and all non-pose fields of written records.
+    try {
+      const a=records(writeBaseline),b=records(live),touched=new Set([...writeSet.components,...writeSet.labels,...writeSet.pads]);
+      const metadata=value=>Object.fromEntries(Object.entries(value).filter(([k])=>!['x','y','rotation','alignmode','bbox'].includes(k.toLowerCase())));
+      for(const key of new Set([...a.keys(),...b.keys()])){const old=a.get(key),now=b.get(key),id=(now??old).id;if(touched.has(id)?!old||!now||!equal(metadata(old.value),metadata(now.value)):!equal(old,now))issues.push({code:'SOURCE_READBACK_CHANGED',id});}
+    } catch(error) { issues.push({code:'SOURCE_READBACK_UNCLASSIFIED',message:error.message}); }
+    return { ...checked, wholeBoardAccepted:checked.wholeBoardAccepted&&!issues.length, status: issues.length ? 'verification-failed' : 'verified', saved: null, issues, source: live.source, sourceHash: live.sourceHash, document: live.document, placements, components: placements.length, labels, pads: live.pads, routing: live.routing, outlines: live.outlines, padOwnership: live.padOwnership, nativeNetlist: live.nativeNetlist, nativeNetNames: live.nativeNetNames, writeBaseline, writeSet, effectivePlan:expected, preservedChanges:sourceChanges(before,writeBaseline,writeSet,dependencies(writeSet)) };
   }
-  return { get, read, target, sourceHash, checkPlan, moved, verify, fail };
+  return { get, read, target, sourceHash, checkPlan, moved, verify, fail, get writeBaseline() { return writeBaseline; } };
 }

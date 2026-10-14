@@ -4,6 +4,19 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-10-14
+
+FlitRealize 3.0 围绕理清工作逻辑、调整架构，重新整理从需求、原理图、PCB 到制造和样机验证的衔接，让每个阶段的输入、工作范围和交付结果更清楚。
+
+- 按实际工作顺序梳理阶段职责，明确板框与层叠、布局输入、功能块布局、块内布局、走线、铺铜与回流之间的衔接。
+- 统一文档结构：阶段、技术、平台实现和开发说明集中到 `docs/`，首次使用说明移到根目录，删除旧跳转、历史副本和重复说明。
+- 数据格式与字段说明集中到 `schemas/`，理顺电路设计稿、实际 EDA 文件和项目主文稿各自保存的内容，减少重复维护。
+- 精简开发与旧适配器说明，明确入口、计算和平台实现的分工；保留有用的 API 资料查询，并补充按领域、类筛选及分页。
+- 局部布局写回保留无关现场修改；影响本轮目标、相关网络或占位的变化在写入前拦截，后续核验、保存和恢复沿用实际现场基线。
+- CLI 连接确认补齐文件传输能力核验与缓存，执行报告记录实际上传方式和次数，减少大请求反复拆成参数分片，同时保留请求身份与未知结果恢复。
+
+[完整变更对比：v2.1.0 → v3.0.0](https://github.com/flitfancy/flitrealize/compare/v2.1.0...v3.0.0)
+
 ## [2.1.0] - 2026-10-12
 
 本版补齐原理图转 PCB 和细布局执行，减少重复组装布局输入，保留逐项验收与保存事实。
@@ -13,7 +26,7 @@ All notable changes to FlitRealize will be recorded here.
 - 按实际工作顺序整理阶段入口：粗布局安排块，细布局安排簇与器件，走线连接并反馈。字段、命令和支持范围集中在技术参考，旧已发布路径保留跳转。
 - 新增单页原理图新建 PCB 入口，核对 Board 关联、器件、封装、焊盘和网络后保存；已有 PCB 更新和多页转换仍未覆盖。
 - 粗布局增加可选粗网格疏密和连接侧软留白；细布局复用完整模型，只调整声明成员与允许让位的邻居，先排器件再独立排位号。关键关系、范围外保持、完整几何与试走线分别验收。
-- 细布局请求可按块派生成员，按本轮范围选取已编译的关系；支持继承、替换目标和追加目标，保留来源、权重和基础硬距离上限。只消费支持的结构化关系，不把所有 Contract 文字约束都视为已编译。
+- 细布局请求可按块派生成员，按本轮范围选取已编译的关系；支持继承、替换目标和追加目标，保留来源、权重和基础硬距离上限。只消费支持的结构化关系，不把所有电路设计稿文字约束都视为已编译。
 - 同一逻辑引脚的多焊盘映射保留全部物理端点，报告端点对距离；布局最小距离代理不代表所有焊盘已经连通。
 - 统一只读预检、应用、续存与复核入口。确定保存失败时只续存，已保存但回读失败时只复核；来源或证据变化、并发与未知结果继续阻止新写入。细布局回执绑定原候选、请求、实现与已验试走线证据。
 - 记录准备、编译、求解、验收、执行等阶段耗时与异常证据；可选生成同一候选的前后对照图。移除旧 1.5 维重力细布局及专用审阅，保留当前公共入口的薄兼容调用。
@@ -97,12 +110,12 @@ FlitRealize 2.0 保留一个 Skill，将日常入口、通用计算与 EDA 接�
 
 ## [1.4.0] - 2026-09-28
 
-加入可复用的 PCB 布局输入准备、多起点求解和候选写回流程，统一器件资料、原理图 Contract 与 PCB 输入约定。
+加入可复用的 PCB 布局输入准备、多起点求解和候选写回流程，统一器件资料、电路设计稿与 PCB 输入约定。
 
 ### 新增
 
 - 通用 PCB 布局入口：准备上游设计与实际 PCB 输入、生成多起点候选、应用选定候选并回读。冻结输入、指标与工程要求覆盖分别输出，项目配置和证据留在项目目录。
-- PCB 原生焊盘归属、形状与孔信息读取，以及 Contract／实际焊盘／原生网表对账；形状数据仍是观测，求解几何仍使用包围盒。
+- PCB 原生焊盘归属、形状与孔信息读取，以及电路设计稿／实际焊盘／原生网表对账；形状数据仍是观测，求解几何仍使用包围盒。
 - 本地 API 资料定向查询、器件绑定中的库身份核对、原理图原生网表与当前页端点核对。
 
 ### 变更
@@ -113,7 +126,7 @@ FlitRealize 2.0 保留一个 Skill，将日常入口、通用计算与 EDA 接�
 - 默认使用当前连接距离与间距均匀评分，按封装几何和网络拓扑归一化；网页重评分与脚本一致。普通与批量候选共用起点准备、计算、复核和文件输出。
 - 精简主说明、首次使用和专项参考；连接步骤、开发契约和操作说明各自只维护一处。局部核验使用普通中文条件，不再引入模式名称；调试结论归同一项目主文稿。
 - 布局输入说明按器件、功能块和整板组织，列明来源、配置字段与缺项处理；Provider 数据接口归开发说明。修正间距比例被误写为自动默认值、归属推断已删除但文档仍声称保留的问题。
-- 原理图 Contract 说明逐项对应 Schema，区分引脚标识、功能描述和原生映射；删除未实现的引脚策略名称及重复流程，明确电气要求向 PCB 的传递位置。
+- 电路设计稿说明逐项对应 Schema，区分引脚标识、功能描述和原生映射；删除未实现的引脚策略名称及重复流程，明确电气要求向 PCB 的传递位置。
 - 修正器件资料解析器的完整输入示例及路径说明，分开器件身份与封装确认，明确未决器件和缓存命中的含义；保留现有库存复用流程，移除固定查询次数。
 - 补充标准化输入检查，消除错误文字锚点被接受、异常诊断导致直接抛错、去重网格覆盖用户配置、重复布局状态不一致等问题。
 
@@ -126,8 +139,8 @@ FlitRealize 2.0 保留一个 Skill，将日常入口、通用计算与 EDA 接�
 ### 修复
 
 - 资料解析器核对已提供的型号和制造商字段、缓存 PDF 校验值及身份歧义；同身份副本可复用，PDF 损坏时仍保留身份核对，避免覆盖存储名冲突的其他器件资料。
-- 主文稿事实表使用 Contract 的 `safeDefault`，保留通用器件描述、封装要求和 DNC；明确区分空网名与未取得网络观察。
-- 原理图连接规划落实 DNC 声明，NC／DNC 网络冲突阻止生成连接；对齐器件资料、Contract、布局输入及相关操作说明。
+- 主文稿事实表使用电路设计稿的 `safeDefault`，保留通用器件描述、封装要求和 DNC；明确区分空网名与未取得网络观察。
+- 原理图连接规划落实 DNC 声明，NC／DNC 网络冲突阻止生成连接；对齐器件资料、电路设计稿、布局输入及相关操作说明。
 
 ### 升级注意
 
@@ -187,13 +200,13 @@ FlitRealize 2.0 保留一个 Skill，将日常入口、通用计算与 EDA 接�
 
 ### 新增
 
-- **`pcb-board-outline`**：在 `BOARD_OUTLINE`（layer 11）用 `pcb_PrimitivePolyline.create` + `pcb_MathPolygon.createPolygon` 创建或替换矩形板框。默认拒绝覆盖已有板框；`replace: true` 仅允许替换唯一已有板框。发现关键词：「板框」。说明见 [3.2](references/providers/easyeda-pro/3.2-pcb-foundation.md)。
+- **`pcb-board-outline`**：在 `BOARD_OUTLINE`（layer 11）用 `pcb_PrimitivePolyline.create` + `pcb_MathPolygon.createPolygon` 创建或替换矩形板框。默认拒绝覆盖已有板框；`replace: true` 仅允许替换唯一已有板框。发现关键词：「板框」。说明见 [3.2](docs/providers/easyeda-pro/3.2-pcb-foundation.md)。
 - 能力探测补充 `polyline.create` / `polyline.delete`。
 
 ### 修复
 
-- **DOCHEAD 快照误报**：EasyEDA 每次 `getDocumentSource()` 会重写 DOCHEAD 的 `client` / `updateTime` / `version`。`pcb-placement`、`pcb-trace-width`、`pcb-net-color` 改为规范化后再比较与计算 fingerprint；真改图仍会 `STALE` / `SNAPSHOT_CHANGED`。规则写入 [development/action-system.md](development/action-system.md)，由脚本写死，不交给运行时模型判断。
-- **`schematic-layout` 角色推断**：`JP` / `SJ` / `LJ` 不再因 `/^J/` 被当成 connector；Contract/catalog 的 role 文本优先；仅 `J`+数字按 connector。
+- **DOCHEAD 快照误报**：EasyEDA 每次 `getDocumentSource()` 会重写 DOCHEAD 的 `client` / `updateTime` / `version`。`pcb-placement`、`pcb-trace-width`、`pcb-net-color` 改为规范化后再比较与计算 fingerprint；真改图仍会 `STALE` / `SNAPSHOT_CHANGED`。规则写入 [development/action-system.md](docs/0.6-tool-development.md)，由脚本写死，不交给运行时模型判断。
+- **`schematic-layout` 角色推断**：`JP` / `SJ` / `LJ` 不再因 `/^J/` 被当成 connector；电路设计稿／catalog 中的 role 文本优先；仅 `J`+数字按 connector。
 - **`schematic-reflow` NC 恢复**：`setDocumentSource` 不携带 pin 级 `noConnected`。apply 前快照 NC；有 NC 且缺少 `sch_PrimitivePin.modify` 时写前失败；import 后写回并在 save 后复核，失败硬报错。
 
 ### 升级注意
@@ -250,7 +263,7 @@ FlitRealize 首个正式版本。版本号由 `1.0.0-test.3` 升至 `1.0.0`，�
 
 ### 原理图
 
-- 新增批量放件编排：Contract 审计、器件绑定、布局、代表批次、分批写入、回读、保存和中断续接使用同一组 Action 与证据。
+- 新增批量放件编排：电路设计稿审计、器件绑定、布局、代表批次、分批写入、回读、保存和中断续接使用同一组 Action 与证据。
 - 新增连接编排：从明确的引脚网络意图生成短线、网络标识和 NC，补齐缺失连接、审计、重排并衔接保存与严格 DRC；已有正确连接不重复创建。
 - 修正器件 Value 的生成与供应商标准值回读，显式处理未连接引脚；关闭新建 netflag/netport 的重复名称显示，保留导线网络名称。
 - 保存和 DRC 兼容详细条目、聚合计数及布尔返回；未知结果不按通过处理，放件阶段跳过 DRC 时明确记录。
@@ -286,7 +299,7 @@ through parts, schematic, PCB, manufacturing, and prototype validation.
 ### Changed
 
 - Reworked the main Skill around one project manuscript while keeping the
-  Contract, EDA source, manufacturing outputs, and raw test records as the
+  电路设计稿, EDA source, manufacturing outputs, and raw test records as the
   owners of their respective machine facts.
 - Rewrote the continuation, requirements, parts, schematic, PCB, manufacturing,
   validation, and release references so each stage updates only its own section
@@ -363,7 +376,7 @@ while numbered references own the details of each stage.
 - Added the versioned `SchematicPlacementPlan v1` schema and internal
   connection-planning Action.
 - Added provider pin maps and evidence-bearing EasyEDA library candidate
-  resolution so semantic Contract pins can map to one or more native pins.
+  resolution so semantic 电路设计稿 pins can map to one or more native pins.
 - Added public EasyEDA schematic `Components`, `Connect`, and `Finalize`
   workflow metadata backed by internal fine-grained Actions.
 - Added regressions for schematic wire creation, net flags, save/DRC
@@ -375,13 +388,13 @@ while numbered references own the details of each stage.
 - `schematic-layout` now emits requested placement intent instead of a fake
   provider Snapshot; `schematic-component-place` consumes it directly and
   enforces/readbacks designators.
-- `schematic-layout` now uses the Contract block order, per-component symbol
+- `schematic-layout` now uses the 电路设计稿 block order, per-component symbol
   geometry, per-anchor clusters, connector directions, block bounding boxes,
   routing-lane gaps, grid snapping, and overlap diagnostics.
 - `schematic-inspect` now emits a live `SchematicSnapshot v1` with component,
   pin, wire, coverage, and semantic fingerprint evidence.
 - `schematic-resolve-bindings` now separates candidate search from resolution,
-  consumes the Contract directly, auto-selects only a unique strict exact
+  consumes the 电路设计稿 directly, auto-selects only a unique strict exact
   match, preserves unresolved blockers, and returns ephemeral provider bindings.
 - Wire, net-flag, and save flows now use explicit plan/apply/verify transaction
   boundaries, document identity, semantic staleness checks, and readback-backed

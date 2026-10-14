@@ -90,7 +90,7 @@ export function validateDiscoveryMetadata(discovery, skillRoot = dirname(SCRIPT_
   for (const field of ['reference', 'entrypoint']) {
     const value = discovery[field];
     if (value === undefined) continue;
-    const allowed = field === 'reference' ? /^references\/.*\.md$/ : /^scripts\/.*\.(?:mjs|py|ps1)$/;
+    const allowed = field === 'reference' ? /^docs\/(?!en-backup\/|zh-CN\/).*\.md$/ : /^scripts\/.*\.(?:mjs|py|ps1)$/;
     if (typeof value !== 'string' || !allowed.test(value) || /[\\:]/.test(value) || value.split('/').includes('..')) {
       fail('INVALID_DISCOVERY_METADATA', label + '.' + field + ' must be a portable runtime path');
     }

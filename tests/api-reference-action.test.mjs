@@ -41,6 +41,7 @@ test('query completion statuses do not mask other actions, modes, or unsuccessfu
 for (const scenario of [
   { input: { mode: 'search', query: 'getAllPins', kind: 'method', limit: 4 }, status: 'matched' },
   { input: { mode: 'show', id: 'IPCB_PrimitiveComponent#getallpins' }, status: 'found' },
+  { input: { mode: 'search', query: 'get', domain: 'pcb', class: 'PCB_PrimitiveVia', kind: 'method', limit: 2, offset: 2 }, status: 'matched' },
 ]) {
   test(`action-runner API reference ${scenario.input.mode} exits successfully and saves query data`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'flitrealize-api-action-'));
@@ -65,7 +66,17 @@ for (const scenario of [
       if (scenario.input.mode === 'search') {
         assert.equal(payload.query, scenario.input.query);
         assert.ok(payload.total > 0);
-        assert.equal(payload.results[0].id, 'IPCB_PrimitiveComponent#getallpins');
+        if (scenario.input.class) {
+          assert.equal(payload.class, scenario.input.class);
+          assert.equal(payload.domain, scenario.input.domain);
+          assert.equal(payload.offset, scenario.input.offset);
+          assert.equal(payload.results.length, scenario.input.limit);
+          assert.equal(payload.hasMore, true);
+          assert.ok(payload.results.every(item => item.entryId === scenario.input.class));
+        } else {
+          assert.equal(payload.results[0].id, 'IPCB_PrimitiveComponent#getallpins');
+          assert.equal(Object.hasOwn(payload, 'offset'), false);
+        }
       } else {
         assert.equal(payload.id, scenario.input.id);
         assert.equal(payload.signature, 'function getAllPins(): Promise<Array<IPCB_PrimitiveComponentPad>>;');
@@ -77,3 +88,27 @@ for (const scenario of [
     }
   });
 }
+
+test('host query action preserves an exhausted page and reports empty strict-filter results', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'flitrealize-api-action-'));
+  try {
+    for (const [index, input, expectedExit, expectedStatus] of [
+      [0, { mode: 'search', query: 'get', domain: 'pcb', offset: Number.MAX_SAFE_INTEGER }, 0, 'matched'],
+      [1, { mode: 'search', query: 'get', domain: 'library', class: 'PCB_PrimitiveVia', offset: 0 }, 1, 'no-match'],
+    ]) {
+      const inputFile = join(directory, 'input-' + index + '.json'), reportFile = join(directory, 'report-' + index + '.json');
+      await writeFile(inputFile, JSON.stringify(input));
+      const completed = spawnSync(process.execPath, [runner, 'run', '--action', 'api-reference', '--input-file', inputFile, '--report-file', reportFile], { cwd: directory, encoding: 'utf8', windowsHide: true });
+      assert.equal(completed.status, expectedExit, completed.stdout + completed.stderr);
+      const payload = JSON.parse(await readFile(reportFile, 'utf8')).response.result;
+      assert.equal(payload.status, expectedStatus);
+      assert.deepEqual(payload.results, []);
+      assert.equal(payload.hasMore, false);
+      assert.equal(payload.offset, input.offset);
+    }
+  } finally {
+    assert.equal(dirname(resolve(directory)), resolve(tmpdir()));
+    assert.ok(basename(directory).startsWith('flitrealize-api-action-'));
+    await rm(directory, { recursive: true, force: true });
+  }
+});

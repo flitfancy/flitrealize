@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import re
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -12,76 +10,43 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
-from validate import english_backup_failures, runtime_document_failures
+from validate import runtime_document_failures
 from package_release import runtime_files
 
 
 class DocumentLanguageTests(unittest.TestCase):
-    def snapshot(self, root: Path) -> Path:
-        backup = root / "docs/en-backup"
-        backup.mkdir(parents=True)
-        contents = b"Historical English instructions.\n"
-        (backup / "SKILL.md.bak").write_bytes(contents)
-        (backup / "manifest.json").write_text(json.dumps({
-            "schemaVersion": 1,
-            "runtimeLanguage": "zh-CN",
-            "snapshotLanguage": "en",
-            "mode": "historical-reference-only",
-            "files": [{"source": "SKILL.md", "backup": "SKILL.md.bak",
-                       "sha256": hashlib.sha256(contents).hexdigest().upper()}],
-        }), encoding="utf-8")
-        return backup
-
-    def test_chinese_changes_do_not_invalidate_historical_english(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            self.snapshot(root)
-            (root / "SKILL.md").write_text("# 中文执行源\n", encoding="utf-8")
-            self.assertEqual(english_backup_failures(root), [])
-            (root / "SKILL.md").write_text("# 中文规则已经更新\n", encoding="utf-8")
-            self.assertEqual(english_backup_failures(root), [])
-
-    def test_changed_backup_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            backup = self.snapshot(root)
-            (backup / "SKILL.md.bak").write_text("Changed.\n", encoding="utf-8")
-            self.assertTrue(english_backup_failures(root))
-
-    def test_missing_and_unlisted_backups_are_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            backup = self.snapshot(root)
-            (backup / "SKILL.md.bak").rename(backup / "unexpected.md.bak")
-            self.assertTrue(english_backup_failures(root))
-
-    def test_traversal_is_rejected(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            backup = self.snapshot(root)
-            path = backup / "manifest.json"
-            manifest = json.loads(path.read_text(encoding="utf-8"))
-            manifest["files"][0]["backup"] = "../outside.md.bak"
-            path.write_text(json.dumps(manifest), encoding="utf-8")
-            self.assertTrue(english_backup_failures(root))
-
     def test_runtime_routes_stay_out_of_inactive_copies(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "references").mkdir()
-            (root / "references/current.md").write_text("# 当前规则\n", encoding="utf-8")
+            (root / "docs").mkdir()
+            (root / "docs/current.md").write_text("# 当前规则\n", encoding="utf-8")
+            (root / "first-run.md").write_text("# Setup\n", encoding="utf-8")
             path = root / "SKILL.md"
-            path.write_text("[当前](references/current.md)\n", encoding="utf-8")
+            path.write_text("[当前](docs/current.md)\n", encoding="utf-8")
             self.assertEqual(runtime_document_failures(root), [])
             for target in ("docs/en-backup/SKILL.md.bak", "docs/zh-CN/SKILL.zh-CN.md"):
                 path.write_text(f"[旧规则]({target})\n", encoding="utf-8")
                 self.assertTrue(runtime_document_failures(root))
 
-    def test_release_excludes_both_secondary_document_trees(self) -> None:
+    def test_release_uses_the_unified_document_tree(self) -> None:
         packaged = {path.relative_to(ROOT).as_posix() for path in runtime_files()}
         self.assertIn("SKILL.md", packaged)
-        self.assertIn("references/3.1-pcb-review.md", packaged)
-        self.assertIn("docs/first-run.md", packaged)
+        self.assertIn("docs/3.1-pcb-review.md", packaged)
+        self.assertIn("first-run.md", packaged)
+        self.assertIn("docs/0.6-tool-development.md", packaged)
+        self.assertIn("docs/providers/easyeda-pro/pcb-create.md", packaged)
+        self.assertIn("docs/providers/easyeda-pro/pcb-autorouting.md", packaged)
+        removed_paths = {
+            "docs/pcb-layout-inputs.md", "docs/3.3-ground-space.md",
+            "docs/providers/easyeda-pro/3.3-ground-space.md",
+            "docs/providers/easyeda-pro/3.3-pcb-grounding.md",
+            "docs/providers/easyeda-pro/3.5.1-block-layout.md",
+            "docs/providers/easyeda-pro/3.8-prerouting.md",
+            "docs/providers/easyeda-pro/3.1-pcb-create.md",
+            "docs/providers/easyeda-pro/3.8-autorouting.md",
+        }
+        self.assertFalse(removed_paths & packaged)
+        self.assertFalse(any(path.startswith(("references/", "development/")) for path in packaged))
         self.assertFalse(any(path.startswith(("docs/en-backup/", "docs/zh-CN/")) for path in packaged))
 
     def test_runtime_document_links_are_packaged(self) -> None:

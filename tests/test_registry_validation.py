@@ -36,7 +36,7 @@ class RegistryValidationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root, manifest = self.fixture(directory)
             self.assertEqual(action_registry_failures(root), [])
-            manifest["actions"]["fixture"]["discovery"] = {"reference": "references/missing.md"}
+            manifest["actions"]["fixture"]["discovery"] = {"reference": "docs/missing.md"}
             self.write_manifest(root, manifest)
             self.assertIn("INVALID_DISCOVERY_METADATA", " ".join(action_registry_failures(root)))
 
@@ -51,56 +51,37 @@ class RegistryValidationTests(unittest.TestCase):
 
 
 class ReferenceRoutingTests(unittest.TestCase):
-    def fixture(self, directory: str, reachable: bool = True) -> tuple[Path, Path]:
+    def fixture(self, directory: str) -> tuple[Path, Path]:
         root = Path(directory)
-        legacy = root / "references/providers/easyeda-pro/3.5.1-block-layout.md"
-        legacy.parent.mkdir(parents=True)
-        (root / "references/3.5.1-block-layout.md").write_text("# 功能块布局\n", encoding="utf-8")
-        (root / "SKILL.md").write_text(
-            "# Skill\n" + ("[通用布局](references/3.5.1-block-layout.md)\n" if reachable else ""),
-            encoding="utf-8",
-        )
-        legacy.write_text(
-            "# 3.5 功能块布局已迁移\n\n"
-            "请阅读并维护 [通用说明](../../3.5.1-block-layout.md)。本路径仅保留兼容跳转。\n",
-            encoding="utf-8",
-        )
-        return root, legacy
+        stage = root / "docs/3.5.1-block-layout.md"
+        stage.parent.mkdir(parents=True)
+        stage.write_text("# 功能块布局\n", encoding="utf-8")
+        (root / "SKILL.md").write_text("[布局](docs/3.5.1-block-layout.md)\n", encoding="utf-8")
+        provider = root / "docs/providers/easyeda-pro/unused-guide.md"
+        provider.parent.mkdir(parents=True)
+        return root, provider
 
-    def test_strict_redirect_accepts_only_a_reachable_canonical_page(self) -> None:
+    def test_all_current_pages_require_a_route_from_skill(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, provider = self.fixture(directory)
+            provider.write_text("# 操作说明\n", encoding="utf-8")
+            self.assertEqual(reference_routing_failures(root), ["providers/easyeda-pro/unused-guide.md"])
+            (root / "docs/3.5.1-block-layout.md").write_text(
+                "# 功能块布局\n[操作](providers/easyeda-pro/unused-guide.md)\n", encoding="utf-8",
+            )
+            self.assertEqual(reference_routing_failures(root), [])
+
+    def test_schema_pages_follow_the_same_reference_graph(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root, _ = self.fixture(directory)
+            schema = root / "schemas/pcb-layout.md"
+            schema.parent.mkdir()
+            schema.write_text("# 布局数据\n", encoding="utf-8")
+            self.assertEqual(reference_routing_failures(root), ["schemas/pcb-layout.md"])
+            (root / "docs/3.5.1-block-layout.md").write_text(
+                "# 功能块布局\n[数据](../schemas/pcb-layout.md)\n", encoding="utf-8",
+            )
             self.assertEqual(reference_routing_failures(root), [])
-            (root / "SKILL.md").write_text("# Skill\n", encoding="utf-8")
-            self.assertEqual(reference_routing_failures(root), [
-                "3.5.1-block-layout.md", "providers/easyeda-pro/3.5.1-block-layout.md",
-            ])
-
-    def test_old_directory_does_not_exempt_arbitrary_or_multi_content_pages(self) -> None:
-        mutations = [
-            "# 旧说明\n\n[布局](../../3.5.1-block-layout.md)\n",
-            "# 3.5 功能块布局已迁移\n\n请阅读并维护 [通用说明](../../3.5.1-block-layout.md)。兼容页面。\n",
-            "# 3.4 功能块布局已迁移\n\n请阅读并维护 [通用说明](../../3.5.1-block-layout.md)。本路径仅保留兼容跳转。\n额外规则\n",
-            "# 3.4 功能块布局已迁移\n\n请阅读并维护 [通用说明](../../3.5.1-block-layout.md)。本路径仅保留兼容跳转。 [第二链接](../../3.5.1-block-layout.md)\n",
-        ]
-        for content in mutations:
-            with self.subTest(content=content), tempfile.TemporaryDirectory() as directory:
-                root, legacy = self.fixture(directory)
-                legacy.write_text(content, encoding="utf-8")
-                self.assertEqual(reference_routing_failures(root), ["providers/easyeda-pro/3.5.1-block-layout.md"])
-
-    def test_redirect_rejects_missing_targets_and_noncanonical_aliases(self) -> None:
-        for target in ["../../missing.md", "https://example.com/guide", "../../../SKILL.md", "../../other.md"]:
-            with self.subTest(target=target), tempfile.TemporaryDirectory() as directory:
-                root, legacy = self.fixture(directory)
-                (root / "references/other.md").write_text("# Other\n", encoding="utf-8")
-                with (root / "SKILL.md").open("a", encoding="utf-8") as out:
-                    out.write("[Other](references/other.md)\n")
-                legacy.write_text(
-                    f"# 3.4 功能块布局已迁移\n\n请阅读并维护 [通用说明]({target})。本路径仅保留兼容跳转。\n",
-                    encoding="utf-8",
-                )
-                self.assertEqual(reference_routing_failures(root), ["providers/easyeda-pro/3.5.1-block-layout.md"])
 
 
 if __name__ == "__main__":

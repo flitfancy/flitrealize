@@ -236,3 +236,31 @@ test('the latest bound workflow supplies the saved fact and blocks resaving even
   await assert.rejects(resumeFineSave({ ...fixture.input, options: f.options(), resumeSave: wrapper }), /LAYOUT_ALREADY_SAVED/);
   assert.equal(f.control.saves, 2); assert.equal(f.calls.filter(p => p === 'apply').length, 1);
 });
+
+function outsideEdit(f){const l=f.attributes[1];l.X+=5;l.bbox.minX+=5;l.bbox.maxX+=5;l.DisplayOrder=7;return l.X;}
+test('known failed saving resumes against the actual write baseline and retains outside edits',async t=>{
+ const fixture=await fineFixture(t),{f}=fixture,x=outsideEdit(f);f.control.saveResult=false;
+ const first=await apply(fixture);assert.equal(first.status,'save-failed');assert.ok(first.preservedChanges.some(c=>c.id===f.attributes[1].PrimitiveId));
+ const receipt=await read(first.execution.resumeSaveReport),original=await fs.readFile(first.execution.resumeSaveReport,'utf8'),changes=f.control.modifications.length;
+ assert.equal(receipt.snapshot.items[1].original.x,x-5);assert.equal(receipt.writeBaseline.items[1].original.x,x);
+ f.control.saveResult=true;const resumed=await resumeFineSave({...fixture.input,options:f.options(),resumeSave:first.execution.resumeSaveReport});
+ assert.equal(resumed.status,'verified',resumed.execution.error?.message);assert.equal(resumed.state.saved,true);assert.equal(f.attributes[1].X,x);assert.equal(f.attributes[1].DisplayOrder,7);
+ assert.equal(f.control.modifications.length,changes);assert.deepEqual(f.calls.slice(-3),['verify','save','verify']);assert.equal(await fs.readFile(first.execution.resumeSaveReport,'utf8'),original);
+});
+
+test('partial application retains the outside baseline but cannot obtain a successful recovery receipt',async t=>{
+ const fixture=await fineFixture(t),{f}=fixture,x=outsideEdit(f);f.control.failModifyId=f.attributes[0].PrimitiveId;
+ const first=await apply(fixture);assert.equal(first.execution.applyState,'partial-failed');assert.equal(f.attributes[1].X,x);assert.equal(f.attributes[1].DisplayOrder,7);assert.equal(f.control.saves,0);
+ const count=f.calls.length;await assert.rejects(resumeFineSave({...fixture.input,options:f.options(),resumeSave:first.execution.reportFile}),/SUCCESSFUL_APPLY_REQUIRED/);assert.equal(f.calls.length,count);
+});
+
+for(const phase of ['apply','save'])test('an unknown '+phase+' after real Mock execution preserves edits and never replays',async t=>{
+ const fixture=await fineFixture(t),{f}=fixture,x=outsideEdit(f);
+ const transport=async request=>{const reply=await f.transport(request);if(request.phase===phase)throw Object.assign(Error('lost reply after execution'),{code:'ETIMEDOUT'});return reply;};
+ const first=await applyFineLayout({...fixture.input,options:{...f.options(),transport}});
+ assert.equal(first.status,'outcome-unknown');assert.equal(first.state.saved,null);assert.equal(f.components[0].X,fixture.solved.candidate.plan.components[0].x);assert.equal(f.attributes[1].X,x);assert.equal(f.attributes[1].DisplayOrder,7);
+ const changes=f.control.modifications.length,saves=f.control.saves,calls=f.calls.length;
+ await assert.rejects(resumeFineSave({...fixture.input,options:f.options(),resumeSave:first.execution.resumeSaveReport??first.execution.reportFile}),phase==='apply'?/SUCCESSFUL_APPLY_REQUIRED/:/SAVE_RECOVERY_UNRESOLVED/);
+ assert.equal(f.control.modifications.length,changes);assert.equal(f.control.saves,saves);assert.equal(f.calls.length,calls);
+ if(phase==='save'){const checked=await verifyFineLayout({...fixture.input,options:f.options(),receiptFile:first.execution.resumeSaveReport});assert.equal(checked.status,'verified');assert.equal(checked.state.saved,null);assert.equal(checked.state.saveUnsettled,true);assert.equal(f.control.saves,1);}
+});

@@ -2,14 +2,20 @@
 import {spawnSync} from 'node:child_process';
 import {createHash,randomUUID} from 'node:crypto';
 import {existsSync} from 'node:fs';
-import {link,mkdir,readFile,unlink,writeFile} from 'node:fs/promises';
+import {link,mkdir,readFile,realpath,stat,unlink,writeFile} from 'node:fs/promises';
 import {delimiter,dirname,join,resolve} from 'node:path';
 import {gzipSync} from 'node:zlib';
 
 const digest=s=>createHash('sha256').update(s).digest('hex');
 const shelf='__flitrealizeOfficialCliV1';
-const registry=`const key=${JSON.stringify(shelf)};const store=globalThis[key]??= {uploads:new Map(),requests:new Map()};const a=__CLI__.args;`;
-const stageCode=registry+`let u=store.uploads.get(a.requestId);if(!u){u={hash:a.hash,total:a.total,chunks:[]};store.uploads.set(a.requestId,u);}if(u.hash!==a.hash||u.total!==a.total)throw Error('CLI_UPLOAD_IDENTITY_MISMATCH');if(u.chunks[a.index]!==undefined&&u.chunks[a.index]!==a.chunk)throw Error('CLI_UPLOAD_CHUNK_MISMATCH');u.chunks[a.index]=a.chunk;return {staged:a.index};`;
+const storeCode=`const key=${JSON.stringify(shelf)};const store=globalThis[key]??= {uploads:new Map(),requests:new Map()};`;
+const registry=storeCode+'const a=__CLI__.args;';
+const uploadBody=`let u=store.uploads.get(a.requestId);if(!u){u={hash:a.hash,total:a.total,chunks:[]};store.uploads.set(a.requestId,u);}if(u.hash!==a.hash||u.total!==a.total)throw Error('CLI_UPLOAD_IDENTITY_MISMATCH');if(u.chunks[a.index]!==undefined&&u.chunks[a.index]!==a.chunk)throw Error('CLI_UPLOAD_CHUNK_MISMATCH');u.chunks[a.index]=a.chunk;return {staged:a.index};`;
+function makeStageCode(chunk){
+  const args=chunk===undefined?'__CLI__.args':`{...__CLI__.args,chunk:${JSON.stringify(chunk)}}`;
+  return storeCode+`const a=${args};`+uploadBody;
+}
+const stageCode=makeStageCode();
 const queryCode=registry+`return store.requests.get(a.requestId)??null;`;
 const executeCode=registry+`
 if(store.requests.has(a.requestId))return store.requests.get(a.requestId);
@@ -74,7 +80,61 @@ async function saveRecord(file,value,{exclusive=false}={}){
 }
 function invoke(executable,sessionId,code,args,options){return callOfficialCli(executable,['invoke','--session',sessionId,'--ext-uuid','eda','--code',code,'--args',JSON.stringify(args),'--timeout',String(options.timeoutMs)],options);}
 
-export async function officialCliControl(args,{executable,home,selectedWindowId,timeoutMs=45000,runner=spawnSync}={}){
+/** Cheap identity of the selected client and its installed command implementation. */
+export async function officialCliIdentity(executable){
+  const file=await realpath(executable),stamp=async path=>{const s=await stat(path);return {path:await realpath(path),size:s.size,mtimeMs:s.mtimeMs,ctimeMs:s.ctimeMs};};
+  const s=await stat(file),resources=[];
+  for(const relative of ['resources/app.asar','resources/app/app.js','resources/app/package.json','resources/app/version.txt']){
+    try{resources.push(await stamp(join(dirname(file),relative)));}catch(error){if(error.code!=='ENOENT')throw error;}
+  }
+  return {executable:file,size:s.size,mtimeMs:s.mtimeMs,ctimeMs:s.ctimeMs,resources};
+}
+/** Confirm file support with inert UTF-8 source; never call an EDA API. */
+export async function probeOfficialCliCodeFile(executable,{home,windowId,timeoutMs=45000,runner=spawnSync}={}){
+  const options={timeoutMs,runner},base={schemaVersion:1,supported:false,status:'unconfirmed'};
+  let temporary,owned=false;
+  try{
+    const identity=await officialCliIdentity(executable);base.identity=identity;
+    const doctor=callOfficialCli(executable,['doctor'],options).value;
+    base.bridgeVersion=doctor.bridgeVersion;
+    if(doctor.versionMatch!==true)return{...base,reason:'CLI_VERSION_UNCONFIRMED'};
+    if(!doctor.connected||doctor.resultChannel!==true)return{...base,reason:'CLI_RESULT_CHANNEL_UNAVAILABLE'};
+    const sessions=callOfficialCli(executable,['session','list'],options).value;
+    const alive=Array.isArray(sessions)?sessions.filter(s=>s.status==='alive'):[];
+    const chosen=windowId??(alive.length===1?alive[0].sessionId:null);
+    if(!chosen||!alive.some(s=>String(s.sessionId)===String(chosen)))return{...base,reason:'CLI_TARGET_SESSION_REQUIRED'};
+    const marker={token:randomUUID(),unicode:'汉字α'},prefix='const marker='+JSON.stringify(marker)+';\n/*',suffix='*/\nreturn marker;';
+    const code=prefix+'x'.repeat(512*1024-Buffer.byteLength(prefix+suffix,'utf8'))+suffix;
+    temporary=join(home,'cli','easyeda-pro','probes','code-file-'+marker.token+'.js');
+    await mkdir(dirname(temporary),{recursive:true,mode:0o700});
+    await writeFile(temporary,code,{encoding:'utf8',mode:0o600,flag:'wx'});owned=true;
+    const response=callOfficialCli(executable,['invoke','--session',String(chosen),'--ext-uuid','eda','--code-file',temporary,'--args','{}','--timeout',String(timeoutMs)],options).value;
+    if(response?.token!==marker.token||response?.unicode!==marker.unicode)return{...base,reason:'CLI_CODE_FILE_PROBE_MISMATCH'};
+    if(JSON.stringify(await officialCliIdentity(executable))!==JSON.stringify(identity))return{...base,reason:'CLI_IDENTITY_CHANGED'};
+    return{...base,supported:true,status:'confirmed',maxCodeBytes:Buffer.byteLength(code,'utf8'),confirmedAt:new Date().toISOString(),probe:{sessionId:String(chosen),codeSha256:digest(code),utf8Matched:true,sdkCalls:0}};
+  }catch(error){return{...base,reason:error.code??'CLI_CODE_FILE_PROBE_FAILED',message:String(error.message??error)};}
+  finally{if(owned)await unlink(temporary).catch(error=>{if(error.code!=='ENOENT')console.warn('CLI_PROBE_TEMP_CLEANUP_FAILED',temporary,error.code);});}
+}
+
+export async function confirmedFileBudget(executable,doctor,capability){
+  if(capability?.schemaVersion!==1||capability.supported!==true||doctor.versionMatch!==true||capability.bridgeVersion!==doctor.bridgeVersion||!Number.isSafeInteger(capability.maxCodeBytes)||capability.maxCodeBytes<=0)return null;
+  try{if(JSON.stringify(await officialCliIdentity(executable))!==JSON.stringify(capability.identity))return null;}catch{return null;}
+  return Math.floor(Math.min(capability.maxCodeBytes,1024*1024)*.99);
+}
+async function uploadFile(executable,sessionId,chunk,metadata,claimFile,budget,remaining){
+  const code=makeStageCode(chunk),temporary=claimFile.slice(0,-5)+'.upload-'+metadata.index+'.js';
+  if(Buffer.byteLength(code,'utf8')>budget)throw Object.assign(Error('Upload script exceeds confirmed UTF-8 budget.'),{code:'CLI_UPLOAD_FILE_TOO_LARGE'});
+  let owned=false;
+  try{
+    await writeFile(temporary,code,{encoding:'utf8',mode:0o600,flag:'wx'});owned=true;
+    const options=remaining();
+    return callOfficialCli(executable,['invoke','--session',sessionId,'--ext-uuid','eda','--code-file',temporary,'--args',JSON.stringify(metadata),'--timeout',String(options.timeoutMs)],options);
+  }finally{
+    if(owned)await unlink(temporary).catch(error=>{if(error.code!=='ENOENT')console.warn('CLI_UPLOAD_TEMP_CLEANUP_FAILED',temporary,error.code);});
+  }
+}
+
+export async function officialCliControl(args,{executable,home,selectedWindowId,timeoutMs=45000,runner=spawnSync,codeFileCapability}={}){
   const options={timeoutMs,runner};
   if(args.command==='request'){
     const file=await requestPath(home,args.sessionId,args.requestId),saved=await readReceipt(file);
@@ -92,7 +152,7 @@ export async function officialCliControl(args,{executable,home,selectedWindowId,
   if(!Array.isArray(sessions))throw Error('CLI_SESSIONS_INVALID');
   const alive=sessions.filter(s=>s.status==='alive'),windows=alive.map(s=>({...s,windowId:String(s.sessionId)}));
   const chosen=args.windowId??selectedWindowId??(windows.length===1?windows[0].windowId:null);
-  const status={status:doctor.connected?(doctor.resultChannel===false?'incompatible':'ready'):'stopped',channel:'cli',adapterId:'easyeda-pro',bridge:{service:'official-desktop-cli',endpoint:doctor.endpoint,version:doctor.bridgeVersion,resultChannel:doctor.resultChannel},eda:{id:'easyeda-pro',connected:Boolean(doctor.connected),windowCount:windows.length,activeWindowId:chosen,windows}};
+  const status={status:doctor.connected?(doctor.resultChannel===false?'incompatible':'ready'):'stopped',channel:'cli',adapterId:'easyeda-pro',bridge:{service:'official-desktop-cli',endpoint:doctor.endpoint,version:doctor.bridgeVersion,versionMatch:doctor.versionMatch,resultChannel:doctor.resultChannel},eda:{id:'easyeda-pro',connected:Boolean(doctor.connected),windowCount:windows.length,activeWindowId:chosen,windows}};
   if(['status','windows','ensure'].includes(args.command)){
     if(args.command==='ensure'&&args.requireEda&&doctor.resultChannel===false)throw Object.assign(Error('Official CLI result channel is unavailable.'),{code:'CLI_RESULT_CHANNEL_UNAVAILABLE'});
     if(args.requireEda&&(!doctor.connected||!windows.length))throw Object.assign(Error('Open the target project in the desktop client, then reuse its session.'),{code:'CLI_EDITOR_NOT_CONNECTED'});
@@ -107,19 +167,27 @@ export async function officialCliControl(args,{executable,home,selectedWindowId,
   if(previous)throw Object.assign(Error('This request already has a receipt. Query it before submitting another execution.'),{code:'CLI_REQUEST_ALREADY_SUBMITTED',request:previous,executionOutcome:previous.status==='succeeded'||previous.status==='failed'?'known':'unknown',submissionReceipt:file});
   const record={requestId,sessionId,windowId:sessionId,codeSha256:digest(code),status:'staging',submittedAt:new Date().toISOString()};
   try{await saveRecord(file,record,{exclusive:true});}catch(error){if(error.code==='EEXIST')throw Object.assign(Error('This request already has a receipt. Query it before submitting another execution.'),{code:'CLI_REQUEST_ALREADY_SUBMITTED',request:await readReceipt(file),executionOutcome:'unknown',submissionReceipt:file});throw error;}
-  const packed=gzipSync(Buffer.from(code,'utf8')).toString('base64'),chunks=packed.match(/.{1,6000}/g)??[''];
+  const packed=gzipSync(Buffer.from(code,'utf8')).toString('base64'),budget=await confirmedFileBudget(executable,doctor,codeFileCapability);
+  const width=budget===null?0:budget-Buffer.byteLength(makeStageCode(''),'utf8');
+  let fileDelivery=width>0,chunks=fileDelivery?(packed.match(new RegExp('.{1,'+width+'}','g'))??['']):(packed.match(/.{1,6000}/g)??['']);
+  if(fileDelivery&&chunks.some(chunk=>Buffer.byteLength(makeStageCode(chunk),'utf8')>budget)){fileDelivery=false;chunks=packed.match(/.{1,6000}/g)??[''];}
+  const transport={delivery:fileDelivery?'code-file':'argument-chunks',uploadCount:chunks.length,sourceBytes:Buffer.byteLength(code,'utf8'),compressedBase64Chars:packed.length,capability:fileDelivery?'confirmed':(codeFileCapability?.reason??'unconfirmed-or-stale')};
   const deadline=Date.now()+timeoutMs;
   const remaining=()=>{const left=deadline-Date.now();if(left<=0)throw Object.assign(Error('Official CLI staging/execution budget exhausted.'),{code:'CLI_TASK_BUDGET_EXHAUSTED'});return{...options,timeoutMs:left};};
   let dispatched=false;
   try{
-    for(let index=0;index<chunks.length;index++)invoke(executable,sessionId,stageCode,{requestId,hash:record.codeSha256,total:chunks.length,index,chunk:chunks[index]},remaining());
+    for(let index=0;index<chunks.length;index++){
+      const metadata={requestId,hash:record.codeSha256,total:chunks.length,index};
+      if(fileDelivery)await uploadFile(executable,sessionId,chunks[index],metadata,file,budget,remaining);
+      else invoke(executable,sessionId,stageCode,{...metadata,chunk:chunks[index]},remaining());
+    }
     remaining();record.status='submitted';await saveRecord(file,record);const executionOptions=remaining();dispatched=true;
     const response=invoke(executable,sessionId,executeCode,{requestId,hash:record.codeSha256,sessionId,submittedAt:record.submittedAt},executionOptions),current=response.value;
     if(!current||current.codeSha256!==record.codeSha256||current.sessionId!==sessionId||current.requestId!==requestId)throw Object.assign(Error('Official CLI execution identity mismatch.'),{code:'CLI_REQUEST_IDENTITY_MISMATCH',transportUnknown:true});
     const receipt=await saveRecord(file,current);
     if(current.status==='failed')throw Object.assign(Error(current.error.message),{code:current.error.code,request:current,executionOutcome:'known',submissionReceipt:receipt});
     if(current.status!=='succeeded')throw Object.assign(Error('Official CLI execution is still unresolved.'),{code:'CLI_EXECUTION_UNKNOWN',transportUnknown:true});
-    return{success:true,status:'executed',channel:'cli',sessionId,windowId:sessionId,result:current.result,request:current,submissionReceipt:receipt,claimReceipt:file,logs:response.logs??[]};
+    return{success:true,status:'executed',channel:'cli',sessionId,windowId:sessionId,result:current.result,request:current,submissionReceipt:receipt,claimReceipt:file,transport,logs:response.logs??[]};
   }catch(error){
     if(error.executionOutcome==='known')throw error;
     record.status=dispatched?'unknown':'not-dispatched';record.error={code:error.code??'CLI_CHANNEL_ERROR',message:error.message};const receipt=await saveRecord(file,record);

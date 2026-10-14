@@ -18,7 +18,8 @@ test('preflight uses public apply checks, returns concrete source differences an
   const ready=await publicCall(f,'preflight','check');assert.equal(ready.status,'preflight-passed');assert.equal(ready.nextAction,'apply');
   assert.deepEqual(ready.commands,{public:1,windowDiscovery:1,nativeRequests:1});
   f.f.attributes[1].X+=5;f.f.attributes[1].bbox.minX+=5;f.f.attributes[1].bbox.maxX+=5;
-  const drift=await publicCall(f,'preflight','drift');assert.equal(drift.status,'preflight-blocked');assert.equal(drift.native.error.code,'SOURCE_CHANGED_REPLAN');
+  const drift=await publicCall(f,'preflight','drift');assert.equal(drift.status,'preflight-passed');assert.equal(drift.nextAction,'apply');
+  assert.ok(drift.native.geometry.preservedChanges.some(l=>l.id===f.f.attributes[1].PrimitiveId));
   assert.equal(drift.sourceDifference.objects.items[0].ref,'U2');assert.ok(drift.sourceDifference.sourceRecords.added.length);
   assert.equal(JSON.stringify(f.solved.candidate),original);assert.equal(f.f.control.saves,0);assert.deepEqual(f.f.control.modifications,[]);
   assert.ok(drift.timing.edaSeconds>=0);assert.ok(drift.timing.preparationSeconds>=0);
@@ -135,4 +136,98 @@ test('changed project rules block preflight while retaining the historical save 
   const checked=await publicCall(f,'preflight','changed',['--receipt',first.execution.resumeSaveReport]);
   assert.equal(checked.error.code,'FINE_PROJECT_INPUTS_CHANGED');assert.equal(checked.state.saved,true);
   assert.equal(checked.state.verified,false);assert.equal(checked.commands.nativeRequests,0);assert.equal(f.f.control.saves,1);
+});
+
+const outsideLabel=f=>{const l=f.attributes[1];l.X=-20;l.bbox={minX:-24,maxX:-16,minY:109,maxY:111};};
+const retainOutside=r=>{r.baselinePolicy='retain-outside-issues';};
+test('local retained baseline passes the actual native preflight/apply/save/readback chain',async t=>{
+ const f=await fineFixture(t,{configureNative:outsideLabel,configureRequest:retainOutside});
+ assert.equal(f.solved.candidate.audit.nativeEligible,true);assert.equal(f.solved.candidate.audit.wholeBoardAccepted,false);
+ const pre=await publicCall(f,'preflight','local-check');assert.equal(pre.status,'preflight-passed',JSON.stringify(pre));assert.ok(pre.native.geometry.retainedOutsideIssues.length);assert.deepEqual(f.f.control.modifications,[]);
+ const applied=await publicCall(f,'apply','local-apply');assert.equal(applied.status,'verified',JSON.stringify(applied));assert.equal(applied.state.saved,true);assert.ok(applied.execution.verification.retainedOutsideIssues.length);assert.equal(applied.execution.verification.wholeBoardAccepted,false);
+ const saves=f.f.control.saves;const repeated=await publicCall(f,'apply','local-repeat');assert.equal(repeated.status,'verified');assert.equal(repeated.state.saved,true);assert.equal(f.f.control.saves,saves);assert.equal(f.f.calls.filter(p=>p==='apply').length,1);
+});
+test('retained outside edits are accepted before writing; post-save changes remain failed readback',async t=>{
+ const f=await fineFixture(t,{configureNative:outsideLabel,configureRequest:retainOutside});
+ f.f.attributes[1].bbox.minX-=1;const pre=await publicCall(f,'preflight','local-drift');assert.equal(pre.status,'preflight-passed');assert.ok(pre.native.geometry.preservedChanges.length);assert.deepEqual(f.f.control.modifications,[]);
+ const g=await fineFixture(t,{configureNative:outsideLabel,configureRequest:retainOutside});g.f.control.afterSave=()=>{g.f.attributes[1].bbox.minX-=1;};
+ const applied=await publicCall(g,'apply','local-worse');assert.equal(applied.state.saved,true);assert.equal(applied.status,'verify-after-save-failed');assert.equal(applied.state.verified,false);assert.ok(applied.execution.steps.at(-1).status!=='verified');
+});
+test('a retained baseline does not relax unknown transaction recovery',async t=>{
+ const f=await fineFixture(t,{configureNative:outsideLabel,configureRequest:retainOutside});f.f.control.beforePhase=({phase})=>{if(phase==='save')throw Object.assign(Error('timeout'),{code:'ETIMEDOUT'});};
+ const first=await publicCall(f,'apply','local-unknown');assert.equal(first.status,'outcome-unknown');const marker=await fs.readFile(first.execution.saveAttemptFile,'utf8'),calls=f.f.calls.length;
+ await assert.rejects(publicCall(f,'apply','local-unknown-repeat'),/FINE_TARGET_OUTCOME_UNKNOWN/);assert.equal(f.f.calls.length,calls);assert.equal(await fs.readFile(first.execution.saveAttemptFile,'utf8'),marker);
+});
+
+test('a moving body colliding with an unchanged outside label fails before native dispatch',async t=>{
+ const f=await fineFixture(t,{expectedStatus:'candidate-rejected',configureRequest:retainOutside,configureNative:f=>{const l=f.attributes[1];l.X=170;l.Y=100;l.bbox={minX:166,maxX:174,minY:99,maxY:101};}});
+ assert.equal(f.solved.candidate.audit.localAccepted,false);assert.ok(f.solved.candidate.audit.blockingIssues.some(i=>i.code==='FINE_LABEL_BODY_GAP'&&i.ref==='U1'));
+ const calls=f.f.calls.length;await assert.rejects(preflightFineLayout({...f.input,options:f.f.options()}),/FINE_COMPLETE_CANDIDATE_REQUIRED/);assert.equal(f.f.calls.length,calls);assert.deepEqual(f.f.control.modifications,[]);
+});
+
+test('an unrelated outside designator edit applies only the original differences and survives saving',async t=>{
+ const f=await fineFixture(t),candidate=JSON.stringify(f.solved.candidate),oldHash=f.inputs.snapshot.sourceHash;
+ f.f.attributes[1].X+=5;f.f.attributes[1].bbox.minX+=5;f.f.attributes[1].bbox.maxX+=5;f.f.attributes[1].DisplayOrder=7;
+ const expected={x:f.f.attributes[1].X,bbox:{...f.f.attributes[1].bbox},order:7};
+ const checked=await publicCall(f,'preflight','outside-pre');assert.equal(checked.status,'preflight-passed');assert.equal(checked.commands.nativeRequests,1);
+ const applied=await publicCall(f,'apply','outside-apply');assert.equal(applied.status,'verified',JSON.stringify(applied.execution.error));assert.equal(applied.state.saved,true);
+ assert.equal(JSON.stringify(f.solved.candidate),candidate);assert.equal(f.solved.candidate.plan.sourceHash,oldHash);
+ assert.equal(f.f.attributes[1].X,expected.x);assert.deepEqual(f.f.attributes[1].bbox,expected.bbox);assert.equal(f.f.attributes[1].DisplayOrder,expected.order);
+ assert.ok(applied.preservedChanges.some(c=>c.id===f.f.attributes[1].PrimitiveId&&c.fields.includes('DisplayOrder')));
+ assert.deepEqual(f.f.control.modifications,[f.f.components[0].PrimitiveId,f.f.attributes[0].PrimitiveId]);
+ const receipt=JSON.parse(await fs.readFile(applied.execution.resumeSaveReport));
+ assert.equal(receipt.snapshot.sourceHash,oldHash);assert.notEqual(receipt.writeBaseline.sourceHash,oldHash);assert.equal(receipt.writeBaseline.items[1].original.x,expected.x);
+ const count=f.f.calls.length,readback=await publicCall(f,'apply','outside-repeat');assert.equal(readback.status,'verified');assert.deepEqual(f.f.calls.slice(count),['verify']);assert.equal(f.f.control.saves,1);
+});
+
+for(const change of ['pose','footprint','pad-shape','pad-net','pad-lock','label-pose','label-format','label-metadata','native-rule'])test('affected '+change+' rejects the candidate before any write',async t=>{
+ const f=await fineFixture(t);
+ if(change==='pose')f.f.components[0].X+=1;
+ if(change==='footprint')f.f.components[0].Footprint.name='DIFFERENT';
+ if(change==='pad-shape')f.f.pads[0].Pad=['RECT',6,4];
+ if(change==='pad-net')f.f.pads[2].Net='changed-related-net';
+ if(change==='pad-lock')f.f.pads[0].PrimitiveLock=true;
+ if(change==='label-pose')f.f.attributes[0].X+=1;
+ if(change==='label-format')f.f.attributes[0].FontSize+=1;
+ if(change==='label-metadata')f.f.attributes[0].DisplayOrder=2;
+ if(change==='native-rule')f.f.control.sourceRecords=[JSON.stringify({type:'RULE',id:'clearance'})+'||'+JSON.stringify({clearanceMil:20})+'|'];
+ const pre=await publicCall(f,'preflight','conflict-pre');assert.equal(pre.status,'preflight-blocked',change);
+ const applied=await publicCall(f,'apply','conflict-apply');assert.equal(applied.status,'preflight-failed',change);assert.equal(applied.execution.applyState,'not-started');assert.equal(f.f.control.saves,0);assert.deepEqual(f.f.control.modifications,[]);
+});
+
+test('a changed outside label entering the required target gap rejects with zero writes',async t=>{
+ const f=await fineFixture(t),l=f.f.attributes[1];l.X=170;l.Y=100;l.bbox={minX:166,maxX:174,minY:99,maxY:101};
+ const pre=await publicCall(f,'preflight','collision-pre');assert.equal(pre.status,'preflight-blocked');assert.match(pre.native.error.message,/FINE_LABEL_BODY_GAP/);
+ const applied=await publicCall(f,'apply','collision-apply');assert.equal(applied.status,'preflight-failed');assert.equal(f.f.control.saves,0);assert.deepEqual(f.f.control.modifications,[]);
+});
+
+test('current external geometry is checked by the existing spatial rules before native apply',async t=>{
+ const f=await fineFixture(t,{configureRequest:r=>{delete r.fixedRefs;}}),c=f.f.components[1],pad=f.f.pads[1],l=f.f.attributes[1];
+ const dx=-275;for(const a of [c,pad,l]){a.X+=dx;a.bbox.minX+=dx;a.bbox.maxX+=dx;}
+ const pre=await publicCall(f,'preflight','body-gap-pre');assert.equal(pre.status,'preflight-blocked');assert.match(pre.native.error.message,/BUNDLE_CLEARANCE/);
+ assert.deepEqual(f.f.control.modifications,[]);assert.equal(f.f.control.saves,0);
+});
+
+test('an otherwise harmless edit between preflight and apply stops before the first mutation',async t=>{
+ const f=await fineFixture(t);f.f.control.beforePhase=({phase})=>{if(phase==='apply')f.f.attributes[1].DisplayOrder=8;};
+ const result=await publicCall(f,'apply','preflight-race');assert.equal(result.status,'apply-failed');assert.match(result.execution.error.message,/SOURCE_CHANGED_AFTER_PREFLIGHT/);
+ assert.deepEqual(f.f.control.modifications,[]);assert.equal(f.f.control.saves,0);
+});
+
+test('live acceptance keeps the original candidate relation comparison distances',async t=>{
+ const f=await fineFixture(t,{configureRequest:r=>{r.relations=[{id:'reach-testpoint',from:{ref:'U1',pin:'1'},to:{padId:'testpad'},basis:'synthetic original distance comparison',weight:1,nonRegression:{toleranceMil:0}}];}});
+ f.f.attributes[1].X+=5;f.f.attributes[1].bbox.minX+=5;f.f.attributes[1].bbox.maxX+=5;
+ const pre=await publicCall(f,'preflight','relation-baseline');assert.equal(pre.status,'preflight-passed');
+ assert.equal(pre.native.audit.relations[0].beforeMil,f.solved.candidate.audit.relations[0].beforeMil);assert.equal(pre.native.audit.relations[0].beforeMil,500);
+ assert.equal(pre.native.audit.relations[0].afterMil,480);assert.equal(pre.native.audit.relations[0].passed,true);assert.deepEqual(f.f.control.modifications,[]);
+});
+
+test('public fine applies a harmless new silk through all four stages and rejects an obstructing one on the same model',async t=>{
+ for(const obstructing of [false,true]){
+  const f=await fineFixture(t),x=obstructing?170:800,y=obstructing?100:200;
+  f.f.strings.push(f.f.primitive({PrimitiveId:'manual-silk',Layer:3,Text:'external note',X:x,Y:y,bbox:{minX:x-5,maxX:x+5,minY:y-1,maxY:y+1}}));
+  const calls=f.f.calls.length,result=await publicCall(f,'apply',obstructing?'silk-blocked':'silk-saved');
+  if(obstructing){assert.equal(result.status,'preflight-failed');assert.match(result.execution.error.message,/LAYOUT_OBSTACLE_GAP/);assert.deepEqual(f.f.calls.slice(calls),['preflight']);assert.deepEqual(f.f.control.modifications,[]);assert.equal(f.f.control.saves,0);}
+  else{assert.equal(result.status,'verified',result.execution.error?.message);assert.equal(result.state.saved,true);assert.deepEqual(f.f.calls.slice(calls),['preflight','apply','verify','save','verify']);assert.equal(f.f.strings[0].Text,'external note');assert.equal(f.f.strings[0].X,x);assert.ok(result.preservedChanges.some(c=>c.id==='manual-silk'&&c.change==='added'));assert.ok(result.execution.verification.writeBaseline.obstacles.some(c=>c.id==='manual-silk'));assert.equal(f.f.control.modifications.includes('manual-silk'),false);assert.equal(f.f.control.saves,1);}
+ }
 });

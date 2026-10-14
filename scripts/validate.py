@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 import subprocess
@@ -58,7 +57,7 @@ def markdown_link_failures(files: list[Path]) -> list[str]:
 
 def reachable_reference_files(entrypoint: Path, root: Path = ROOT) -> set[Path]:
     """Return source references reachable through local Markdown links."""
-    references_root = (root / "references").resolve()
+    reference_roots = [(root / name).resolve() for name in ("docs", "schemas")]
     pattern = re.compile(r"\]\(([^)]+)\)")
     reachable: set[Path] = set()
     visited: set[Path] = set()
@@ -76,9 +75,7 @@ def reachable_reference_files(entrypoint: Path, root: Path = ROOT) -> set[Path]:
                 continue
             target = unquote(target.split("#", 1)[0])
             resolved = (path.parent / target).resolve()
-            try:
-                resolved.relative_to(references_root)
-            except ValueError:
+            if not any(resolved.is_relative_to(reference_root) for reference_root in reference_roots):
                 continue
             if resolved.is_file() and resolved.suffix.lower() == ".md" and resolved not in reachable:
                 reachable.add(resolved)
@@ -87,42 +84,16 @@ def reachable_reference_files(entrypoint: Path, root: Path = ROOT) -> set[Path]:
     return reachable
 
 
-def compatibility_reference_target(source: Path, references_root: Path) -> Path | None:
-    """Recognize a three-line Provider redirect to the same canonical basename."""
-    source = source.resolve()
-    references_root = references_root.resolve()
-    try:
-        relative = source.relative_to(references_root)
-    except ValueError:
-        return None
-    if len(relative.parts) < 2 or relative.parts[0] != "providers":
-        return None
-    lines = source.read_text(encoding="utf-8").splitlines()
-    if len(lines) != 3 or not re.fullmatch(r"# .+已迁移", lines[0]) or lines[1] != "":
-        return None
-    match = re.fullmatch(
-        r"请阅读并维护 \[通用说明\]\(([^)\s]+)\)。本路径仅保留兼容跳转。", lines[2]
-    )
-    if not match:
-        return None
-    target = (source.parent / unquote(match.group(1))).resolve()
-    expected = (references_root / source.name).resolve()
-    if target != expected or target.parent != references_root or not target.is_file():
-        return None
-    return target
-
-
 def reference_routing_failures(root: Path = ROOT) -> list[str]:
-    """Every source is reachable, or strictly redirects to a reachable canonical page."""
-    references_root = (root / "references").resolve()
+    """Every current source must be reachable through the canonical documentation tree."""
+    references_root = (root / "docs").resolve()
     reachable = reachable_reference_files(root / "SKILL.md", root)
     failures = []
-    for source in sorted(references_root.rglob("*.md")):
+    for source in sorted([*references_root.rglob("*.md"), *(root / "schemas").glob("*.md")]):
         if source.resolve() in reachable:
             continue
-        target = compatibility_reference_target(source, references_root)
-        if target is None or target not in reachable:
-            failures.append(source.relative_to(references_root).as_posix())
+        failures.append(source.relative_to(references_root).as_posix()
+                        if source.is_relative_to(references_root) else source.relative_to(root).as_posix())
     return failures
 
 
@@ -143,8 +114,9 @@ def parse_frontmatter(path: Path) -> dict[str, str]:
 def runtime_document_files(root: Path = ROOT) -> list[Path]:
     return [
         root / "SKILL.md",
-        *sorted((root / "references").rglob("*.md")),
-        *sorted((root / "development").rglob("*.md")),
+        *sorted((root / "docs").rglob("*.md")),
+        *sorted((root / "schemas").glob("*.md")),
+        root / "first-run.md",
     ]
 
 
@@ -168,53 +140,6 @@ def runtime_document_failures(root: Path = ROOT) -> list[str]:
                 failures.append(f"runtime link enters inactive copy: {path.relative_to(root)} -> {target}")
     return failures
 
-
-def english_backup_failures(root: Path = ROOT) -> list[str]:
-    """Validate a fixed historical snapshot, not translation parity with live Chinese."""
-    backup_root = (root / "docs/en-backup").resolve()
-    failures: list[str] = []
-    try:
-        manifest = json.loads((backup_root / "manifest.json").read_text(encoding="utf-8"))
-        if not isinstance(manifest, dict) or (
-            manifest.get("schemaVersion") != 1
-            or manifest.get("runtimeLanguage") != "zh-CN"
-            or manifest.get("snapshotLanguage") != "en"
-            or manifest.get("mode") != "historical-reference-only"
-            or not isinstance(manifest.get("files"), list)
-            or not manifest["files"]
-        ):
-            return ["invalid English snapshot manifest"]
-        listed: set[str] = set()
-        sources: set[str] = set()
-        for entry in manifest["files"]:
-            if not isinstance(entry, dict):
-                failures.append("invalid snapshot entry")
-                continue
-            source, name, expected = entry.get("source"), entry.get("backup"), entry.get("sha256")
-            if (
-                not isinstance(source, str) or not source
-                or not isinstance(name, str) or not name.endswith(".bak")
-                or not isinstance(expected, str) or not re.fullmatch(r"[0-9A-F]{64}", expected)
-            ):
-                failures.append("invalid snapshot path or digest")
-                continue
-            if any("\\" in value or ":" in value or Path(value).is_absolute() or ".." in Path(value).parts for value in (source, name)):
-                failures.append(f"unsafe snapshot path: {name}")
-                continue
-            path = (backup_root / name).resolve()
-            if not path.is_relative_to(backup_root) or name in listed or source in sources:
-                failures.append(f"unsafe or duplicate snapshot entry: {name}")
-                continue
-            listed.add(name)
-            sources.add(source)
-            if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest().upper() != expected:
-                failures.append(f"missing or changed English backup: {name}")
-        actual = {path.relative_to(backup_root).as_posix() for path in backup_root.rglob("*.bak") if path.is_file()}
-        if actual != listed:
-            failures.append("English backup inventory differs from manifest")
-    except (OSError, ValueError) as error:
-        failures.append(f"English backup unreadable: {error}")
-    return failures
 
 
 def action_registry_failures(root: Path = ROOT) -> list[str]:
@@ -332,18 +257,12 @@ def main() -> int:
         not runtime_failures,
         "canonical documents do not route into mirrors or backups" if not runtime_failures else "; ".join(runtime_failures),
     )
-    backup_failures = english_backup_failures()
-    checks.check(
-        "English historical backup",
-        not backup_failures,
-        "snapshot hashes match; Chinese edits do not require English synchronization" if not backup_failures else "; ".join(backup_failures),
-    )
 
     undiscoverable = reference_routing_failures()
     checks.check(
         "reference routing",
         not undiscoverable,
-        "all references reachable from SKILL.md or strict redirects to reachable canonical pages" if not undiscoverable else ", ".join(undiscoverable),
+        "all current references reachable from SKILL.md" if not undiscoverable else ", ".join(undiscoverable),
     )
 
     version = (ROOT / "VERSION").read_text(encoding="utf-8").strip() if (ROOT / "VERSION").is_file() else ""
