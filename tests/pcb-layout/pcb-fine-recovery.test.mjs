@@ -148,6 +148,17 @@ test('readback uses equivalent signed angles while a real pose or net difference
   actual.placements[0].rotation = 270; actual.pads[0].net = 'changed'; assert.throws(() => verifyFineReadback(model, plan, actual), /FINE_READBACK_PAD/);
 });
 
+test('fine readback uses circular tolerance at zero and still rejects real or invalid angles',async t=>{
+  const f=await fineFixture(t),model=f.solved.prepared.model,plan=structuredClone(f.solved.candidate.plan);
+  const geometry=buildGeometryViews(model.geometryModel,plan.components,plan.labels,plan.testPads);
+  const actual={placements:plan.components.map(c=>({...c,rotation:359.999999})),labels:plan.labels.map(l=>({...l,rotation:359.999999})),pads:model.snapshot.pads.map(p=>({...p,bbox:geometry.pads.find(g=>g.id===p.id).bbox})),outlines:model.snapshot.outlines,routing:model.snapshot.routing};
+  assert.ok(plan.components.every(c=>c.rotation===0)&&plan.labels.every(l=>l.rotation===0));
+  assert.equal(verifyFineReadback(model,plan,actual).verified,true);
+  for(const value of [.03,null,NaN]){actual.placements[0].rotation=value;assert.throws(()=>verifyFineReadback(model,plan,actual),/FINE_READBACK_COMPONENT/);}
+  actual.placements[0].rotation=0;actual.labels[0].rotation=.03;
+  assert.throws(()=>verifyFineReadback(model,plan,actual),/FINE_READBACK_LABEL/);
+});
+
 test('public stages reuse application.json and verify without apply/save; legacy shim keeps the same help', async t => {
   const fixture = await fineFixture(t, { requiredRouting: true }), { f } = fixture, common = { log: () => {}, executionOptions: { transport: f.transport } };
   const previousHome = process.env.FLITREALIZE_HOME;

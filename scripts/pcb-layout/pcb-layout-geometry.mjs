@@ -1,5 +1,11 @@
 import { layoutLabelAlignment } from './pcb-layout-provider.mjs';
 export const angle = value => ((value % 360) + 360) % 360;
+// Degrees, with caller-specific tolerance. Self-contained for native scripts.
+export function sameAngle(a, b, tolerance = 1e-7) {
+  if (![a, b, tolerance].every(Number.isFinite) || tolerance < 0) return false;
+  const delta = Math.abs(a % 360 - b % 360) % 360;
+  return Math.min(delta, 360 - delta) <= tolerance;
+}
 export function rotateOffset(x, y, degrees) {
   const q = angle(degrees) / 90;
   if (!Number.isInteger(q)) throw Error('Only relative quarter-turn rotations are supported');

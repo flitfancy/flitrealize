@@ -212,6 +212,56 @@ test('an otherwise harmless edit between preflight and apply stops before the fi
  const f=await fineFixture(t);f.f.control.beforePhase=({phase})=>{if(phase==='apply')f.f.attributes[1].DisplayOrder=8;};
  const result=await publicCall(f,'apply','preflight-race');assert.equal(result.status,'apply-failed');assert.match(result.execution.error.message,/SOURCE_CHANGED_AFTER_PREFLIGHT/);
  assert.deepEqual(f.f.control.modifications,[]);assert.equal(f.f.control.saves,0);
+ const history=await fs.readFile(result.execution.reportFile,'utf8');
+ f.f.control.beforePhase=null;
+ const retried=await publicCall(f,'apply','reconciled-race');
+ assert.equal(retried.status,'verified');assert.equal(retried.state.saved,true);
+ assert.equal(f.f.calls.filter(p=>p==='apply').length,2,'one rejected attempt and one guarded application');
+ assert.equal(f.f.control.saves,1);
+ assert.equal(await fs.readFile(result.execution.reportFile,'utf8'),history,'zero-write failure history stays immutable');
+});
+
+test('zero-write retry requires an intact settled native rejection, never a summary alone',async t=>{
+ for(const mode of ['unknown','attempted','transport-failed','wrong-error','missing-report','request-pending','request-result-mismatch','binding-mismatch','request-missing','binding-missing','not-mutating']){
+  const f=await fineFixture(t);f.f.control.beforePhase=({phase})=>{if(phase==='apply')f.f.attributes[1].DisplayOrder=8;};
+  const first=await publicCall(f,'apply','first');assert.equal(first.execution.applyState,'blocked');
+  f.f.control.beforePhase=null;
+  const file=path.join(path.dirname(first.execution.reportFile),'layout-apply-result.json');
+  const report=JSON.parse(await fs.readFile(file,'utf8'));
+  if(mode==='unknown')report.outcome='unknown';
+  if(mode==='attempted')report.response.result.attempted=['some-object'];
+  if(mode==='transport-failed')report.response.success=false;
+  if(mode==='wrong-error')report.response.result.error.code='COMPONENT_MOVE_FAILED';
+  if(mode==='not-mutating')report.mutates=false;
+  if(mode.startsWith('request-')||mode==='binding-mismatch'){
+   report.response.request={requestId:'request',windowId:'window',codeSha256:'code',status:'succeeded',result:structuredClone(report.response.result)};
+   if(mode==='request-pending')report.response.request.status='running';
+   if(mode==='request-result-mismatch')report.response.request.result.attempted=['different-result'];
+   if(mode==='binding-mismatch')report.response.executionBinding={requestId:'request',windowId:'window',codeSha256:'different-code',target:report.target};
+  }
+  if(mode==='request-missing'||mode==='binding-missing'){
+   report.response.channel='cli';
+   report.response.request={requestId:'request',windowId:'window',codeSha256:'code',status:'succeeded',result:structuredClone(report.response.result)};
+   report.response.executionBinding={requestId:'request',windowId:'window',codeSha256:'code',target:report.target};
+   delete report.response[mode==='request-missing'?'request':'executionBinding'];
+  }
+  if(mode==='missing-report')await fs.unlink(file);else await fs.writeFile(file,JSON.stringify(report));
+  const calls=f.f.calls.length;
+  await assert.rejects(publicCall(f,'apply','retry'),/FINE_APPLICATION_REQUIRES_RECONCILIATION/);
+  assert.equal(f.f.calls.length,calls,mode);assert.deepEqual(f.f.control.modifications,[]);assert.equal(f.f.control.saves,0);
+ }
+});
+
+test('all core unsettled mutation labels block discovery without another native request',async t=>{
+ for(const field of ['applyState','saveState','step'])for(const status of ['outcome-unknown','apply-running']){
+  const f=await fineFixture(t);f.f.control.beforePhase=({phase})=>{if(phase==='apply')f.f.attributes[1].DisplayOrder=8;};
+  const first=await publicCall(f,'apply','first');f.f.control.beforePhase=null;
+  const file=first.execution.reportFile,workflow=JSON.parse(await fs.readFile(file,'utf8'));
+  if(field==='step')workflow.steps.find(s=>s.mutates).status=status;else workflow[field]=status;
+  await fs.writeFile(file,JSON.stringify(workflow));const calls=f.f.calls.length;
+  await assert.rejects(publicCall(f,'apply','retry'),/FINE_TARGET_OUTCOME_UNKNOWN/);
+  assert.equal(f.f.calls.length,calls);assert.deepEqual(f.f.control.modifications,[]);assert.equal(f.f.control.saves,0);
+ }
 });
 
 test('live acceptance keeps the original candidate relation comparison distances',async t=>{

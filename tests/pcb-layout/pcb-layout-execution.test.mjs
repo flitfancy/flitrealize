@@ -7,6 +7,164 @@ import { fixture } from '../helpers/pcb-layout-execution-fixture.mjs';
 import { compileAssemblyPolicy } from '../../scripts/pcb-layout/pcb-layout-assembly-policy.mjs';
 
 async function ready(t) { const f = await fixture(t); f.snapshot = await inspectLayout(f.options()); f.proposed = f.plan(f.snapshot); return f; }
+
+function rewriteSource(f,id,edit) {
+  const readSource=f.eda.sys_FileManager.getDocumentSource;
+  f.eda.sys_FileManager.getDocumentSource=async()=>String(await readSource()).split('\n').map(line=>{
+    const at=line.indexOf('||'),header=JSON.parse(line.slice(0,at));if(header.id!==id)return line;
+    const value=JSON.parse(line.slice(at+2,-1));edit(value);
+    return line.slice(0,at+2)+JSON.stringify(value)+'|';
+  }).join('\n');
+}
+
+for(const field of ['Rotation','HoleRotation'])for(const mode of ['equivalent','seam','wrong-angle','outside-tolerance','missing','null','string','nonfinite','error'])test('preflight pad '+field+' dependency angle: '+mode,async t=>{
+  for(const index of [0,2]){
+    const f=await fixture(t),pad=f.pads[index],base=mode==='equivalent'?270:0;pad[field]=base;
+    const snapshot=await inspectLayout(f.options()),plan=f.plan(snapshot);
+    if(mode==='missing')delete pad[field];
+    else if(mode==='error')pad['getState_'+field]=()=>{throw Error('angle getter failed');};
+    else pad[field]=mode==='equivalent'?-90:mode==='seam'?360-1e-8:mode==='wrong-angle'?45:mode==='outside-tolerance'?360-1e-6:mode==='null'?null:mode==='string'?'0':NaN;
+    const pre=await preflightLayout({...f.options(),snapshot,plan}),accepted=['equivalent','seam'].includes(mode);
+    assert.equal(pre.status,accepted?'preflight-passed':'preflight-blocked',pre.error?.message);
+    assert.deepEqual(f.control.modifications,[]);assert.equal(f.control.saves,0);
+    const result=await applyLayout({...f.options(),snapshot,plan});
+    if(accepted){assert.equal(result.status,'verified',result.error?.message);assert.equal(f.control.saves,1);}
+    else{assert.equal(result.applyState,'blocked');assert.match(result.error.message,/PAD_BASELINE_CHANGED/);assert.deepEqual(f.control.modifications,[]);assert.equal(f.control.saves,0);}
+  }
+});
+
+for(const kind of ['component','label','string','pad'])for(const mode of ['equivalent','seam','wrong-angle','outside-tolerance','missing','null','string'])test('preflight '+kind+' source dependency angle: '+mode,async t=>{
+  const f=await fixture(t),base=mode==='equivalent'?270:0,options=f.options();
+  if(kind==='string'){
+    f.strings.push(f.primitive({PrimitiveId:'functional-label',Text:'STATE',Layer:3,PrimitiveLock:false,X:0,Y:30,Rotation:base,AlignMode:'CENTER',FontSize:4,LineWidth:1,bbox:base===270?{minX:-1,maxX:1,minY:26,maxY:34}:{minX:-4,maxX:4,minY:29,maxY:31}}));
+    options.config.includeFunctionalLabels=true;options.config.functionalOwners={STATE:'U1'};
+  }
+  const object=kind==='component'?f.components[1]:kind==='label'?f.attributes[0]:kind==='string'?f.strings[0]:f.pads[2];
+  object.Rotation=base;if(kind==='label'&&base===270)object.bbox={minX:-1,maxX:1,minY:6,maxY:14};
+  options.config.lockedDesignators=['U2'];
+  let current=base;rewriteSource(f,object.PrimitiveId,value=>{if(current===undefined)delete value.angle;else value.angle=current;});
+  const snapshot=await inspectLayout(options),plan=f.plan(snapshot);
+  current=mode==='equivalent'?-90:mode==='seam'?360-1e-8:mode==='wrong-angle'?45:mode==='outside-tolerance'?360-1e-6:mode==='missing'?undefined:mode==='null'?null:'0';
+  const pre=await preflightLayout({...options,snapshot,plan}),accepted=['equivalent','seam'].includes(mode);
+  assert.equal(pre.status,accepted?'preflight-passed':'preflight-blocked',pre.error?.message);
+  assert.deepEqual(f.control.modifications,[]);assert.equal(f.control.saves,0);
+  const result=await applyLayout({...options,snapshot,plan});
+  if(accepted){assert.equal(result.status,'verified',result.error?.message);assert.equal(f.control.saves,1);assert.ok(result.preservedChanges.some(c=>c.id===object.PrimitiveId&&c.fields.includes('angle')));}
+  else{assert.equal(result.applyState,'blocked');assert.match(result.error.message,/SOURCE_WRITE_DEPENDENCY_CHANGED/);assert.deepEqual(f.control.modifications,[]);assert.equal(f.control.saves,0);}
+});
+
+test('preflight angle aliases keep every non-angle dependency and unobserved record strict',async t=>{
+  for(const change of ['position','bbox','net','lock','pad-shape','hole-offset','metadata','nested-angle','rule','hidden-attribute']){
+    const f=await fixture(t),pad=f.pads[0];pad.Rotation=270;pad.Pad=['POLYGON',{angle:270,points:[[1,2],[3,4]]}];
+    const record=(type,id,value)=>JSON.stringify({type,id})+'||'+JSON.stringify(value)+'|';
+    if(change==='rule'||change==='hidden-attribute')f.control.sourceRecords=[record(change==='rule'?'RULE':'ATTR','unobserved',{parentId:f.components[0].PrimitiveId,angle:270})];
+    const snapshot=await inspectLayout(f.options()),plan=f.plan(snapshot);pad.Rotation=-90;
+    if(change==='position')pad.X+=1;
+    if(change==='bbox')pad.bbox.maxX+=1;
+    if(change==='net')pad.Net='changed-net';
+    if(change==='lock')pad.PrimitiveLock=true;
+    if(change==='pad-shape')pad.Pad=['RECT',5,4];
+    if(change==='hole-offset')pad.HoleOffsetX=1;
+    if(change==='metadata')pad.DisplayOrder=9;
+    if(change==='nested-angle')pad.Pad[1].angle=-90;
+    if(change==='rule'||change==='hidden-attribute')f.control.sourceRecords=[record(change==='rule'?'RULE':'ATTR','unobserved',{parentId:f.components[0].PrimitiveId,angle:-90})];
+    const pre=await preflightLayout({...f.options(),snapshot,plan});assert.equal(pre.status,'preflight-blocked',change);
+    const result=await applyLayout({...f.options(),snapshot,plan});assert.equal(result.applyState,'blocked',change);
+    assert.deepEqual(f.control.modifications,[]);assert.equal(f.control.saves,0);
+  }
+});
+
+test('an equivalent angle edit after preflight still fails the exact source fingerprint guard',async t=>{
+  const f=await ready(t);f.control.beforePhase=({phase})=>{if(phase==='apply')f.pads[2].Rotation=360;};
+  const result=await applyLayout({...f.options(),snapshot:f.snapshot,plan:f.proposed,validatePreflight:()=>{}});
+  assert.equal(result.applyState,'blocked');assert.match(result.error.message,/SOURCE_CHANGED_AFTER_PREFLIGHT/);
+  assert.deepEqual(f.control.modifications,[]);assert.equal(f.control.saves,0);
+});
+
+for(const mode of ['expected','wrong-angle','changed-content'])test('native angle and hidden owned attributes: '+mode,async t=>{
+  const f=await fixture(t),component=f.components[0];component.angle=component.Rotation;
+  const hidden={parentId:component.PrimitiveId,key:'Footprint',value:'unchanged',x:null,y:null,angle:0};
+  const record=value=>JSON.stringify({type:'ATTR',id:'hidden-owned-attr'})+'||'+JSON.stringify(value)+'|';
+  f.control.sourceRecords=[record(hidden)];
+  const snapshot=await inspectLayout(f.options()),plan=f.plan(snapshot,{rotation:90});
+  f.control.afterComponentModify=()=>{
+    component.angle=component.Rotation;
+    f.control.sourceRecords=[record({...hidden,angle:mode==='wrong-angle'?45:90,value:mode==='changed-content'?'unexpected':hidden.value})];
+  };
+  const result=await applyLayout({...f.options(),snapshot,plan});
+  if(mode==='expected'){assert.equal(result.status,'verified',result.error?.message);assert.equal(result.saved,true);}
+  else{assert.equal(result.status,'apply-failed');assert.equal(f.control.saves,0);const report=JSON.parse(await readFile(join(result.reportDir,'layout-apply-result.json')));assert.ok(report.response.result.after.issues.some(x=>x.code==='SOURCE_READBACK_CHANGED'&&x.id==='hidden-owned-attr'));}
+});
+
+for(const kind of ['component','label'])for(const mode of ['equivalent','seam','outside-tolerance','wrong-angle','missing','null','string'])test('written '+kind+' native source angle: '+mode,async t=>{
+  const f=await fixture(t),actual=kind==='component'?f.components[0]:f.attributes[0];
+  const targetRotation=mode==='seam'||mode==='outside-tolerance'?0:270;
+  if(kind==='label'&&targetRotation===270){
+    actual.Rotation=270;
+    actual.bbox={minX:actual.X-1,maxX:actual.X+1,minY:actual.Y-4,maxY:actual.Y+4};
+  }
+  const snapshot=await inspectLayout(f.options()),plan=f.plan(snapshot,{rotation:targetRotation});
+  const planned=(kind==='component'?plan.components:plan.labels).find(p=>p.id===actual.PrimitiveId);
+  const readSource=f.eda.sys_FileManager.getDocumentSource;
+  f.eda.sys_FileManager.getDocumentSource=async()=>{
+    const source=await readSource();
+    if(!f.control.modifications.includes(actual.PrimitiveId))return source;
+    return source.split('\n').map(line=>{
+      const at=line.indexOf('||'),header=JSON.parse(line.slice(0,at));
+      if(header.id!==actual.PrimitiveId)return line;
+      const value=JSON.parse(line.slice(at+2,-1));
+      if(mode==='missing')delete value.angle;
+      else value.angle=mode==='equivalent'?-90:mode==='seam'?360-1e-8:mode==='outside-tolerance'?360-1e-6:mode==='wrong-angle'?45:mode==='null'?null:'270';
+      return line.slice(0,at+2)+JSON.stringify(value)+'|';
+    }).join('\n');
+  };
+  const result=await applyLayout({...f.options(),snapshot,plan});
+  assert.equal(actual.Rotation,planned.rotation,'SDK pose still agrees with the plan');
+  if(mode==='equivalent'||mode==='seam'){
+    assert.equal(planned.rotation,targetRotation);assert.equal(result.status,'verified',result.error?.message);
+    assert.equal(result.saved,true);assert.equal(f.control.saves,1);
+  }else{
+    assert.equal(result.applyState,'apply-verification-failed');assert.equal(result.saved,false);assert.equal(f.control.saves,0);
+    const report=JSON.parse(await readFile(join(result.reportDir,'layout-apply-result.json'),'utf8'));
+    assert.ok(report.response.result.after.issues.some(i=>i.code==='SOURCE_READBACK_CHANGED'&&i.id===actual.PrimitiveId));
+  }
+});
+
+for(const kind of ['component','label'])test('required native '+kind+' SDK angles do not default invalid values to zero',async t=>{
+  for(const value of [undefined,null,NaN,'0']){
+    const f=await fixture(t),object=kind==='component'?f.components[0]:f.attributes[0];object.Rotation=value;
+    await assert.rejects(inspectLayout(f.options()),/NATIVE_(COMPONENT|LABEL)_ROTATION_INVALID/);
+    assert.equal(f.control.saves,0);assert.deepEqual(f.control.modifications,[]);
+  }
+});
+
+for(const kind of ['component','label'])test('native '+kind+' SDK readback accepts circular seam tolerance',async t=>{
+  const f=await fixture(t),api=kind==='component'?f.eda.pcb_PrimitiveComponent:f.eda.pcb_PrimitiveAttribute,original=api.getAll;
+  api.getAll=async()=>{const rows=await original();return !f.control.modifications.length?rows:rows.map((o,i)=>i?o:new Proxy(o,{get(target,key){return key==='getState_Rotation'?()=>360-1e-8:target[key];}}));};
+  const snapshot=await inspectLayout(f.options()),result=await applyLayout({...f.options(),snapshot,plan:f.plan(snapshot)});
+  assert.equal(result.status,'verified',result.error?.message);assert.equal(f.control.saves,1);
+});
+
+for(const mode of ['seam','wrong-point','wrong-parent'])test('owned ATTR circular angle and exact parent transform: '+mode,async t=>{
+  const f=await fixture(t),parent=f.components[0],hidden={parentId:parent.PrimitiveId,key:'Footprint',value:'unchanged',x:3,y:4,angle:90};
+  const record=v=>JSON.stringify({type:'ATTR',id:'hidden-transform'})+'||'+JSON.stringify(v)+'|';
+  f.control.sourceRecords=[record(hidden)];
+  const snapshot=await inspectLayout(f.options()),plan=f.plan(snapshot,{rotation:270});
+  f.control.afterComponentModify=()=>{f.control.sourceRecords=[record({...hidden,parentId:mode==='wrong-parent'?'other-parent':parent.PrimitiveId,x:mode==='wrong-point'?105:104,y:-3,angle:360-1e-6})];};
+  const result=await applyLayout({...f.options(),snapshot,plan});
+  if(mode==='seam'){assert.equal(result.status,'verified',result.error?.message);assert.equal(f.control.saves,1);}
+  else{assert.equal(result.applyState,'apply-verification-failed');assert.equal(f.control.saves,0);}
+});
+
+for(const kind of ['component','label'])for(const changed of [false,true])test('preflight '+kind+' angle alias keeps strict dependencies: '+changed,async t=>{
+  const f=await fixture(t),object=kind==='component'?f.components[1]:f.attributes[0];
+  const snapshot=await inspectLayout(f.options()),plan=f.plan(snapshot);object.Rotation=changed?90:360;
+  const options=f.options();options.config.lockedDesignators=['U2'];
+  const result=await applyLayout({...options,snapshot,plan});
+  if(changed){assert.equal(result.applyState,'blocked');assert.equal(f.control.saves,0);assert.deepEqual(f.control.modifications,[]);}
+  else{assert.equal(result.status,'verified',result.error?.message);assert.equal(f.control.saves,1);assert.ok(result.preservedChanges.some(c=>c.id===object.PrimitiveId&&c.fields.includes('angle')));}
+});
+
 test('report paths use filesystem identity across directory aliases', async t => {
   const f = await fixture(t), alias = f.projectRoot + '-alias';
   await symlink(f.projectRoot, alias, 'junction');

@@ -12,6 +12,7 @@ const sourceFingerprint = value => Number.isSafeInteger(value) || typeof value =
 const fail = (code, message = code) => { throw Object.assign(Error(message), { code }); };
 const within = (root, file) => { const r = relative(root, file); return r !== '..' && !r.startsWith('..\\') && !r.startsWith('../') && !isAbsolute(r); };
 const unsettled = s => ['unknown', 'in-flight', 'outcome-unknown'].includes(s) || s?.endsWith('-running');
+export const layoutOutcomeUnsettled = unsettled;
 async function atomic(file, value) { await writeFile(file + '.tmp', JSON.stringify(value, null, 2) + '\n'); await rename(file + '.tmp', file); }
 async function canonicalDestination(directory) {
   try { return await realpath(directory); }

@@ -13,10 +13,20 @@ export function compileFineLabels(scope,bodyPlan,settings) {
   const problem={schemaVersion:1,kind:'flitrealize-cpsat-problem',sourceHash:model.snapshot.sourceHash,units:'mil',board:model.config.hard.boardBounds,settings,entities,pairs:[],assembly:false,links:[],limits:[],nets:[],spacing:[],blocks:[],relations:[],zones:[],noInitialHints:true,skipFeasibilityPhase:true,coverage:{stage:'independent-labels',bodyHash:digest(bodyPlan.components),bodies:'immutable accepted poses',geometry:'native glyph rectangles; fonts and line widths preserved'}};
   // Keep every real body, pad and outside glyph as a constant obstacle; do not
   // recreate their combined blank rectangular envelopes in this stage.
-  const obstacles=[...bodyPlan.components.map(c=>({id:'body:'+c.ref,bbox:c.body})),...geometry.pads.map(p=>({id:'pad:'+p.id,bbox:p.bbox})),...bodyPlan.labels.filter(l=>!labelMoving.has(l.owner)).map(l=>({id:'label:'+l.id,bbox:l.bbox}))];
-  for(const l of items){const ref='fine-label:'+l.id,gap=rules.gapByOwner[l.owner];
-    for(const obstacle of obstacles){const b=obstacle.bbox;problem.zones.push({id:ref+'/'+obstacle.id,mode:'keepout',geometry:'body',box:{minX:b.minX-gap,maxX:b.maxX+gap,minY:b.minY-gap,maxY:b.maxY+gap},excludeRefs:[],targetRefs:[ref]});}
-    const variants=[0,90].map(rotation=>{const b=rotation===0?{minX:0,maxX:l.width,minY:0,maxY:l.height}:{minX:-l.height,maxX:0,minY:0,maxY:l.width};return {rotation,side:null,originOffset:{x:0,y:0},body:b,bundle:b,physical:b,courtyard:b,boardBox:b,labels:[],pads:{},padCenters:{centre:{x:(b.minX+b.maxX)/2,y:(b.minY+b.maxY)/2}},views:{body:[b],physical:[b],bundle:[b],placement:[b],assembly:[b],footprint:[],pads:[],operation:[],silkscreen:[b]},zones:{}};});
+  const obstacles=[...bodyPlan.components.map(c=>({id:'body:'+c.ref,kind:'body',bbox:c.body})),...geometry.pads.map(p=>({id:'pad:'+p.id,kind:'pad',bbox:p.bbox})),...bodyPlan.labels.filter(l=>!labelMoving.has(l.owner)).map(l=>({id:'label:'+l.id,kind:'label',owner:l.owner,bbox:l.bbox}))];
+  for(const l of items){const ref='fine-label:'+l.id,required=rules.clearancesByOwner[l.owner];
+    for(const obstacle of obstacles){const b=obstacle.bbox,gap=obstacle.kind==='label'?Math.max(required.label,rules.clearancesByOwner[obstacle.owner].label):required[obstacle.kind];problem.zones.push({id:ref+'/'+obstacle.id,mode:'keepout',geometry:'body',box:{minX:b.minX-gap,maxX:b.maxX+gap,minY:b.minY-gap,maxY:b.maxY+gap},excludeRefs:[],targetRefs:[ref]});}
+    const facing=rules.orientation==='bottom-edge-to-owner'&&l.type==='attribute',owner=bodyPlan.components.find(c=>c.ref===l.owner).body;
+    const variants=(facing?[0,90,180,270]:[0,90]).map(rotation=>{
+      const b=[{minX:0,maxX:l.width,minY:0,maxY:l.height},{minX:-l.height,maxX:0,minY:0,maxY:l.width},{minX:-l.width,maxX:0,minY:-l.height,maxY:0},{minX:0,maxX:l.height,minY:-l.width,maxY:0}][rotation/90];
+      const ownerFacing=facing?[
+        {axis:'y',sign:-1,edgeOffsetMil:b.minY,centerMil:(owner.minY+owner.maxY)/2},
+        {axis:'x',sign:1,edgeOffsetMil:b.maxX,centerMil:(owner.minX+owner.maxX)/2},
+        {axis:'y',sign:1,edgeOffsetMil:b.maxY,centerMil:(owner.minY+owner.maxY)/2},
+        {axis:'x',sign:-1,edgeOffsetMil:b.minX,centerMil:(owner.minX+owner.maxX)/2}
+      ][rotation/90]:undefined;
+      return {rotation,side:null,originOffset:{x:0,y:0},body:b,bundle:b,physical:b,courtyard:b,boardBox:b,labels:[],pads:{},padCenters:{centre:{x:(b.minX+b.maxX)/2,y:(b.minY+b.maxY)/2}},views:{body:[b],physical:[b],bundle:[b],placement:[b],assembly:[b],footprint:[],pads:[],operation:[],silkscreen:[b]},zones:{},...(ownerFacing?{ownerFacing}:{})};
+    });
     entities.push({ref,id:l.id,kind:'component',base:{x:0,y:0},fixed:false,variants});
     // Keep the backend's global minimum padding at zero for the zero-area
     // immutable owner anchors. Actual glyph/glyph gaps remain explicit below;
@@ -26,7 +36,7 @@ export function compileFineLabels(scope,bodyPlan,settings) {
     problem.links.push({id:'label-owner:'+l.id,left:[endpoint(ref)],right:[endpoint(l.owner)],weight:1});
     if(rules.maxOwnerDistanceMil!==undefined)problem.limits.push({id:'label-owner-cap:'+l.id,left:[endpoint(ref)],right:[endpoint(l.owner)],maxMil:rules.maxOwnerDistanceMil});
   }
-  for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++)problem.pairs.push({a:targets[i],b:targets[j],gapMil:Math.max(rules.gapByOwner[items[i].owner],rules.gapByOwner[items[j].owner]),physicalGapMil:0});
+  for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++)problem.pairs.push({a:targets[i],b:targets[j],gapMil:Math.max(rules.clearancesByOwner[items[i].owner].label,rules.clearancesByOwner[items[j].owner].label),physicalGapMil:0});
   return {problem,items,rules};
 }
 export async function solveFineLabels(scope,bodyPlan,settings,runtime,executor=executeCpSat,timing) {

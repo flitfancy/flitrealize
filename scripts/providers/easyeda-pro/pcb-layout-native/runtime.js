@@ -1,9 +1,34 @@
 // Included in each native request. Coordinates are native mil; no UI-unit conversion.
 async function layoutNative(eda, input) {
   const { config: cfg, plan, snapshot: before } = input;
+  const labelRules=cfg.labelRules??resolveLabelClearances({clearanceMil:cfg.labelClearanceMil??cfg.clearanceMil??8,gapByOwner:cfg.labelGapByOwner??{}});
   let writeBaseline = input.writeBaseline ?? before;
   const stable = value => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(k => [k, stable(value[k])])) : value;
   const equal = (a, b) => JSON.stringify(stable(a)) === JSON.stringify(stable(b));
+  const samePoseState = (a,b) => a&&b&&sameAngle(a.rotation,b.rotation)&&equal({...a,rotation:0},{...b,rotation:0});
+  const sameLabelState = (a,b) => a&&b&&samePoseState(a.original,b.original)&&equal({...a,original:null},{...b,original:null});
+  function sameAngleFields(a, b, fields) {
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) || Array.isArray(b)) return equal(a, b);
+    const previous = { ...a }, current = { ...b };
+    for (const key of Object.keys(previous)) {
+      if (fields.includes(key.toLowerCase()) && Object.hasOwn(current, key) && sameAngle(previous[key], current[key])) previous[key] = current[key] = 0;
+    }
+    return equal(previous, current);
+  }
+  function samePadState(a, b) {
+    const previous = stable(a), current = stable(b), left = previous?.nativeGeometry, right = current?.nativeGeometry;
+    // Only these observed pad/hole angles have angular semantics. Getter
+    // status, missing/invalid values and every other field remain strict.
+    for (const [from, to, key] of [[left?.observedPose, right?.observedPose, 'rotation'], [left?.fields?.rotation, right?.fields?.rotation, 'value'], [left?.fields?.holeRotation, right?.fields?.holeRotation, 'value']]) {
+      if ((key === 'rotation' || from?.status === 'ok' && to?.status === 'ok') && sameAngle(from?.[key], to?.[key])) from[key] = to[key] = 0;
+    }
+    return equal(previous, current);
+  }
+  function sameSourceState(a, b) {
+    if (!a || !b || a.type !== b.type || !['COMPONENT', 'ATTR', 'STRING', 'PAD'].includes(a.type)) return equal(a, b);
+    const fields = a.type === 'PAD' ? ['angle', 'rotation', 'holerotation'] : ['angle', 'rotation'];
+    return sameAngleFields(a.value, b.value, fields) && equal({ ...a, value: null }, { ...b, value: null });
+  }
   const get = (o, k, fallback = null) => typeof o?.['getState_' + k] === 'function' ? o['getState_' + k]() : fallback;
   const angle = n => ((n % 360) + 360) % 360;
   const fail = message => { throw Error(message); };
@@ -51,7 +76,8 @@ async function layoutNative(eda, input) {
     const components = [], pads = [], items = [], unsupported = [], rawComponents = await eda.pcb_PrimitiveComponent.getAll();
     for (const c of rawComponents) {
       const id = get(c, 'PrimitiveId');
-      components.push({ id, ref: get(c, 'Designator'), x: get(c, 'X'), y: get(c, 'Y'), rotation: get(c, 'Rotation'), layer: get(c, 'Layer'), locked: get(c, 'PrimitiveLock'), footprint: get(c, 'Footprint'), bbox: await box(id) });
+      const rotation=get(c,'Rotation');if(!Number.isFinite(rotation))fail('NATIVE_COMPONENT_ROTATION_INVALID '+id);
+      components.push({ id, ref: get(c, 'Designator'), x: get(c, 'X'), y: get(c, 'Y'), rotation, layer: get(c, 'Layer'), locked: get(c, 'PrimitiveLock'), footprint: get(c, 'Footprint'), bbox: await box(id) });
       if (get(c, 'Layer') !== 1) unsupported.push({ code: 'COMPONENT_LAYER_UNSUPPORTED', id, layer: get(c, 'Layer') });
     }
     if (new Set(components.map(c => c.id)).size !== components.length || new Set(components.map(c => c.ref)).size !== components.length) fail('DUPLICATE_COMPONENT_IDENTITY');
@@ -106,7 +132,9 @@ async function layoutNative(eda, input) {
       if (![1, 12].includes(get(p, 'Layer'))) unsupported.push({ code: 'PAD_LAYER_UNSUPPORTED', id, layer: get(p, 'Layer') });
     }
     async function label(a, type, c, text) {
-      const id = get(a, 'PrimitiveId'), b = await box(id), r = get(a, 'Rotation'), vertical = angle(r) % 180 === 90;
+      const id = get(a, 'PrimitiveId'), b = await box(id), r = get(a, 'Rotation');
+      if(!Number.isFinite(r))fail('NATIVE_LABEL_ROTATION_INVALID '+id);
+      const vertical=sameAngle(r,90)||sameAngle(r,270);
       return { id, type, owner: c.ref, parentId: type === 'attribute' ? c.id : null, text, layer: get(a, 'Layer'), locked: get(a, 'PrimitiveLock'), width: vertical ? b.maxY - b.minY : b.maxX - b.minX, height: vertical ? b.maxX - b.minX : b.maxY - b.minY, fontSize: get(a, 'FontSize'), lineWidth: get(a, 'LineWidth'), original: { x: get(a, 'X'), y: get(a, 'Y'), rotation: r, alignMode: get(a, 'AlignMode'), bbox: b } };
     }
     for (const a of await eda.pcb_PrimitiveAttribute.getAll()) {
@@ -151,7 +179,8 @@ async function layoutNative(eda, input) {
     const ps = [[b.minX, b.minY], [b.minX, b.maxY], [b.maxX, b.minY], [b.maxX, b.maxY]].map(([x, y]) => transform({ x, y }, old, next));
     return { minX: Math.min(...ps.map(p => p.x)), minY: Math.min(...ps.map(p => p.y)), maxX: Math.max(...ps.map(p => p.x)), maxY: Math.max(...ps.map(p => p.y)) };
   }
-  const moved = (a, b) => Math.abs(a.x - b.x) > .001 || Math.abs(a.y - b.y) > .001 || Math.abs(angle(a.rotation ?? 0) - angle(b.rotation ?? 0)) > 1e-7;
+  // Standalone pad poses omit rotation; required component/label angles do not.
+  const moved = (a, b) => ![a.x,a.y,b.x,b.y].every(Number.isFinite) || Math.abs(a.x - b.x) > .001 || Math.abs(a.y - b.y) > .001 || !(a.rotation===undefined&&b.rotation===undefined||sameAngle(a.rotation,b.rotation));
   function changes() {
     const components = plan.components.filter(c => moved(before.components.find(a => a.id === c.id), c)).map(c => c.id);
     const labels = plan.labels.filter(l => { const old = before.items.find(a => a.id === l.id); return before.components.some(c => c.ref === l.owner && components.includes(c.id)) || moved(old.original, l) || old.original.alignMode !== l.alignMode; }).map(l => l.id);
@@ -184,7 +213,9 @@ async function layoutNative(eda, input) {
       const previous = a.get(key), current = b.get(key);
       if (equal(previous, current)) continue;
       const row = current ?? previous;
-      if (affected.has(row.id)) fail('SOURCE_WRITE_DEPENDENCY_CHANGED ' + row.id);
+      const observedPose=[...old.components,...live.components,...old.items,...live.items,...old.pads,...live.pads].some(o=>o.id===row.id);
+      const angleAlias=observedPose&&sameSourceState(previous,current);
+      if (affected.has(row.id)&&!angleAlias) fail('SOURCE_WRITE_DEPENDENCY_CHANGED ' + row.id);
       // Unobserved rule/stackup/constraint changes cannot be proved irrelevant.
       // Every changed geometry record must have a current or prior native bbox.
       if (!observed.has(row.id)) fail('SOURCE_CHANGE_UNCLASSIFIED ' + row.type + ':' + row.id);
@@ -203,6 +234,9 @@ async function layoutNative(eda, input) {
   function checkPlan(live) {
     if (!plan || !before || !Array.isArray(plan.issues) || plan.issues.length) fail('PLAN_INVALID');
     if(!['joint','separate'].includes(cfg.labelGeometryMode??'joint')||(plan.geometryPolicy?.labelMode??'joint')!==(cfg.labelGeometryMode??'joint'))fail('PLAN_LABEL_GEOMETRY_POLICY');
+    if(plan.geometryPolicy?.labelOrientation!==cfg.labelOrientation)fail('PLAN_LABEL_ORIENTATION_POLICY');
+    if(cfg.labelRules&&cfg.labelGeometryMode==='separate'&&!equal(plan.geometryPolicy?.labelRules,cfg.labelRules))fail('PLAN_LABEL_CLEARANCES_POLICY');
+    if(cfg.labelOrientation!==undefined&&(cfg.labelOrientation!=='bottom-edge-to-owner'||cfg.labelGeometryMode!=='separate'))fail('PLAN_LABEL_ORIENTATION_POLICY');
     if (plan.sourceHash !== before.sourceHash) fail('SOURCE_CHANGED_REPLAN');
     if (live.capabilities.unsupported.length) fail('NATIVE_CAPABILITY_UNSUPPORTED ' + JSON.stringify(live.capabilities.unsupported));
     const boardBounds = resolveBoardBounds(decodeBoard(live.outlines), cfg.boardBounds).bounds;
@@ -216,7 +250,7 @@ async function layoutNative(eda, input) {
     for (const c of plan.components) {
       const old = before.components.find(a => a.id === c.id), actual = live.components.find(a => a.id === c.id);
       if (!actual || c.ref !== old.ref || actual.ref !== old.ref || ![c.x, c.y, c.rotation].every(Number.isFinite)) fail('PLAN_COMPONENT_IDENTITY');
-      if ((writeSet.components.includes(c.id) || dependency.refs.has(c.ref)) && !equal(old, actual)) fail('SOURCE_WRITE_DEPENDENCY_CHANGED ' + c.id);
+      if ((writeSet.components.includes(c.id) || dependency.refs.has(c.ref)) && !samePoseState(old, actual)) fail('SOURCE_WRITE_DEPENDENCY_CHANGED ' + c.id);
       if ((actual.locked || cfg.lockedDesignators?.includes(c.ref)) && moved(old, c)) fail('LOCKED_COMPONENT ' + c.ref);
       if (moved(old, c) && live.pads.some(p => p.owner === c.ref && p.locked)) fail('LOCKED_COMPONENT_PAD ' + c.ref);
       transform({ x: old.x, y: old.y }, old, c);
@@ -225,12 +259,12 @@ async function layoutNative(eda, input) {
     for (const l of plan.labels) {
       const old = before.items.find(a => a.id === l.id), actual = live.items.find(a => a.id === l.id);
       if (!actual || l.type !== old.type || l.owner !== old.owner || l.parentId !== old.parentId || l.text !== old.text || ![l.x, l.y, l.rotation].every(Number.isFinite) || !finiteBox(l.bbox) || actual.parentId !== old.parentId || actual.owner !== old.owner) fail('PLAN_LABEL_IDENTITY');
-      if (writeSet.labels.includes(l.id) && !equal(actual, old)) fail('SOURCE_WRITE_DEPENDENCY_CHANGED ' + l.id);
+      if (writeSet.labels.includes(l.id) && !sameLabelState(actual, old)) fail('SOURCE_WRITE_DEPENDENCY_CHANGED ' + l.id);
       if (actual.locked && (moved(old.original, l) || old.original.alignMode !== l.alignMode)) fail('LOCKED_LABEL ' + l.id);
       if(cfg.labelGeometryMode==='separate'&&(l.fontSize!==old.fontSize||l.lineWidth!==old.lineWidth))fail('PLAN_LABEL_FORMAT_CHANGED '+l.id);
     }
     if (live.pads.length !== before.pads.length) fail('PAD_BASELINE_COUNT');
-    for (const p of before.pads) { const actual = live.pads.find(a => a.id === p.id); if (!actual || actual.owner !== p.owner || actual.parentComponentId !== p.parentComponentId) fail('PAD_OWNER_CHANGED ' + p.id); if ((writeSet.pads.includes(p.id) || dependency.padIds.has(p.id)) && !equal(actual, p)) fail('PAD_BASELINE_CHANGED ' + p.id); }
+    for (const p of before.pads) { const actual = live.pads.find(a => a.id === p.id); if (!actual || actual.owner !== p.owner || actual.parentComponentId !== p.parentComponentId) fail('PAD_OWNER_CHANGED ' + p.id); if ((writeSet.pads.includes(p.id) || dependency.padIds.has(p.id)) && !samePadState(actual, p)) fail('PAD_BASELINE_CHANGED ' + p.id); }
     for (const p of plan.testPads) { const old = before.pads.find(a => a.id === p.id), actual = live.pads.find(a => a.id === p.id); if (!actual || ![p.x, p.y].every(Number.isFinite) || p.number !== old.number || p.net !== old.net) fail('PLAN_TESTPAD_IDENTITY'); if (actual.locked && moved(old, p)) fail('LOCKED_TESTPAD ' + p.id); }
     const hasMoves = plan.components.some(c => moved(before.components.find(a => a.id === c.id), c)) || plan.testPads.some(p => moved(before.pads.find(a => a.id === p.id), p));
     if (hasMoves && Object.values(live.routing).some(n => n)) fail('ROUTED_BOARD_MOVE_UNSUPPORTED');
@@ -256,7 +290,7 @@ async function layoutNative(eda, input) {
   function obstacleIssues(obstacles = [], placements, labels, pads, writeSet) {
     const gap=(a,b)=>Math.max(a.minX-b.maxX,b.minX-a.maxX,a.minY-b.maxY,b.minY-a.maxY),issues=[];
     const targets=[...placements.filter(c=>writeSet.components.includes(c.id)).map(c=>({id:c.id,bbox:c.body??c.bbox})),...labels.filter(l=>writeSet.labels.includes(l.id)),...pads.filter(p=>writeSet.pads.includes(p.id))];
-    for(const obstacle of obstacles)for(const target of targets){const requiredMil=cfg.labelClearanceMil??cfg.clearanceMil??8,gapMil=gap(obstacle.bbox,target.bbox);if(gapMil<requiredMil-.001)issues.push({code:'LAYOUT_OBSTACLE_GAP',id:obstacle.id,targetId:target.id,gapMil,requiredMil});}
+    for(const obstacle of obstacles)for(const target of targets){const kind=labels.some(l=>l.id===target.id)?'label':pads.some(p=>p.id===target.id)?'pad':'body',requiredMil=cfg.labelGeometryMode==='separate'&&obstacle.kind==='string'?labelRules.clearancesMil[kind]:cfg.labelClearanceMil??cfg.clearanceMil??8,gapMil=gap(obstacle.bbox,target.bbox);if(gapMil<requiredMil-.001)issues.push({code:'LAYOUT_OBSTACLE_GAP',id:obstacle.id,targetId:target.id,gapMil,requiredMil});}
     return issues;
   }
   function geometry(placements, labels, pads, boardBounds = null) {
@@ -274,7 +308,7 @@ async function layoutNative(eda, input) {
     }
     const assembly = cfg.assemblyPolicy ? assemblyRuntime(cfg.assemblyPolicy, placements, pads) : null;
     if (assembly) issues.push(...assembly.issues);
-    if(separate){if(typeof independentLabelGeometry!=='function')fail('LABEL_GEOMETRY_RUNTIME_MISSING');issues.push(...independentLabelGeometry({components:placements,pads,labels,clearanceMil:cfg.labelClearanceMil??cfg.clearanceMil??8,gapByOwner:cfg.labelGapByOwner??{},maxOwnerDistanceMil:cfg.labelOwnerMaxDistanceMil}).issues);}
+    if(separate){if(typeof independentLabelGeometry!=='function')fail('LABEL_GEOMETRY_RUNTIME_MISSING');issues.push(...independentLabelGeometry({components:placements,pads,labels,...labelRules,maxOwnerDistanceMil:cfg.labelOwnerMaxDistanceMil,orientation:cfg.labelOrientation,orientationOwnerRefs:cfg.labelOrientationOwnerRefs}).issues);}
     return { issues, assembly, bundles, testPads, minimumAxisGapMil: Number.isFinite(minimumAxisGapMil) ? minimumAxisGapMil : null, extent: union([...bundles.map(b => b.bbox),...(separate?labels.map(l=>l.bbox):[])]) };
   }
   async function verify(expectedSourceHash) {
@@ -308,8 +342,31 @@ async function layoutNative(eda, input) {
     // records outside the write set and all non-pose fields of written records.
     try {
       const a=records(writeBaseline),b=records(live),touched=new Set([...writeSet.components,...writeSet.labels,...writeSet.pads]);
-      const metadata=value=>Object.fromEntries(Object.entries(value).filter(([k])=>!['x','y','rotation','alignmode','bbox'].includes(k.toLowerCase())));
-      for(const key of new Set([...a.keys(),...b.keys()])){const old=a.get(key),now=b.get(key),id=(now??old).id;if(touched.has(id)?!old||!now||!equal(metadata(old.value),metadata(now.value)):!equal(old,now))issues.push({code:'SOURCE_READBACK_CHANGED',id});}
+      const metadata=(value,poseFields)=>Object.fromEntries(Object.entries(value).filter(([k])=>!poseFields.includes(k.toLowerCase())));
+      const poseFields=['x','y','rotation','alignmode','bbox'];
+      for(const key of new Set([...a.keys(),...b.keys()])){
+        const old=a.get(key),now=b.get(key),id=(now??old).id;
+        let unchanged;
+        if(touched.has(id)){
+          // Native angle must independently match the plan, even when SDK
+          // Rotation agrees. Missing or invalid source angles are unverifiable.
+          const component=writeSet.components.includes(id),label=writeSet.labels.includes(id);
+          const fields=component||label?[...poseFields,'angle']:poseFields;
+          const planned=component?expected.components.find(c=>c.id===id):label?expected.labels.find(l=>l.id===id):null;
+          const sourceAngleMatches=component||label?sameAngle(now?.value.angle,planned?.rotation):true;
+          unchanged=old&&now&&sourceAngleMatches&&equal(metadata(old.value,fields),metadata(now.value,fields));
+        }else if(old?.type==='ATTR'&&now?.type==='ATTR'&&writeSet.components.includes(old.value.parentId)){
+          // Component.modify also transforms hidden owned attributes. Keep
+          // their content/format immutable and independently check that pose.
+          const parent=writeBaseline.components.find(c=>c.id===old.value.parentId),target=expected.components.find(c=>c.id===old.value.parentId);
+          const from=old.value,to=now.value,delta=target.rotation-parent.rotation;
+          const expectedPoint=Number.isFinite(from.x)&&Number.isFinite(from.y)?transform(from,parent,target):null;
+          const xy=expectedPoint?Number.isFinite(to.x)&&Number.isFinite(to.y)&&Math.abs(to.x-expectedPoint.x)<=.01&&Math.abs(to.y-expectedPoint.y)<=.01:equal(from.x,to.x)&&equal(from.y,to.y);
+          const rotation=Number.isFinite(from.angle)?sameAngle(to.angle,from.angle+delta,.001):equal(from.angle,to.angle);
+          unchanged=xy&&rotation&&equal(metadata(from,['x','y','angle']),metadata(to,['x','y','angle']));
+        }else unchanged=equal(old,now);
+        if(!unchanged)issues.push({code:'SOURCE_READBACK_CHANGED',id});
+      }
     } catch(error) { issues.push({code:'SOURCE_READBACK_UNCLASSIFIED',message:error.message}); }
     return { ...checked, wholeBoardAccepted:checked.wholeBoardAccepted&&!issues.length, status: issues.length ? 'verification-failed' : 'verified', saved: null, issues, source: live.source, sourceHash: live.sourceHash, document: live.document, placements, components: placements.length, labels, pads: live.pads, routing: live.routing, outlines: live.outlines, padOwnership: live.padOwnership, nativeNetlist: live.nativeNetlist, nativeNetNames: live.nativeNetNames, writeBaseline, writeSet, effectivePlan:expected, preservedChanges:sourceChanges(before,writeBaseline,writeSet,dependencies(writeSet)) };
   }

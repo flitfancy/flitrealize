@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { studyOutputDirectory } from '../../lib/pcb-study.mjs';
-import { readLayoutApplyReceipt } from '../pcb-layout-execution.mjs';
+import { readLayoutApplyReceipt, layoutOutcomeUnsettled } from '../pcb-layout-execution.mjs';
 import { digest, fail } from './common.mjs';
 import { readJson } from '../pcb-layout-project.mjs';
 
@@ -31,6 +31,33 @@ async function unrelatedExecution(root, file, target, providerId) {
   return unrelated;
 }
 
+// A settled native preflight rejection is a known zero-write result, not a
+// successful apply receipt. Preserve its immutable reports and allow a new
+// guarded attempt only when the core summary and native phase report agree.
+async function rejectedBeforeMutation(root, workflow) {
+  if (workflow.provider !== 'easyeda-pro' || workflow.status !== 'apply-failed'
+    || workflow.applyState !== 'blocked' || workflow.saved !== false
+    || workflow.saveState !== 'not-started' || workflow.resumeSaveReport) return false;
+  const mutations = workflow.steps?.filter(s => s.mutates) ?? [];
+  if (mutations.length !== 1 || mutations[0].phase !== 'apply' || mutations[0].status !== 'blocked') return false;
+  let record;
+  try { record = (await projectJson(root, mutations[0].reportFile)).value; }
+  catch (error) { if (error.code === 'ENOENT' || error instanceof SyntaxError) return false; throw error; }
+  if (record.kind !== 'flitrealize.pcb-layout.native' || record.phase !== 'apply' || record.mutates !== true
+    || record.executionVersion !== workflow.executionVersion || record.provider !== workflow.provider
+    || digest(record.target) !== digest(workflow.target) || await fs.realpath(record.projectRoot) !== root
+    || record.outcome !== 'settled' || record.response?.success !== true) return false;
+  const response = record.response, result = response.result;
+  if(['cli','bridge'].includes(response.channel)&&(!response.request||!response.executionBinding))return false;
+  if (response.request && (response.request.status !== 'succeeded' || digest(response.request.result) !== digest(result))) return false;
+  const bound = response.executionBinding;
+  if (bound && (bound.requestId !== response.request?.requestId || bound.windowId !== response.request?.windowId
+    || bound.codeSha256 !== response.request?.codeSha256 || digest(bound.target) !== digest(workflow.target))) return false;
+  return result?.status === 'blocked' && result.saved === false
+    && Array.isArray(result.attempted) && result.attempted.length === 0
+    && result.error?.code === 'LAYOUT_PREFLIGHT_FAILED';
+}
+
 /** Discover existing core evidence only; do not create another state ledger. */
 export async function findFineExecution(input,config) {
   const target = config ?? input.inputs.mechanical;
@@ -45,8 +72,9 @@ export async function findFineExecution(input,config) {
     if(workflow.kind!=='flitrealize.pcb-layout.execution'||workflow.provider!==input.options.providerId
       ||workflow.target?.expectedProjectUuid!==target.expectedProjectUuid||workflow.target?.expectedDocumentUuid!==target.expectedDocumentUuid)continue;
     if(await fs.realpath(workflow.projectRoot)!==root)fail('FINE_APPLICATION_RECEIPT_MISMATCH');
-    const unknown=workflow.steps?.some(s=>s.mutates&&['in-flight','unknown'].includes(s.status));
+    const unknown=layoutOutcomeUnsettled(workflow.applyState)||layoutOutcomeUnsettled(workflow.saveState)||workflow.steps?.some(s=>s.mutates&&layoutOutcomeUnsettled(s.status));
     if(unknown)fail('FINE_TARGET_OUTCOME_UNKNOWN','Inspect the original request before another write: '+file);
+    if(await rejectedBeforeMutation(root,workflow))continue;
     let applied;
     try{applied=await readJson(path.join(path.dirname(file),'layout-apply-input.json'));}catch(e){if(e.code==='ENOENT')continue;throw e;}
     if(digest(applied.plan)===digest(input.candidate.plan)&&digest(applied.snapshot)===digest(input.inputs.snapshot)&&(!config||digest(applied.config)===digest(config)))matches.push({file,workflow});

@@ -245,7 +245,7 @@ open 请求为 `{bundle,spec,settings,options}`。`bundle` 是既有 `inputs.jso
 | `reservedRegions` | 有 ID、来源与边界的预留矩形；几何为 `physical`、`assembly` 或 `placement`；缺少装配视图时明确拒绝相应请求 |
 | `relations` | 用 `relationId` 引用已编译的电路设计稿关系；或显式给 ID、依据及 `from/to`，端点用 `{ref,pin}` 或唯一 `{padId}`。独立测试焊盘只能作为固定上下文 |
 | `relationSelection` | 默认 `explicit`；显式 `scope` 按可动成员派生相关基础关系，`relations` 只需列本轮例外；不扩大器件或邻居权限 |
-| `labels` | 默认 `mode: separate`；兼容 `joint`。间距继承机械规则与既有模板，可明确给 `clearanceMil`、`maxOwnerDistanceMil`、`maxSeconds`；`additionalOwnerRefs` 在独立模式下额外允许重排这些器件的位号，器件位置、焊盘和原生文字锁仍保持 |
+| `labels` | 默认 `mode: separate`，也可选 `joint`。`clearancesMil: {body, pad, label}` 分别控制位号到所有器件包围框、焊盘、其他位号的最小距离，单位 mil，仅用于 `separate`；三项同时满足。省略的类别沿用旧有效值：`max(labels.clearanceMil ?? mechanical.clearanceMil, 该位号模板 minGapMil)`；显式类别值直接覆盖。`additionalOwnerRefs` 只增加位号移动许可；`maxOwnerDistanceMil`、`maxSeconds` 和 `orientation: "bottom-edge-to-owner"` 沿用原用途 |
 | `baselinePolicy` | 默认 `require-clean`；显式 `retain-outside-issues` 允许局部写回保留有基线证据、参与对象未变的同一外部问题；文字按 ID、本体按位号、焊盘按 ID 区分，文字移动许可不扩大本体影响范围。内部及跨块影响、新增或加重问题仍须通过；未知问题不视为旧问题，整板资格独立报告 |
 | `routing` | `required`、需检查的 `nets`、明确层/宽度 `policy` 与工具 `options`；未完成必需检查不能写回 |
 | `objective.retainSource` | 默认保留基础软目标；关闭时不能引用基础关系，既有硬条件仍保留 |
@@ -271,6 +271,10 @@ open 请求为 `{bundle,spec,settings,options}`。`bundle` 是既有 `inputs.jso
   "labels": {"mode": "separate", "additionalOwnerRefs": ["U_SENSOR"]}
 }
 ```
+
+本轮排布可用 `labels: {mode: "separate", clearancesMil: {body: 3, pad: 4, label: 5}}`；只改器件框侧时写 `{body: 3}`，另外两类继承。器件框是原生封装包围框，可能包含焊盘；焊盘距离仍独立限制靠近程度，未识别纯本体轮廓。这组排布参数不改全局默认，焊盘几何间距不代替阻焊开窗或制造验收。
+
+`labels.orientation: "bottom-edge-to-owner"` 会在本轮位号移动许可范围内，以 0°、90°、180°、270° 四向排布位号，使文字底边朝向所属器件中心。
 
 块和关系 ID 使用项目已有记录。重复引用、未知关系、附带端点与引用冲突时拒绝；不从用途文字补回地端或距离。多焊盘逻辑引脚保留完整映射，不能用附带单一 `padId` 缩窄引用。基础对应硬上限可作为引用的验收条件，报告单列其实际口径；`critical: true` 而无基础或本轮验收条件时仍标为未覆盖。多端点沿用最小焊盘对的曼哈顿代理，`measurement.pairs` 和 `maximumPairMil` 保留全部距离，`acceptanceScope` 明确它不是全焊盘连通验收。总分不抵消单项拒绝。
 

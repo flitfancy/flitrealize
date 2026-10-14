@@ -4,9 +4,10 @@ import path from 'node:path';
 import { readFile, realpath } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { independentLabelGeometry } from '../../pcb-layout/fine/label-geometry.mjs';
+import { independentLabelGeometry, resolveLabelClearances } from '../../pcb-layout/fine/label-geometry.mjs';
 import { classifyFineIssues } from '../../pcb-layout/fine/issue-policy.mjs';
 import { sourceRecords } from './source-invariant.mjs';
+import { sameAngle } from '../../pcb-layout/pcb-layout-geometry.mjs';
 export { layoutRealization, labelAlignment, normalizeCoordinateSystem } from './pcb-layout-input.mjs';
 
 export function validateContext(options) {
@@ -29,7 +30,7 @@ export async function buildOperation(phase, input) {
   const body = await readFile(new URL('./pcb-layout-native/' + phase + '.js', import.meta.url), 'utf8');
   return {
     extension: '.js',
-    code: 'const layoutExecutionInput=' + JSON.stringify(input) + ';\nconst sourceRecords=(' + sourceRecords.toString() + ');\nconst assemblyRuntime=(' + assemblyRuntime.toString() + ');\nconst independentLabelGeometry=(' + independentLabelGeometry.toString() + ');\nconst classifyFineIssues=(' + classifyFineIssues.toString() + ');\nconst {resolveBoardBounds,checkBoardBounds}=(' + boardRuntime.toString() + ')();\nconst decodeBoard=(' + decodeBoard.toString() + ');\n' + runtime + '\n' + body,
+    code: 'const layoutExecutionInput=' + JSON.stringify(input) + ';\nconst sameAngle=(' + sameAngle.toString() + ');\nconst sourceRecords=(' + sourceRecords.toString() + ');\nconst assemblyRuntime=(' + assemblyRuntime.toString() + ');\nconst resolveLabelClearances=(' + resolveLabelClearances.toString() + ');\nconst independentLabelGeometry=(' + independentLabelGeometry.toString() + ');\nconst classifyFineIssues=(' + classifyFineIssues.toString() + ');\nconst {resolveBoardBounds,checkBoardBounds}=(' + boardRuntime.toString() + ')();\nconst decodeBoard=(' + decodeBoard.toString() + ');\n' + runtime + '\n' + body,
   };
 }
 

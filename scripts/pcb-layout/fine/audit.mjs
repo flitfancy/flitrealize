@@ -1,7 +1,7 @@
 import { decodeCpSatCandidate } from '../pcb-layout-cpsat-model.mjs';
 import { validatePlan } from '../pcb-layout-solver-core.mjs';
 import { buildGeometryViews } from '../pcb-layout-geometry-views.mjs';
-import { transformBox, transformPoint, angle } from '../pcb-layout-geometry.mjs';
+import { transformBox, transformPoint, angle, sameAngle } from '../pcb-layout-geometry.mjs';
 import { evaluateSpatial } from '../pcb-layout-spatial.mjs';
 import { evaluateBlockCoupling } from '../pcb-layout-block-coupling.mjs';
 import { checkEdges } from '../pcb-layout-edge.mjs';
@@ -22,12 +22,14 @@ export function normalizeExternalFinePlan(scope,compilation,proposal) {
   if(!Array.isArray(proposal.issues)||proposal.issues.length)fail('FINE_PLAN_HAS_ISSUES');
   if(!finiteBox(proposal.boardBounds)||!sameBox(proposal.boardBounds,model.config.hard.boardBounds))fail('FINE_PLAN_BOARD_CHANGED');
   if(proposal.geometryPolicy?.labelMode!==undefined&&proposal.geometryPolicy.labelMode!==request.labels.mode)fail('FINE_PLAN_LABEL_POLICY_CHANGED');
+  if(proposal.geometryPolicy?.labelOrientation!==undefined&&proposal.geometryPolicy.labelOrientation!==request.labels.orientation)fail('FINE_PLAN_LABEL_POLICY_CHANGED');
+  if(proposal.geometryPolicy?.labelRules!==undefined&&digest(proposal.geometryPolicy.labelRules)!==digest(fineLabelRules(model,request.labels)))fail('FINE_PLAN_LABEL_POLICY_CHANGED');
   const exact=(rows,old,name)=>{if(!Array.isArray(rows)||rows.length!==old.length||rows.some(r=>!r||typeof r!=='object')||new Set(rows.map(r=>r.id)).size!==old.length||rows.some(r=>!old.some(o=>o.id===r.id)))fail('FINE_PLAN_INVENTORY',name);};
   exact(proposal.components,model.snapshot.components,'components');exact(proposal.labels,model.snapshot.items,'labels');
   exact(proposal.testPads,compilation.baseline.plan.testPads,'testPads');
   const components=proposal.components.map(c=>{
     const old=model.components.get(c.ref);
-    if(!old||old.id!==c.id||c.layer!==undefined&&c.layer!==old.layer||![c.x,c.y,c.rotation].every(Number.isFinite)||!model.allowedRotations.get(c.ref).some(r=>near(angle(r),angle(c.rotation))))fail('FINE_PLAN_COMPONENT_IDENTITY',c.ref);
+    if(!old||old.id!==c.id||c.layer!==undefined&&c.layer!==old.layer||![c.x,c.y,c.rotation].every(Number.isFinite)||!model.allowedRotations.get(c.ref).some(r=>sameAngle(r,c.rotation,1e-4)))fail('FINE_PLAN_COMPONENT_IDENTITY',c.ref);
     const body=transformBox(old.bbox,old,c);
     if(c.body&&(!finiteBox(c.body)||!sameBox(c.body,body)))fail('FINE_PLAN_COMPONENT_GEOMETRY',c.ref);
     return {id:c.id,ref:c.ref,x:c.x,y:c.y,rotation:c.rotation,dx:c.x-old.x,dy:c.y-old.y,deltaRotation:angle(c.rotation-old.rotation),body};
@@ -52,7 +54,7 @@ export function normalizeExternalFinePlan(scope,compilation,proposal) {
     return {...old};
   });
   const bundles=components.map(c=>({ref:c.ref,bbox:request.labels.mode==='separate'?c.body:union([c.body,...labels.filter(l=>l.owner===c.ref).map(l=>l.bbox)])})).concat(testPads.map(p=>({ref:p.number,bbox:p.bbox})));
-  return {...compilation.baseline.plan,status:'planned',sourceHash:model.snapshot.sourceHash,sourceBefore:model.snapshot.source,components,labels,testPads,bundles,issues:[],geometryPolicy:{labelMode:request.labels.mode}};
+  return {...compilation.baseline.plan,status:'planned',sourceHash:model.snapshot.sourceHash,sourceBefore:model.snapshot.source,components,labels,testPads,bundles,issues:[],geometryPolicy:{labelMode:request.labels.mode,...(request.labels.mode==='separate'?{labelRules:fineLabelRules(model,request.labels)}:{}),...(request.labels.orientation?{labelOrientation:request.labels.orientation}:{})}};
 }
 
 function measureSourceLimits(model,plan,moving=new Set()) {
@@ -75,7 +77,7 @@ function review(scope,plan,bodyOnly=false) {
   const features=[...checkEdges(model.edgeRules,plan.components,model.config.hard.boardBounds).issues,...checkBlocks(model.blockRules,plan.components).issues,
     ...evaluateSpatial(model.spatialRules,plan.components,plan.bundles,geometry).issues,...evaluateBlockCoupling(model.couplingModel,plan.components,geometry.pads).issues,
     ...(geometry.assemblyPolicy?.issues??[]),...(evaluateSpacingPolicy(model.spacingPolicy,geometry,plan.components.map(c=>c.ref))?.issues??[])];
-  const silk=separate&&!bodyOnly?independentLabelGeometry({components:plan.components,pads:geometry.pads,labels:plan.labels,...fineLabelRules(model,scope.request.labels)}):{issues:[]};
+  const silk=separate&&!bodyOnly?independentLabelGeometry({components:plan.components,pads:geometry.pads,labels:plan.labels,...fineLabelRules(model,scope.request.labels),orientationOwnerRefs:[...scope.labelMoving]}):{issues:[]};
   const labelIdentity=[];
   if(!bodyOnly){if(plan.labels.length!==model.snapshot.items.length||new Set(plan.labels.map(l=>l.id)).size!==model.snapshot.items.length)labelIdentity.push({code:'FINE_LABEL_COUNT'});for(const l of plan.labels){const old=model.snapshot.items.find(i=>i.id===l.id);if(!old||['owner','parentId','type','text','fontSize','lineWidth'].some(k=>old[k]!==l[k]))labelIdentity.push({code:'FINE_LABEL_METADATA_CHANGED',owner:l.owner,id:l.id});if(l.bbox&&!within(l.bbox,model.config.hard.boardBounds))labelIdentity.push({code:'FINE_LABEL_BOARD_BOUNDARY',owner:l.owner,id:l.id,bbox:l.bbox});}}
   // Public validation short-circuits these checks after a geometry failure and
@@ -87,7 +89,7 @@ function review(scope,plan,bodyOnly=false) {
   return {validation,geometry,issues};
 }
 export function verifyFineReadback(model,plan,actual) {
-  const eq=(a,b)=>Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=.02,box=(a,b)=>a&&b&&['minX','maxX','minY','maxY'].every(k=>eq(a[k],b[k])),rotation=(a,b)=>Number.isFinite(a)&&Number.isFinite(b)&&eq(angle(a),angle(b));
+  const eq=(a,b)=>Number.isFinite(a)&&Number.isFinite(b)&&Math.abs(a-b)<=.02,box=(a,b)=>a&&b&&['minX','maxX','minY','maxY'].every(k=>eq(a[k],b[k])),rotation=(a,b)=>sameAngle(a,b,.02);
   if(actual.placements?.length!==plan.components.length||actual.labels?.length!==plan.labels.length||actual.pads?.length!==model.pads.length)fail('FINE_READBACK_INVENTORY');
   for(const c of plan.components){const a=actual.placements.find(a=>a.id===c.id);if(!a||a.ref!==c.ref||!['x','y'].every(k=>eq(a[k],c[k]))||!rotation(a.rotation,c.rotation))fail('FINE_READBACK_COMPONENT',c.ref);}
   for(const l of plan.labels){const a=actual.labels.find(a=>a.id===l.id);if(!a||a.owner!==l.owner||!['x','y'].every(k=>eq(a[k],l[k]))||!rotation(a.rotation,l.rotation)||a.alignMode!==l.alignMode||!box(a.bbox,l.bbox))fail('FINE_READBACK_LABEL',l.id);}
@@ -105,7 +107,7 @@ export function materializeFineCandidate(scope,compilation,result,{labels,bodyOn
   // Frozen context rectangles were neutralized only for solving. Restore every
   // standalone pad's real footprint before independent acceptance/readback.
   for(const p of plan.testPads){const old=scope.model.pads.find(q=>q.id===p.id);if(!old||!near(p.x,old.x)||!near(p.y,old.y))fail('FINE_STANDALONE_CHANGED',p.id);p.bbox={...old.bbox};p.dx=p.x-old.x;p.dy=p.y-old.y;}
-  plan.geometryPolicy={labelMode:scope.request.labels.mode};
+  plan.geometryPolicy={labelMode:scope.request.labels.mode,...(scope.request.labels.mode==='separate'?{labelRules:fineLabelRules(scope.model,scope.request.labels)}:{}),...(scope.request.labels.orientation?{labelOrientation:scope.request.labels.orientation}:{})};
   plan.bundles=plan.components.map(c=>({ref:c.ref,bbox:scope.request.labels.mode==='separate'?c.body:union([c.body,...plan.labels.filter(l=>l.owner===c.ref).map(l=>l.bbox)])})).concat(plan.testPads.map(p=>({ref:p.number,bbox:p.bbox})));
   plan.issues=[];plan.sourceBefore=scope.model.snapshot.source;
   const audit=auditFineCandidate(scope,compilation,plan,{bodyOnly,timing});

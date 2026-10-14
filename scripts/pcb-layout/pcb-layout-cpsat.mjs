@@ -49,7 +49,7 @@ export function compileSemanticCpSatProblem(model, settings = {}, { semanticPoli
     components: [...model.components.values()].map(c => ({ ref: c.ref, ...(model.fixed.get(c.ref) ?? { x: 0, y: 0, rotation: [...model.allowedRotations.get(c.ref)].sort((a, b) => a - b)[0] }) })),
     testPads: model.pads.filter(p => !p.owner).map(p => ({ ...p, ...(p.locked ? {} : { x: 0, y: 0 }) })) };
   const problem = compileCpSatProblem(model, { ...settings, displacementWeight: 0 }, { initialProposal, includeLabels });
-  problem.noInitialHints = true; problem.semanticGroups = semantic.groups; problem.spacing = []; problem.variantIntervals = true;
+  problem.noInitialHints = true; problem.skipFeasibilityPhase = true; problem.semanticGroups = semantic.groups; problem.spacing = []; problem.variantIntervals = true;
   if (nativeBoardEdgeMil !== undefined) {
     if (!Number.isFinite(nativeBoardEdgeMil) || nativeBoardEdgeMil < 0) throw Error('INVALID_CPSAT_COPPER_EDGE');
     problem.nativeBoardEdgeMil = nativeBoardEdgeMil;
@@ -71,9 +71,12 @@ export function compileSemanticCpSatProblem(model, settings = {}, { semanticPoli
 // Returns standard layout candidates accepted by the existing exact validator.
 // OPTIMAL describes the quantized proxy model, never GND or native DRC.
 export async function runCpsatLayout(model, settings = {}, options = {}) {
-  const { candidateCount = 1, maxRuns = candidateCount, coldSeconds = Math.min(30, settings.timeLimitSeconds ?? 30), coldStart = true, runtime = {}, onProgress, problem: suppliedProblem, semantic: suppliedSemantic } = options;
-  if (![candidateCount, maxRuns].every(v => Number.isInteger(v) && v >= 1) || !Number.isFinite(coldSeconds) || coldSeconds <= 0) throw Error('INVALID_CPSAT_RUN_BUDGET');
+  const { candidateCount = 1, maxRuns = candidateCount, runtime = {}, onProgress, problem: suppliedProblem, semantic: suppliedSemantic } = options;
+  if (['coldStart', 'coldSeconds'].some(key => Object.hasOwn(options, key))) throw Error('CPSAT_OBSOLETE_COLD_START_OPTIONS: each run now solves the full domain directly');
+  if (![candidateCount, maxRuns].every(v => Number.isInteger(v) && v >= 1)) throw Error('INVALID_CPSAT_RUN_BUDGET');
   const compiled = suppliedProblem ? { problem: structuredClone(suppliedProblem), semantic: suppliedSemantic } : compileSemanticCpSatProblem(model, settings, options);
+  if (compiled.problem.searchFirstVariantOnly || compiled.problem.randomFeasibleShapes) throw Error('CPSAT_RESTRICTED_START_PROBLEM: supply the full legal variant domain');
+  compiled.problem.skipFeasibilityPhase = true;
   const candidates = [], runs = [], seen = new Set(), dedup = compiled.problem.poseDedupMil ?? compiled.problem.settings.resolutionMil;
   for (let index = 0; index < maxRuns && candidates.length < candidateCount; index++) {
     const problem = structuredClone(compiled.problem), name = 'cpsat_' + String(index + 1).padStart(3, '0');
@@ -81,21 +84,9 @@ export async function runCpsatLayout(model, settings = {}, options = {}) {
     const run = { name, accepted: 0 }; runs.push(run);
     let result;
     try {
-      if (coldStart) {
-        const cold = structuredClone(problem); cold.feasibilityOnly = true; cold.searchFirstVariantOnly = !cold.openPlacement;
-        cold.randomFeasibleShapes = index > 0; cold.settings.timeLimitSeconds = coldSeconds;
-        let start = await executeCpSat(cold, { ...runtime, onProgress });
-        if (!['FEASIBLE', 'OPTIMAL'].includes(start.status) && cold.randomFeasibleShapes) { cold.randomFeasibleShapes = false; start = await executeCpSat(cold, { ...runtime, onProgress }); }
-        run.coldStatus = start.status; run.coldSolver = start.solver;
-        if (!['FEASIBLE', 'OPTIMAL'].includes(start.status)) { run.status = 'cold-' + start.status; continue; }
-        const candidate = decodeCpSatCandidate(model, cold, start);
-        if (!candidate.validation.valid) { run.status = 'cold-invalid'; run.issues = candidate.validation.issues; continue; }
-        problem.generatedCheckpointPlacements = start.placements;
-      }
       result = await executeCpSat(problem, { ...runtime, onProgress });
       run.status = result.status; run.solver = result.solver;
-      if (!['FEASIBLE', 'OPTIMAL'].includes(result.status)) continue;
-      for (const placements of [...(result.solutions ?? []), result.placements].filter(Boolean)) {
+      for (const placements of (['FEASIBLE', 'OPTIMAL'].includes(result.status) ? [...(result.solutions ?? []), result.placements].filter(Boolean) : [])) {
         const candidate = decodeCpSatCandidate(model, problem, { ...result, placements }, { name: name + '_' + run.accepted, label: 'CP-SAT' });
         if (!candidate.validation.valid) { (run.rejected ??= []).push(candidate.validation.issues); continue; }
         const key = JSON.stringify(candidate.plan.components.map(p => [p.ref, Math.round(p.x / dedup), Math.round(p.y / dedup), p.rotation]).sort());
@@ -111,8 +102,11 @@ export async function runCpsatLayout(model, settings = {}, options = {}) {
       }
     } catch (error) { if (runtime.signal?.aborted) throw error; run.status = 'error'; run.error = error.message; }
     onProgress?.({ progress: 'run-complete', ...run, candidates: candidates.length });
+    // A proof over the unchanged full domain does not benefit from another seed.
+    if (run.status === 'INFEASIBLE') break;
   }
   candidates.sort((a, b) => (a.comparisonScore + (a.semanticCompactnessScore ?? 0) + (a.roughLayoutScore ?? 0)) - (b.comparisonScore + (b.semanticCompactnessScore ?? 0) + (b.roughLayoutScore ?? 0)));
-  return { status: candidates.length ? 'candidates-ready' : 'no-candidate', candidates: candidates.slice(0, candidateCount), runs, semantic: compiled.semantic, problem: compiled.problem,
+  const noCandidateReason = candidates.length ? undefined : runs.some(r => r.status === 'INFEASIBLE') ? 'infeasible' : runs.some(r => r.status === 'UNKNOWN') ? 'budget-exhausted' : runs.some(r => r.rejected?.length) ? 'validation-rejected' : 'error';
+  return { status: candidates.length ? 'candidates-ready' : 'no-candidate', ...(noCandidateReason ? { noCandidateReason } : {}), candidates: candidates.slice(0, candidateCount), runs, semantic: compiled.semantic, problem: compiled.problem,
     scope: { nativeWrites: 0, nativeDrcRun: false, groundVerified: false, optimization: 'quantized electrical and compactness proxy; exact layout validation after decoding' } };
 }

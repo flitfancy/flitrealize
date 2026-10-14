@@ -1,5 +1,6 @@
 import { scopeLayoutModel } from '../pcb-layout-scope.mjs';
 import { fail, finiteBox, within, digest } from './common.mjs';
+import { fineLabelRules } from './label-geometry.mjs';
 
 const fields = (value, allowed, code) => { if(!value || typeof value!=='object' || Array.isArray(value) || Object.keys(value).some(k=>!allowed.includes(k)))fail(code); };
 const refs = (value, model, name) => { if(!Array.isArray(value)||new Set(value).size!==value.length||value.some(r=>!model.components.has(r)))fail('FINE_INVALID_REFS',name);return [...value]; };
@@ -49,13 +50,17 @@ export function normalizeFineRequest(model, input) {
   const reference=input.region.referenceBoundsMil;
   if(reference!==undefined&&(!finiteBox(reference)||!within(reference,board)))fail('FINE_INVALID_REFERENCE_REGION');
   const labels=input.labels??{mode:'separate'};
-  fields(labels,['mode','clearanceMil','maxOwnerDistanceMil','maxSeconds','additionalOwnerRefs'],'FINE_INVALID_LABEL_POLICY');
+  fields(labels,['mode','clearanceMil','clearancesMil','maxOwnerDistanceMil','maxSeconds','additionalOwnerRefs','orientation'],'FINE_INVALID_LABEL_POLICY');
   if(!['joint','separate'].includes(labels.mode))fail('FINE_LABEL_MODE_UNSUPPORTED');
+  if(labels.clearancesMil!==undefined&&labels.mode!=='separate')fail('FINE_SEPARATE_LABEL_CLEARANCES_REQUIRED');
+  if(labels.orientation!==undefined&&labels.orientation!=='bottom-edge-to-owner')fail('FINE_INVALID_LABEL_POLICY','orientation');
+  if(labels.orientation!==undefined&&labels.mode!=='separate')fail('FINE_SEPARATE_LABEL_ORIENTATION_REQUIRED');
   const additionalOwnerRefs=refs(labels.additionalOwnerRefs??[],model,'labels.additionalOwnerRefs');
   if(additionalOwnerRefs.length&&labels.mode!=='separate')fail('FINE_SEPARATE_LABEL_SCOPE_REQUIRED');
   const labelMoving=new Set([...movableRefs,...additionalOwnerRefs]);
   for(const item of model.snapshot.items)if(item.locked&&labelMoving.has(item.owner))fail('FINE_LOCKED_LABEL_OWNER',item.owner);
   for(const key of ['clearanceMil','maxOwnerDistanceMil','maxSeconds'])if(labels[key]!==undefined&&(!Number.isFinite(labels[key])||labels[key]<0||(key==='maxSeconds'&&labels[key]===0)))fail('FINE_INVALID_LABEL_POLICY',key);
+  fineLabelRules(model,labels);
   const baselinePolicy=input.baselinePolicy??'require-clean';
   if(!['require-clean','retain-outside-issues'].includes(baselinePolicy))fail('FINE_BASELINE_POLICY');
   const objective=input.objective??{retainSource:true};fields(objective,['retainSource'],'FINE_INVALID_OBJECTIVE');

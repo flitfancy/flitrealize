@@ -44,7 +44,10 @@ export function compileFineProblem(scope, settings={}) {
     // are not re-solved. Decode restores their real bodies and labels below.
     for(const v of entity.variants){const zero={minX:0,maxX:0,minY:0,maxY:0};delete v.edge;for(const k of ['body','bundle','physical','courtyard','boardBox'])v[k]={...zero};for(const k of ['body','bundle','physical','placement','assembly','silkscreen'])v.views[k]=k==='silkscreen'?[]:[{...zero}];}
   }
-  if(separate){const glyphRules=fineLabelRules(model,request.labels);for(const label of baseline.plan.labels.filter(l=>!scope.labelMoving.has(l.owner))){const b=label.bbox,g=glyphRules.gapByOwner[label.owner];problem.zones.push({id:'fine-context-label:'+label.id,mode:'keepout',geometry:'physical',box:{minX:b.minX-g,maxX:b.maxX+g,minY:b.minY-g,maxY:b.maxY+g},excludeRefs:[],targetRefs:request.allMovableRefs});}}
+  if(separate){const glyphRules=fineLabelRules(model,request.labels);for(const label of baseline.plan.labels.filter(l=>!scope.labelMoving.has(l.owner))){const b=label.bbox,required=glyphRules.clearancesByOwner[label.owner],expand=g=>({minX:b.minX-g,maxX:b.maxX+g,minY:b.minY-g,maxY:b.maxY+g});
+    if(required.body===required.pad)problem.zones.push({id:'fine-context-label:'+label.id,mode:'keepout',geometry:'physical',box:expand(required.body),excludeRefs:[],targetRefs:request.allMovableRefs});
+    else{problem.zones.push({id:'fine-context-label:'+label.id,mode:'keepout',geometry:'body',box:expand(required.body),excludeRefs:[],targetRefs:request.allMovableRefs});const padRefs=request.allMovableRefs.filter(ref=>model.pads.some(p=>p.owner===ref));if(padRefs.length)problem.zones.push({id:'fine-context-label:'+label.id+':pads',mode:'keepout',geometry:'pads',box:expand(required.pad),excludeRefs:[],targetRefs:padRefs});}
+  }}
   const constants=[];
   problem.limits=problem.limits.filter(l=>{
     if([...l.left,...l.right].some(e=>moving.has(e.ref)))return true;

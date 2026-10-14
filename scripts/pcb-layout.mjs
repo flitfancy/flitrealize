@@ -212,12 +212,12 @@ export async function main(args = process.argv.slice(2), { log = value => consol
     const candidateCount=Number(o['--candidates']??o['--catalog-count']??1),seconds=Number(o['--seconds']??30),maxRuns=Number(o['--starts']??candidateCount);
     if(!Number.isInteger(candidateCount)||candidateCount<1||candidateCount>100||!Number.isFinite(seconds)||seconds<=0||seconds>600)throw Error('INVALID_CPSAT_BUDGET');
     const parameters={candidateCount,maxRuns,timeLimitSeconds:seconds,seed:Number(o['--start-seed']??0),semanticPolicy};await write('cpsat-parameters.json',parameters);
-    const solved=await runCpsatLayout(model,{timeLimitSeconds:seconds,seed:parameters.seed},{candidateCount,maxRuns,coldSeconds:seconds,semanticPolicy,runtime:{pythonPath:resolvePcbPython({python:o['--python']})},onProgress:log});
+    const solved=await runCpsatLayout(model,{timeLimitSeconds:seconds,seed:parameters.seed},{candidateCount,maxRuns,semanticPolicy,runtime:{pythonPath:resolvePcbPython({python:o['--python']})},onProgress:log});
     await write('cpsat-problem.json',solved.problem);await write('semantic-conversion.json',solved.semantic);await write('cpsat-runs.json',solved.runs);
     const records=[];for(const candidate of solved.candidates){const raw=JSON.stringify(candidate);await fs.writeFile(path.join(dir,candidate.name+'.json'),raw);records.push({name:candidate.name,sha256:hash(raw),score:candidate.comparisonScore,valid:candidate.validation.valid,...(candidate.roughLayoutMetrics?{semanticCompactnessScore:candidate.semanticCompactnessScore,roughLayoutScore:candidate.roughLayoutScore,rankingScore:candidate.comparisonScore+candidate.semanticCompactnessScore+candidate.roughLayoutScore}:{})});}
     await fs.writeFile(path.join(dir,'comparison.html'),comparisonReport(solved.candidates,baseline,{...config,reportMode:'cpsat-candidates',reportSource:sourceKind},contract,snapshot,prepared.receipt));
     await write('manifest.json',{...manifestBase,backend:'cpsat',parameters,candidates:records});
-    result={status:solved.status,backend:'cpsat',candidateCount:records.length,candidates:records,scope:solved.scope,nativeWrites:0,report:dir};await write('summary.json',result);log(result);if(solved.status==='no-candidate')process.exitCode=1;return result;
+    result={status:solved.status,...(solved.noCandidateReason?{noCandidateReason:solved.noCandidateReason}:{}),backend:'cpsat',candidateCount:records.length,candidates:records,scope:solved.scope,nativeWrites:0,report:dir};await write('summary.json',result);log(result);if(solved.status==='no-candidate')process.exitCode=1;return result;
   }
   else if(o['--catalog-count']){const count=Number(o['--catalog-count']);if(!Number.isInteger(count)||count<1||count>500)throw Error('INVALID_CATALOG_COUNT');result=await runCatalog({...common,count});}
   else result=await runLayoutSearch(common);

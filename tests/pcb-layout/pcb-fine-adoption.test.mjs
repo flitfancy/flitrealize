@@ -17,6 +17,22 @@ async function existingPlan(t){
   request.labels.additionalOwnerRefs=['U2'];
   return {...fixture,plan,request};
 }
+
+test('frozen component and label angle aliases do not become outside moves',async t=>{
+  const f=await fineFixture(t,{configureNative:n=>{
+    const c=n.components[1];c.Rotation=-90;
+    c.bbox={minX:c.X-5,maxX:c.X+5,minY:c.Y-10,maxY:c.Y+10};
+    const l=n.attributes[1];l.Y+=10;l.bbox.minY+=10;l.bbox.maxY+=10;
+  }}),plan=structuredClone(f.solved.candidate.plan),component=plan.components.find(c=>c.ref==='U2');
+  component.rotation=270;plan.labels.find(l=>l.owner==='U2').rotation=360;
+  const accepted=await adoptFineLayout({inputs:f.inputs,request:f.request,plan});
+  assert.equal(accepted.result.status,'candidate-passed',JSON.stringify(accepted.result.audit));
+  assert.equal(accepted.candidate.audit.outsidePreserved,true);
+  const changed=structuredClone(plan);changed.components.find(c=>c.ref==='U2').rotation=180;delete changed.components.find(c=>c.ref==='U2').body;
+  const rejected=await adoptFineLayout({inputs:f.inputs,request:f.request,plan:changed});
+  assert.equal(rejected.result.status,'candidate-rejected');assert.deepEqual(rejected.result.audit.outsidePoseChanges,['U2']);
+  assert.equal(f.f.control.modifications.length,0);assert.equal(f.f.control.saves,0);
+});
 test('adoption preserves reviewed poses, reconstructs native geometry and issues an offline application contract',async t=>{
   const f=await existingPlan(t),before=digest(f.inputs),original=digest(f.plan),directory=path.join(f.f.projectRoot,'adopt');
   const adopted=await adoptFineLayout({inputs:f.inputs,request:f.request,plan:f.plan,directory,provenance:{sourceFileHash:'original-file-proof'}});

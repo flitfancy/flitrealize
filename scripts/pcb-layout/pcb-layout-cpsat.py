@@ -149,6 +149,18 @@ def solve(data, compile_extension=None):
                 if not data.get("openPlacement"):
                     model.add(delta >= ceil(board["min" + suffix] - base - v["boardBox"]["min" + suffix])).only_enforce_if(active[index])
                     model.add(delta <= floor(board["max" + suffix] - base - v["boardBox"]["max" + suffix])).only_enforce_if(active[index])
+                facing = v.get("ownerFacing")
+                if facing and facing["axis"] == axis:
+                    # Strict owner-side half-plane of the glyph's bottom edge.
+                    # Keep strict half-planes without dropping valid fractional
+                    # grid positions; 180/270 remain distinct.
+                    target = facing["centerMil"] - base - facing["edgeOffsetMil"] - facing["sign"] * 1e-7
+                    if facing["sign"] == -1:
+                        model.add(delta >= floor(target) + 1).only_enforce_if(active[index])
+                    elif facing["sign"] == 1:
+                        model.add(delta <= ceil(target) - 1).only_enforce_if(active[index])
+                    else:
+                        raise ValueError("CPSAT_INVALID_OWNER_FACING")
                 radius = e.get("radiusMil")
                 if radius is not None:
                     offset = v.get("originOffset", {}).get(axis, 0)

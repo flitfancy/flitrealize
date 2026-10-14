@@ -305,8 +305,8 @@ test('rigid verifier shares top=minY edge names with the existing layout model',
   assert.equal(verifyRigidBlockPacking(input, { coreA: { x: 30, y: 30, rotation: 0 }, coreB: { x: 80, y: 70, rotation: 0 } }).valid, true);
 });
 
-test('runtime creates decoded candidates from cold starts with no external hints', { skip: runtimeSkip }, async () => {
-  const result = await runCpsatLayout(prepared(), { timeLimitSeconds: 2, workers: 1, resolutionMil: .5 }, { candidateCount: 2, maxRuns: 2, coldSeconds: 2, runtime });
+test('runtime creates decoded candidates directly with no external hints', { skip: runtimeSkip }, async () => {
+  const result = await runCpsatLayout(prepared(), { timeLimitSeconds: 2, workers: 1, resolutionMil: .5 }, { candidateCount: 2, maxRuns: 2, runtime });
   assert.equal(result.status, 'candidates-ready', JSON.stringify(result.runs)); assert.ok(result.candidates.length >= 1);
   for (const candidate of result.candidates) { assert.equal(candidate.validation.valid, true); assert.equal(candidate.stats.externalInitialHintCount, 0); assert.equal(candidate.stats.noInitialHints, true); }
 });

@@ -13,3 +13,25 @@ test('a pad is a distinct participant from its owner label',()=>{const a=frame()
 test('label pair dependencies use both label IDs',()=>{const a=frame(),b=structuredClone(a),i={code:'FINE_LABEL_LABEL_GAP',ids:['LA','LB'],refs:['A','B'],gapMil:-2,requiredMil:8};b.labels[0].x++;assert.equal(check(a,b,[i],[i]).blockingIssues.length,1);});
 test('new, worse, unknown or unidentified old issues are never retained',()=>{const a=frame();for(const [issues,old] of [[[issue],[]],[[{...issue,gapMil:-3}],[issue]],[[{code:'UNKNOWN',refs:['A']}],[{code:'UNKNOWN',refs:['A']}]],[[{...issue,id:'missing'}],[{...issue,id:'missing'}]]])assert.equal(check(a,a,issues,old).blockingIssues.length,1);assert.equal(check(a,a,[issue],[issue],{baselinePolicy:'require-clean'}).blockingIssues.length,1);});
 test('old cross-block pin distance still blocks when either physical endpoint moves',()=>{const a=frame(),b=structuredClone(a),i={code:'PIN_DISTANCE_LIMIT',refs:['A','B'],id:'cross',mil:100,maxMil:50};assert.equal(check(a,b,[i],[i]).blockingIssues.length,0);b.components[0].x++;assert.equal(check(a,b,[i],[i]).blockingIssues.length,1);});
+
+test('outside proof folds equivalent and seam angles but preserves real changes',()=>{
+  const a=frame(),b=structuredClone(a);b.components[0].rotation=359.999999;b.labels[1].rotation=360;
+  assert.equal(check(a,b).blockingIssues.length,0);
+  b.components[0].rotation=.01;assert.equal(check(a,b).blockingIssues.length,1);
+  a.components[0].rotation=360-7e-5;b.components[0].rotation=7e-5;
+  assert.equal(check(a,b).blockingIssues.length,1,'compare the pair directly; snapping both sides to zero hides a real change');
+});
+
+test('missing and invalid required rotations cannot prove unchanged participants',()=>{
+  for(const collection of ['components','labels'])for(const value of [null,undefined,NaN,'0']){
+    const a=frame(),index=collection==='components'?0:1;a[collection][index].rotation=value;
+    assert.equal(check(a,structuredClone(a)).blockingIssues.length,1);
+  }
+});
+
+test('optional pad rotation stays absent rather than becoming a zero-angle proof',()=>{
+  const a=frame(),b=structuredClone(a),i={code:'FINE_LABEL_PAD_GAP',id:'LB',owner:'B',ref:'A',padId:'PA',gapMil:-2,requiredMil:8};
+  assert.equal(check(a,b,[i],[i]).blockingIssues.length,0);
+  b.pads[0].rotation=0;assert.equal(check(a,b,[i],[i]).blockingIssues.length,1);
+  a.pads[0].rotation=null;b.pads[0].rotation=null;assert.equal(check(a,b,[i],[i]).blockingIssues.length,1);
+});

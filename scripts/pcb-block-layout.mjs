@@ -22,7 +22,7 @@ export async function runBlockLayout(request,{mode=request.mode??'pack',python,l
   if(mode==='open'){
     const prepared=prepareLayoutInputs(request.bundle);if(!prepared.state.ready)throw Error('BLOCK_LAYOUT_INPUT_NOT_READY');
     const {model,problem}=compileOpenBlockProblem(prepared.model,request.spec,request.settings);
-    return await runCpsatLayout(model,request.settings,{...request.options,problem,coldStart:true,runtime:{pythonPath:resolvePcbPython({python})},onProgress:log});
+    return await runCpsatLayout(model,request.settings,{...request.options,problem,runtime:{pythonPath:resolvePcbPython({python})},onProgress:log});
   }
   let atlas=request.atlas,model;
   if(request.bundle){
@@ -43,7 +43,7 @@ export async function main(args=process.argv.slice(2),{log=value=>console.log(JS
   if(o['--prepared']){if(request.bundle)throw Error('BLOCK_LAYOUT_DUPLICATE_BUNDLE');const source=path.resolve(root,o['--prepared']);request.bundle=await read((await fs.stat(source)).isDirectory()?path.join(source,'inputs.json'):source);}
   await fs.writeFile(path.join(directory,'input.json'),JSON.stringify(request));
   const result=await runBlockLayout(request,{mode,python:o['--python'],log});await fs.writeFile(path.join(directory,'result.json'),JSON.stringify(result,null,2));
-  const summary={status:result.status??'planned',mode,report:directory,candidates:result.candidates?.length,validation:result.verification?.status??result.status,nativeWrites:0,groundVerified:false,nativeDrcRun:false,requiresCompleteApplicationPlan:true};
+  const summary={status:result.status??'planned',...(result.noCandidateReason?{noCandidateReason:result.noCandidateReason}:{}),mode,report:directory,candidates:result.candidates?.length,validation:result.verification?.status??result.status,nativeWrites:0,groundVerified:false,nativeDrcRun:false,requiresCompleteApplicationPlan:true};
   await fs.writeFile(path.join(directory,'summary.json'),JSON.stringify(summary,null,2));log(summary);if(['failed','verification-failed','no-candidate'].includes(summary.status))process.exitCode=1;return{...result,summary};
 }
 if(isDirectExecution(import.meta.url))main().catch(error=>{console.error(JSON.stringify({status:'failed',error:error.message,nativeWrites:0}));process.exitCode=1;});

@@ -1,5 +1,5 @@
 import { measure } from './pcb-layout-solver-core.mjs';
-import { angle } from './pcb-layout-geometry.mjs';
+import { sameAngle } from './pcb-layout-geometry.mjs';
 
 // A view of the prepared public model, never a second editable source model.
 // Every backend uses this projection for subsets, optional labels and open space.
@@ -30,7 +30,7 @@ export function scopeLayoutModel(full, { refs = [...full.components.keys()], pla
   }
   const preservedFixedRefs = [...fixed.keys()];
   if (!Array.isArray(contextPlacements) || contextPlacements.some(p => !p || !selected.has(p.ref)) || new Set(contextPlacements.map(p => p.ref)).size !== contextPlacements.length) throw Error('INVALID_OPEN_CONTEXT');
-  const samePose = (a, b) => ['x', 'y', 'rotation'].every(key => a[key] === b[key]);
+  const samePose = (a, b) => ['x', 'y'].every(key => Number.isFinite(a[key]) && a[key] === b[key]) && sameAngle(a.rotation,b.rotation);
   for (const p of contextPlacements) {
     const pose = { ref: p.ref, x: p.x, y: p.y, rotation: p.rotation }, original = fixed.get(p.ref);
     if (original && !samePose(pose, original)) throw Error('OPEN_CONTEXT_FIXED_POSE_CONFLICT ' + p.ref);
@@ -40,11 +40,11 @@ export function scopeLayoutModel(full, { refs = [...full.components.keys()], pla
   let gauge;
   if (gaugeRef !== undefined) {
     const rotation = full.allowedRotations.get(gaugeRef).includes(0) ? 0 : full.allowedRotations.get(gaugeRef)[0], retainedGauge = fixed.get(gaugeRef);
-    gauge = { ref: gaugeRef, x: gaugePose?.x ?? retainedGauge?.x ?? 0, y: gaugePose?.y ?? retainedGauge?.y ?? 0, rotation: gaugePose?.rotation ?? retainedGauge?.rotation ?? rotation };
+    gauge = { ref: gaugeRef, x: gaugePose?.x !== undefined ? gaugePose.x : retainedGauge?.x ?? 0, y: gaugePose?.y !== undefined ? gaugePose.y : retainedGauge?.y ?? 0, rotation: gaugePose?.rotation !== undefined ? gaugePose.rotation : retainedGauge?.rotation ?? rotation };
     if (retainedGauge && !samePose(gauge, retainedGauge)) throw Error('OPEN_GAUGE_FIXED_POSE_CONFLICT ' + gaugeRef);
     fixed.set(gaugeRef, gauge); lockProvenance.set(gaugeRef, [...new Set([...(lockProvenance.get(gaugeRef) ?? []), 'open.gauge'])]);
   }
-  for (const p of fixed.values()) if (!['x', 'y', 'rotation'].every(k => Number.isFinite(p[k])) || !full.allowedRotations.get(p.ref).includes(angle(p.rotation))) throw Error('INVALID_OPEN_FIXED_POSE ' + p.ref);
+  for (const p of fixed.values()) if (!['x', 'y', 'rotation'].every(k => Number.isFinite(p[k])) || !full.allowedRotations.get(p.ref).some(r=>sameAngle(r,p.rotation))) throw Error('INVALID_OPEN_FIXED_POSE ' + p.ref);
   const assembly = full.assemblyPolicy ? { ...full.assemblyPolicy, records: full.assemblyPolicy.records.filter(include), pads: full.assemblyPolicy.pads.filter(includePad), pairClearancesMil: (full.assemblyPolicy.pairClearancesMil ?? []).filter(p => placementRefs.has(p.a) && placementRefs.has(p.b)) } : null;
   const scopedRelations = (full.spatialRules.relations ?? []).filter(r => selected.has(r.a) && r.anchors.every(ref => selected.has(ref)));
   const model = { ...full,
