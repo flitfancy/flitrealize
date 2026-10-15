@@ -183,5 +183,5 @@ test('stage recovery reconstructs its frozen spacing but preserves the existing 
   manifest.blockLayoutSpacing.requestedMil=24;await fs.writeFile(path.join(report,'manifest.json'),JSON.stringify(manifest));
   const changed=await run(root,['--mode','apply','--window-id','offline-fixture','--resume-save',receipt]);assert.equal(changed.ok,false);assert.match(changed.stderr,/RECOVERY_RULES_CHANGED/);
   assert.ok(!(await fs.readdir(report)).includes('layout-save.js'));
- }finally{assert.equal(path.dirname(path.resolve(root)),path.resolve(tmpdir()));assert.ok(path.basename(root).startsWith('layout-portable-'));await fs.rm(root,{recursive:true,force:true});}
+ }finally{assert.equal(path.dirname(path.resolve(root)),await fs.realpath(tmpdir()));assert.ok(path.basename(root).startsWith('layout-portable-'));await fs.rm(root,{recursive:true,force:true});}
 });
