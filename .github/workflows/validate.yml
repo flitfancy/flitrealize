@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 8
     env:
       FLITREALIZE_PYTHON: python
+      FLITREALIZE_PCB_PYTHON: python
       FLITREALIZE_CPSAT_PYTHON: python
       PCB_PREROUTE_PYTHON: python
     strategy:

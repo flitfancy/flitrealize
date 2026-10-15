@@ -4,12 +4,18 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing version tag to verify and publish"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -17,15 +23,55 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       FLITREALIZE_PYTHON: python
+      FLITREALIZE_PCB_PYTHON: python
       FLITREALIZE_CPSAT_PYTHON: python
       PCB_PREROUTE_PYTHON: python
     steps:
+      - name: Resolve existing version tag
+        id: source
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "$GITHUB_EVENT_NAME" in
+            push) [[ "$GITHUB_REF" == "refs/tags/$RELEASE_TAG" ]] ;;
+            workflow_dispatch) [[ "$GITHUB_REF" == "refs/heads/main" ]] ;;
+            *) exit 1 ;;
+          esac
+          if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "Expected an existing version tag, got: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          read -r kind oid < <(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" --jq '.object | [.type,.sha] | @tsv')
+          tag_object="$oid"
+          for depth in {1..8}; do
+            if [[ "$kind" == "commit" ]]; then break; fi
+            [[ "$kind" == "tag" && "$oid" =~ ^[0-9a-f]{40}$ ]]
+            read -r kind oid < <(gh api "repos/${GITHUB_REPOSITORY}/git/tags/${oid}" --jq '.object | [.type,.sha] | @tsv')
+          done
+          [[ "$kind" == "commit" && "$oid" =~ ^[0-9a-f]{40}$ ]]
+          echo "commit=$oid" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_COMMIT=$oid" >> "$GITHUB_ENV"
+          echo "SOURCE_TAG_OBJECT=$tag_object" >> "$GITHUB_ENV"
+          echo "Release $RELEASE_TAG source: $oid (tag object $tag_object)"
+          echo "Workflow commit: $GITHUB_SHA; release tag: $RELEASE_TAG; source commit: $oid" >> "$GITHUB_STEP_SUMMARY"
       - name: Check out tagged source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ steps.source.outputs.commit }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Verify checked-out tag and version
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_COMMIT" ]]
+          [[ "$(git rev-parse "refs/tags/${RELEASE_TAG}^{commit}")" == "$SOURCE_COMMIT" ]]
+          [[ "$(git rev-parse "refs/tags/${RELEASE_TAG}")" == "$SOURCE_TAG_OBJECT" ]]
+          [[ "v$(tr -d '\r\n' < VERSION)" == "$RELEASE_TAG" ]]
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -34,8 +80,8 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
-      - name: Scan committed additions
-        run: python scripts/scan_staged_secrets.py --github-event
+      - name: Scan complete tagged source
+        run: python scripts/scan_staged_secrets.py --range 4b825dc642cb6eb9a060e54bf8d69288fbee4904 "$SOURCE_COMMIT"
       - name: Validate repository
         run: python scripts/validate.py
       - name: Install Bridge dependencies
@@ -65,37 +111,63 @@ jobs:
           gh --version
           version="$(tr -d '\r\n' < VERSION)"
           tag="v${version}"
-          if [[ "$GITHUB_REF_NAME" != "$tag" ]]; then
-            echo "Tag $GITHUB_REF_NAME does not match VERSION $version" >&2
-            exit 1
-          fi
+          [[ "$RELEASE_TAG" == "$tag" && "$(git rev-parse HEAD)" == "$SOURCE_COMMIT" ]]
+          remote_tag_object="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}" --jq '.object.sha')"
+          [[ "$remote_tag_object" == "$SOURCE_TAG_OBJECT" ]]
 
           archive="dist/flitrealize-${version}.zip"
           checksum="${archive}.sha256"
           title="FlitRealize ${tag}"
           release_json="${RUNNER_TEMP}/release.json"
           existing_dir="${RUNNER_TEMP}/existing-release"
+          missing_assets=()
 
           if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" > "$release_json" 2>/dev/null; then
-            draft="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" --jq '.draft')"
+            python - "$release_json" "$NOTES_FILE" "$tag" "$title" "$version" <<'PY'
+          import json, sys
+          from pathlib import Path
+          release_file, notes_file, tag, title, version = sys.argv[1:]
+          release = json.loads(Path(release_file).read_text(encoding="utf-8"))
+          expected_notes = Path(notes_file).read_text(encoding="utf-8").strip()
+          if (release["tag_name"] != tag or release["name"] != title
+              or (release.get("body") or "").replace("\r\n", "\n").strip() != expected_notes
+              or release["prerelease"] != ("-" in version)):
+              raise SystemExit("Existing release metadata differs; refusing to overwrite it.")
+          expected = {f"flitrealize-{version}.zip", f"flitrealize-{version}.zip.sha256"}
+          if {asset["name"] for asset in release["assets"]} - expected:
+              raise SystemExit("Existing release has unexpected assets; refusing to alter it.")
+          PY
+            draft="$(jq -r '.draft' "$release_json")"
+            mkdir -p "$existing_dir"
+            for file in "$archive" "$checksum"; do
+              name="$(basename "$file")"
+              if jq -e --arg name "$name" '.assets[] | select(.name == $name)' "$release_json" > /dev/null; then
+                gh release download "$tag" --pattern "$name" --dir "$existing_dir"
+                cmp "$file" "$existing_dir/$name"
+              elif [[ "$draft" == "false" ]]; then
+                echo "Published release is missing $name; refusing to alter it." >&2
+                exit 1
+              else
+                missing_assets+=("$file")
+              fi
+            done
             if [[ "$draft" == "false" ]]; then
-              mkdir -p "$existing_dir"
-              gh release download "$tag" --pattern "$(basename "$archive")" --pattern "$(basename "$checksum")" --dir "$existing_dir"
-              cmp "$archive" "$existing_dir/$(basename "$archive")"
-              cmp "$checksum" "$existing_dir/$(basename "$checksum")"
-              echo "Release $tag is already published with matching deterministic assets."
+              echo "Release $tag is already published with matching notes and deterministic assets."
               exit 0
             fi
           else
-            create_args=("$tag" --verify-tag --draft --title "$title" --notes-file "$NOTES_FILE")
+            create_args=("$tag" --verify-tag --target "$SOURCE_COMMIT" --draft --title "$title" --notes-file "$NOTES_FILE")
             if [[ "$version" == *-* ]]; then
               create_args+=(--prerelease)
             fi
             gh release create "${create_args[@]}"
+            missing_assets=("$archive" "$checksum")
           fi
 
-          gh release upload "$tag" "$archive" "$checksum" --clobber
-          edit_args=("$tag" --draft=false --title "$title" --notes-file "$NOTES_FILE")
+          if (( ${#missing_assets[@]} > 0 )); then
+            gh release upload "$tag" "${missing_assets[@]}"
+          fi
+          edit_args=("$tag" --draft=false)
           if [[ "$version" == *-* ]]; then
             edit_args+=(--prerelease --latest=false)
           else
