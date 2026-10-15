@@ -2,9 +2,9 @@
 
 本机客户端 CLI 与网页 Bridge 都由 FlitRealize 原宿主 `eda-host.mjs` 调度；硬件操作仍在仓库根目录 `scripts/actions/`，这里不维护第二套业务入口。
 
-宿主的 `--channel cli|bridge`、`--cli-executable PATH` 及会话复用方式见 [0.3](../../docs/0.3-easyeda-pro.md#选择执行通道)，高层业务 CLI 使用原参数。官方 CLI 实现在 `scripts/providers/easyeda-pro/cli-channel.mjs`；这里提供 Bridge 运行时。CLI 的只读 API、doctor、会话与原请求查询已实测，其他操作按各自说明验证。
+通道选择、CLI 注册与传输、Bridge 准备、会话复用、原请求查询和通道验证范围统一见 [0.4-r EasyEDA Pro 软件通道](../../docs/providers/easyeda-pro/0.4-r-environment.md)。目标确认、保存回读与未知结果处理见 [0.3 共同执行规则](../../docs/0.3-easyeda-pro.md)。
 
-网页或明确选用 Bridge 时才按 [0.4](../../docs/providers/easyeda-pro/0.4-environment.md)安装 Gateway、通道依赖并建立连接；复用已连接服务。Bridge 的请求机制见 [bridge-recovery.md](references/bridge-recovery.md)，共同恢复判断仍在 0.3。
+官方 CLI 实现在 `scripts/providers/easyeda-pro/cli-channel.mjs`；这里提供 Bridge 运行时。Bridge 的请求机制见 [bridge-recovery.md](references/bridge-recovery.md)。以下维护本机回执、状态目录与 API 资料的内部说明。
 
 CLI 的本机回执在 FlitRealize 宿主目录 `cli/easyeda-pro/requests/<会话哈希>/`：请求认领文件与各阶段文件不可变，终态优先于 unknown，不通过重发操作恢复。Bridge 使用下节目录；共同未知结果处理只按 0.3。
 

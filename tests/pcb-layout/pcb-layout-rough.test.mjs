@@ -37,7 +37,7 @@ test('connection-side reservations rotate with observed pins and exempt declared
 });
 test('actual CP-SAT reserves a connected side and matches the independent intrusion count',{skip},async()=>{
  const m=model();m.config.hard.boardBounds={minX:-200,minY:-50,maxX:250,maxY:150};
- const p=compileSemanticCpSatProblem(m,{timeLimitSeconds:3,workers:1,resolutionMil:.5},{includeLabels:false,roughLayoutPolicy:{schemaVersion:1,groupCompactnessWeight:0,connectionSide:{weight:10,minimumConnectedPads:1,excludeNets:['GND'],depthLevels:[{minimumSidePads:1,depthMil:80}],exemptRelationKinds:[]}}}).problem;
+ const p=compileSemanticCpSatProblem(m,{timeLimitSeconds:3,workers:1,resolutionMil:.5},{includeLabels:false,roughLayoutPolicy:{schemaVersion:1,groupCompactnessWeight:1,connectionSide:{weight:10,minimumConnectedPads:1,excludeNets:['GND'],depthLevels:[{minimumSidePads:1,depthMil:80}],exemptRelationKinds:[]}}}).problem;
  assert.equal(p.roughLayout.bands[0].owner,'U1');
  p.bodyCoordinateBounds=[{ref:'C1',key:'maxX',minimumMil:-190,maximumMil:-18}];
  const control=structuredClone(p);control.roughLayout.connectionSideWeight=0;

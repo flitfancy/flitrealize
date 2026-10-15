@@ -256,9 +256,11 @@ export function validatePlan(model, plan) {
     const requiredMil = model.pairClearanceMap.get(clearancePairKey(actualBundles[i].ref, actualBundles[j].ref)) ?? model.mechanical.clearanceMil;
     if (gap < requiredMil - .001) issues.push({ code: 'MIN_CLEARANCE_UNSATISFIED', refs: [actualBundles[i].ref, actualBundles[j].ref], mil: gap, requiredMil });
   }
-  if (!issues.length) for (const l of model.limits) {
+  // Geometry defects must not hide independent distance/spatial failures.
+  const structurallyValid=!issues.some(i=>/INVALID|COUNT|IDS|FIXED_POSITION_CHANGED/.test(i.code));
+  if (structurallyValid) for (const [index,l] of model.limits.entries()) {
     const length = pairLength(l, positions).mil;
-    if (length > l.maxMil) issues.push({ code: 'PIN_DISTANCE_LIMIT', id: l.id, mil: length, maxMil: l.maxMil });
+    if (length > l.maxMil) issues.push({ code: 'PIN_DISTANCE_LIMIT', id: l.id??'source-limit:'+index+':'+l.a+'/'+l.b, refs:[...new Set([...l.left,...l.right].map(p=>p.owner??p.number))], endpoints:{left:l.left.map(p=>({id:p.id,owner:p.owner,number:p.number,net:p.net})),right:l.right.map(p=>({id:p.id,owner:p.owner,number:p.number,net:p.net}))}, mil: length, maxMil: l.maxMil });
   }
   const boardBounds = model.config.hard.boardBounds;
   if (boardBounds && !sameBox(plan.boardBounds, boardBounds)) issues.push({ code: 'PLAN_BOARD_BOUNDS_MISMATCH' });
@@ -270,9 +272,9 @@ export function validatePlan(model, plan) {
     });
     issues.push(...checkBoardBounds(boardBounds, [...actualBundles.map(b => ({...b,kind:'placement'})), ...pads]));
   }
-  const edge = !issues.length ? checkEdges(model.edgeRules, plan.components, boardBounds) : { issues: [], details: [], ...(boardBounds ? { envelope: boardBounds, boundarySource: 'board' } : {}) };
-  const block = !issues.length ? checkBlocks(model.blockRules, plan.components) : { issues: [], details: [] };
-  const geometry = !issues.length ? buildGeometryViews(model.geometryModel, plan.components, plan.labels, plan.testPads) : null;
+  const edge = structurallyValid ? checkEdges(model.edgeRules, plan.components, boardBounds) : { issues: [], details: [], ...(boardBounds ? { envelope: boardBounds, boundarySource: 'board' } : {}) };
+  const block = structurallyValid ? checkBlocks(model.blockRules, plan.components) : { issues: [], details: [] };
+  const geometry = structurallyValid ? buildGeometryViews(model.geometryModel, plan.components, plan.labels, plan.testPads) : null;
   const spatial = geometry ? evaluateSpatial(model.spatialRules, plan.components, plan.bundles, geometry) : { issues: [] };
   const coupling = geometry ? evaluateBlockCoupling(model.couplingModel, plan.components, geometry.pads) : { issues: [] };
   const spacingPolicy = geometry ? evaluateSpacingPolicy(model.spacingPolicy, geometry, plan.components.map(c => c.ref)) : null;

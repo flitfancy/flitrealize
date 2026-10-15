@@ -915,7 +915,15 @@ function translateSource(model,deltas) {
     if(noConnectSnapshot.size)summary.noConnectRestore={expected:noConnectSnapshot.size,restored:ncRestore.restored};
   }
   const readback=await eda.sys_FileManager.getDocumentSource();
-  if(canonical(readback)!==canonical(planned.source))throw new Error('Reflow readback mismatch; retain the plan backup and inspect current state');
+  if(canonical(readback)!==canonical(planned.source)){
+    const actual=new Map(readRecords(readback).records.map(r=>[r.head.id,r]));
+    const differences=readRecords(planned.source).records.filter(r=>r.head.type!=='DOCHEAD').flatMap(r=>{
+      const seen=actual.get(r.head.id);if(!seen)return [{id:r.head.id,type:r.head.type,missing:true}];
+      const keys=[...new Set([...Object.keys(r.payload),...Object.keys(seen.payload)])].filter(k=>JSON.stringify(r.payload[k])!==JSON.stringify(seen.payload[k]));
+      return keys.length?[{id:r.head.id,type:r.head.type,key:r.payload.key,changes:keys.map(k=>({key:k,expected:r.payload[k],actual:seen.payload[k]}))}]:[];
+    });
+    throw new Error('Reflow readback mismatch; retain the plan backup and inspect current state: '+JSON.stringify(differences.slice(0,8)));
+  }
   if(!await eda.sch_Document.save())throw new Error('Document save failed; inspect current state and retain the plan backup');
   const saved=await eda.sys_FileManager.getDocumentSource();
   if(canonical(saved)!==canonical(planned.source))throw new Error('Saved source differs from reflow plan');

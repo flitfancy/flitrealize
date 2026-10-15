@@ -32,7 +32,7 @@ const planned = await saveVerifyAction(eda, { mode: 'plan' });
 assert.equal(planned.status, 'planned');
 assert.equal(planned.readOnly, true);
 assert.equal(eda.saveCount, 0);
-assert.equal(eda.drcCount, 0);
+assert.equal(eda.drcCount, 1, 'plan retains a DRC baseline without saving');
 
 const verified = await saveVerifyAction(eda, {
   mode: 'verify',
@@ -44,7 +44,7 @@ assert.equal(verified.readOnly, true);
 assert.equal(verified.saved, null);
 assert.equal(verified.saveChecked, false);
 assert.equal(eda.saveCount, 0, 'verify must not save the document');
-assert.equal(eda.drcCount, 1);
+assert.equal(eda.drcCount, 2);
 
 const withoutDrc = await saveVerifyAction(eda, {
   mode: 'verify', expectedDocumentUuid: 'doc-save', runDrc: false,
@@ -54,7 +54,7 @@ assert.deepEqual(withoutDrc.issues, []);
 assert.equal(withoutDrc.drc.skipped, true);
 assert.equal(withoutDrc.saved, null);
 assert.equal(withoutDrc.saveChecked, false);
-assert.equal(eda.drcCount, 1, 'skipped DRC is neither run nor reported as failed');
+assert.equal(eda.drcCount, 2, 'skipped DRC is neither run nor reported as failed');
 assert.equal(eda.saveCount, 0);
 
 const applied = await saveVerifyAction(eda, planned.applyRequest);
@@ -62,7 +62,7 @@ assert.equal(applied.status, 'applied');
 assert.equal(applied.readOnly, false);
 assert.equal(applied.saved, true);
 assert.equal(eda.saveCount, 1);
-assert.equal(eda.drcCount, 2);
+assert.equal(eda.drcCount, 3);
 
 const failingEda = createMockEda(false);
 const failingPlan = await saveVerifyAction(failingEda, { mode: 'plan' });
@@ -80,3 +80,48 @@ for (const [raw, passed, count] of [[[], true, 0], [[{ type: 'warn', count: 4 }]
 }
 
 process.stdout.write('schematic-save-verify tests passed\n');
+
+const source = '{"type":"COMPONENT","id":"comp-1"}||{"x":100,"y":200}|';
+const oldIssue = { type: 'warn', rule: 'old-clearance', primitives: ['comp-1'], measured: 4, required: 6 };
+for (const [name, current, accepted] of [
+  ['identical old item', [oldIssue], true],
+  ['resolved old item', [], true],
+  ['same count different object', [{ ...oldIssue, primitives: ['other'] }], false],
+  ['same count different rule', [{ ...oldIssue, rule: 'short' }], false],
+  ['worsened measurement', [{ ...oldIssue, measured: 3 }], false],
+  ['unproven changed measurement', [{ ...oldIssue, measured: 5 }], false],
+  ['new duplicate', [oldIssue, oldIssue], false],
+]) {
+  const mock = createMockEda();
+  mock.sys_FileManager = { async getDocumentSource() { return source; } };
+  mock.sch_Drc.check = async () => [oldIssue];
+  const plan = await saveVerifyAction(mock, { mode: 'plan', expectedDocumentUuid: 'doc-save', executionSource: source });
+  mock.sch_Drc.check = async () => current;
+  const result = await saveVerifyAction(mock, plan.applyRequest);
+  assert.equal(result.saved, true, name);
+  assert.equal(result.status, accepted ? 'applied' : 'apply-failed', name);
+  assert.equal(result.drc.comparison.passed, accepted, name);
+  if (current.length) assert.equal(result.drc.passed, false, 'strict zero remains separate from increment acceptance');
+}
+for (const raw of [[{ type: 'warn', count: 1 }], [{ type: 'warn', rule: 'missing-objects', primitives: [] }]]) {
+  const mock = createMockEda(); mock.sys_FileManager = { getDocumentSource: async () => source }; mock.sch_Drc.check = async () => raw;
+  const plan = await saveVerifyAction(mock, { mode: 'plan' });
+  const result = await saveVerifyAction(mock, plan.applyRequest);
+  assert.equal(result.status, 'apply-failed', 'identical incomplete evidence must remain strict');
+  assert.equal(result.drc.comparison.coverage, 'strict-zero');
+}
+{
+  const mock = createMockEda(); mock.sch_Drc.check = async () => [oldIssue];
+  const result = await saveVerifyAction(mock, { mode: 'verify', expectedDocumentUuid: 'doc-save' });
+  assert.equal(result.status, 'verify-failed', 'a new verify does not invent the old baseline');
+}
+{
+  const mock = createMockEda();
+  const original = mock.sch_Document.save;
+  mock.sch_Document.save = async () => { await original(); mock.sch_PrimitiveComponent.getAll = async () => { throw new Error('readback unavailable'); }; return true; };
+  const plan = await saveVerifyAction(mock, { mode: 'plan' });
+  const result = await saveVerifyAction(mock, plan.applyRequest);
+  assert.equal(result.saved, true);
+  assert.equal(result.status, 'apply-failed');
+  assert.equal(result.drc.passed, null);
+}

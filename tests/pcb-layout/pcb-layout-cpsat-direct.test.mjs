@@ -27,6 +27,7 @@ function rotationModel({ x = 100, rotation = 0, maxMil = 10.5 } = {}) {
     pad.x = component.x + (component.rotation === 180 ? -9 : 9);
     pad.bbox = box(pad.x, pad.y, 1);
   }
+  fixture.config.roughLayoutPolicy={schemaVersion:1,clearanceMil:8}; // Explicit stage override keeps this pad-limit rotation fixture feasible.
   const prepared = prepareLayoutInputs(fixture);
   assert.equal(prepared.state.ready, true, JSON.stringify(prepared.diagnostics));
   return scopeLayoutModel(prepared.model, { includeLabels: false });
@@ -89,7 +90,7 @@ test('solver budget exhaustion remains distinct from a proof of infeasibility', 
   const template = problem.entities.find(e => !e.fixed);
   problem.board = { minX: -500, minY: -500, maxX: 1500, maxY: 1500 };
   problem.entities = Array.from({ length: 32 }, (_, i) => ({ ...structuredClone(template), ref: 'P'+i, id: 'P'+i, fixed: false }));
-  problem.pairs = []; problem.limits = []; problem.links = []; problem.nets = []; problem.semanticGroups = [];
+  problem.pairs = []; problem.limits = []; problem.links = []; problem.nets = []; problem.semanticGroups = []; delete problem.blockLayout;
   for (let i = 0; i < 32; i++) for (let j = i+1; j < 32; j++) {
     const a = problem.entities[i], b = problem.entities[j], id = Object.keys(template.variants[0].pads)[0];
     problem.pairs.push({ a: a.ref, b: b.ref, gapMil: 8, physicalGapMil: 8 });

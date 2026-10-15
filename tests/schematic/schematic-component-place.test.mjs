@@ -288,4 +288,50 @@ await assert.rejects(
   (error) => error.code === 'INVALID_PLAN_ITEM',
 );
 
+// Desktop stub returning undefined may fall back only to a unique exact search.
+for (const scenario of ['valid', 'prefix-page', 'wrong-id', 'duplicate']) {
+  const desktopCatalog = createMockEda({ supplierCanonicalValue: '1.18kΩ' });
+  desktopCatalog.lib_Device.getByLcscIds = async () => undefined;
+  desktopCatalog.lib_Device.search = async key => {
+    const record = { supplierId: scenario === 'wrong-id' ? 'C999' : 'C123', manufacturerId: 'MPN-1', otherProperty: { Value: '1.18kΩ' } };
+    if (scenario === 'prefix-page' && key === 'C123') return [{ ...record, supplierId: 'C123456' }];
+    return scenario === 'duplicate' ? [record, record] : [record];
+  };
+  const plan = await placeAction(desktopCatalog, { mode: 'plan', expectedDocumentUuid: 'sch-place-uuid', plan: catalogPlan.plan });
+  const result = await placeAction(desktopCatalog, plan.applyRequest);
+  if (scenario === 'valid' || scenario === 'prefix-page') {
+    assert.equal(result.status, 'applied');
+    assert.equal(result.created[0].valueResolution.lookup, scenario === 'prefix-page' ? 'search-manufacturer' : 'search');
+  } else {
+    assert.equal(result.status, 'rolled-back');
+    assert.equal(result.error.code, 'SUPPLIER_VALUE_UNRESOLVED');
+  }
+}
+
+// The real editor regenerates DOCHEAD export stamps on every read. That must
+// not block occupancy inspection, while changed identity or canvas still must.
+for (const changed of ['none', 'identity', 'canvas']) {
+  const localEda = createMockEda();
+  let sourceReads = 0;
+  localEda.sys_FileManager = { async getDocumentSource() {
+    sourceReads++;
+    const uuid = changed === 'identity' && sourceReads > 1 ? 'other-page' : 'sch-place-uuid';
+    const originX = changed === 'canvas' && sourceReads > 1 ? 10 : 0;
+    return [
+      `${JSON.stringify({ type: 'DOCHEAD' })}||${JSON.stringify({ docType: 'SCH_PAGE', uuid, client: `read-${sourceReads}`, updateTime: sourceReads, version: String(sourceReads), editVersion: '4.1.71' })}|`,
+      `${JSON.stringify({ type: 'CANVAS', id: 'CANVAS' })}||${JSON.stringify({ originX, originY: 0 })}|`,
+    ].join('\n');
+  } };
+  localEda.sch_Primitive = { async getPrimitivesBBox(ids) {
+    assert.ok(!ids.includes('CANVAS'), 'document settings have no drawable bbox');
+    return { minX: 0, minY: 0, maxX: 100, maxY: 100 };
+  } };
+  if (changed === 'none') {
+    const result = await placeAction(localEda, { mode: 'inspect', includeLocalEvidence: true });
+    assert.equal(result.state.localEvidence.complete, true);
+  } else {
+    await assert.rejects(() => placeAction(localEda, { mode: 'inspect', includeLocalEvidence: true }), error => error.code === 'STATE_CHANGED_DURING_INSPECTION', changed);
+  }
+}
+
 process.stdout.write('schematic-component-place tests passed\n');

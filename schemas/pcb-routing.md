@@ -1,6 +1,6 @@
 # PCB 走线数据约定
 
-本页集中网络规则、FR、预走线及地空间的现有公共字段与结果说明。调用及支持范围见[网络规划](../docs/providers/easyeda-pro/3.6-pcb-routing-plan.md)、[FR](../docs/providers/easyeda-pro/pcb-autorouting.md)和[预走线](../docs/technical/pcb-prerouting.md)。两种后端仍使用各自现有格式。
+本页集中网络规则、FR、预走线及地空间的现有公共字段与结果说明。调用及支持范围见[网络规划](../docs/technical/pcb-prerouting.md#网络规则规划)、[FR](../docs/providers/easyeda-pro/3.8-r-pcb-autorouting.md)和[预走线](../docs/technical/pcb-prerouting.md)。两种后端仍使用各自现有格式。
 
 ## 网络规则规划输入
 
@@ -77,6 +77,10 @@ netNames 来自目标 PCB 的实际网络清单，不从 rules.classes 派生。
 - `candidate-set.json`：有归属的写入对象及允许重布范围。
 - `workflow.json`：每任务状态、警告/阻塞、各阶段计时、保存和回读结果。
 
+`candidate-set.before.drc` 沿用 capture 的完整原生报告；原生事务保留 `drcBaseline/drc`，写后结果保留完整 `drc` 与 `drcSummary.comparison`。物理叶项按对象、规则上下文及完整内容作多重集比较，`physicalDrcCount` 不改为验收分数；非物理分组和任务连通另行报告。缺证据回退零物理违规要求。保存已确认但回读失败返回 `saved-readback-failed, saved:true`，仅保存失败返回 `save-failed, saved:false`；工作流不能因回读失败清除已确认的保存事实。具体边界见[自动布线验收](../docs/providers/easyeda-pro/3.8-r-pcb-autorouting.md#输出和验收)。
+
+保存异常或不确定返回值表示 `outcome-unknown, saved:null, uncertainWrite:true`，原事务保持未决，不能续保存或重放 apply。`save-failed` 只覆盖明确未保存的结果。
+
 ## 预走线请求字段
 
 | 最小字段 | 来源/用途 |
@@ -99,7 +103,7 @@ Python A* 输入支持已保存的规范化 `boardMil/pads/segments/vias/nets`�
 
 prepare消费 `policy.layers[].signalRoutingAllowed:false`：该层不得进入自动trace允许集合，声明角色/分支引用它会拒绝；`ground_plane` 仍委托接地流程。公共用途经 `{id,purpose}` 或 `options.layerMap` 显式转ID，角色 `allowedLayers` 与 `viaTransition` 的用途字段也使用这张映射；不猜其他软件适配层的层号。
 
-两层A*不会因输入含主干过渡字段就取得FR的并联拓扑验收。冻结输入保留 `ruleCoverage.mainViaTransitionTopologyVerified:false`，`mainViaTransitionBackend:'FR'`；多层载流主干的过渡/正整数并联数量与实际铜验收按 [FR说明](../docs/providers/easyeda-pro/pcb-autorouting.md#输入和职责)。层映射、预留层检查及A*连通通过分别报告，不能互相替代。
+两层A*不会因输入含主干过渡字段就取得FR的并联拓扑验收。冻结输入保留 `ruleCoverage.mainViaTransitionTopologyVerified:false`，`mainViaTransitionBackend:'FR'`；多层载流主干的过渡/正整数并联数量与实际铜验收按 [FR说明](../docs/providers/easyeda-pro/3.8-r-pcb-autorouting.md#输入和职责)。层映射、预留层检查及A*连通通过分别报告，不能互相替代。
 
 ## 地空间输入
 
@@ -107,4 +111,4 @@ prepare消费 `policy.layers[].signalRoutingAllowed:false`：该层不得进入�
 
 ## 地空间输出
 
-输出 `ground-space.json`、`ground-link-plan.json` 和可选采样数组，保留面积、分割区、核心宽度、孔槽位及相关线长／层占用。结果标明 `groundCopperCreated:false`、`groundConnectivityVerified:false`、`nativeWrites:0`。模型解释、用途与未覆盖条件见 [布局诊断](../docs/technical/pcb-ground-space.md)，实际铺铜与回流分别按 [3.9.1](../docs/providers/easyeda-pro/3.9.1-pcb-ground-pours.md) 和 [3.9.2](../docs/providers/easyeda-pro/3.9.2-pcb-grounding.md) 验证。
+输出 `ground-space.json`、`ground-link-plan.json` 和可选采样数组，保留面积、分割区、核心宽度、孔槽位及相关线长／层占用。结果标明 `groundCopperCreated:false`、`groundConnectivityVerified:false`、`nativeWrites:0`。模型解释、用途与未覆盖条件见 [布局诊断](../docs/technical/pcb-ground-space.md)，实际铺铜与回流分别按 [3.9.1](../docs/3.9.1-pcb-ground-pours.md) 和 [3.9.2](../docs/3.9.2-pcb-grounding.md) 验证。

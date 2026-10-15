@@ -38,7 +38,7 @@ test('apply creates wires, hidden-name markers and NC before complete reflow, st
   assert.equal(result.checks.reflow.status, 'verified');
   assert.equal(result.checks.noConnect.status, 'verified');
   assert.deepEqual(f.eda.drcArgs, [true, false, true]);
-  assert.equal(f.eda.calls.at(-1).action, 'schematic-inspect');
+  assert.equal(f.eda.calls.at(-1).action, 'schematic-component-place', 'the final source read includes native occupancy');
   const audit = JSON.parse(await readFile(join(result.runDir, 'saved-audit.json'), 'utf8'));
   assert.equal(audit.verified, true);
   assert(await readFile(join(result.runDir, 'before.esch'), 'utf8'));
@@ -137,7 +137,7 @@ test('saving successfully with failed strict DRC never reports the schematic com
   assert.equal(result.checks.drc.passed, false);
   assert.equal(result.status, 'blocked');
   assert.equal(f.eda.saveCount, 1);
-  assert.equal(f.eda.drcCount, 1);
+  assert.equal(f.eda.drcCount, 2);
 });
 
 test('a lost mutation reply stops the run and retains its active ownership file', async t => {
@@ -210,12 +210,14 @@ test('check verifies a completed schematic without saving or mutating it', async
   assert.equal(checked.saved, null);
   assert.equal(mutations(f.eda).length, before);
   assert.equal(f.eda.saveCount, 1);
-  assert.equal(f.eda.drcCount, 2);
+  assert.equal(f.eda.drcCount, 3);
 });
 
 test('an unrelated BOM flag edit survives local wiring with the original wire-plan provenance', async t => {
   const f = await connectFixture(t);
   f.input.designators = ['U1'];
+  f.contract.nets[0].endpoints = [{ component: 'U1', pin: '1' }];
+  await f.writeContract();
   await f.writeInput();
   let inspections = 0;
   const invoke = async (action, request, context) => {
@@ -254,7 +256,7 @@ test('target Value and pin-network changes block local connect before the first 
   });
 });
 
-test('unsupported external geometry drift reports its gap and does not bypass wire-create SOURCE_GEOMETRY_STALE', async t => {
+test('a related network member move blocks, and a legacy wire plan still requires unchanged full geometry', async t => {
   const f = await connectFixture(t);
   f.input.designators = ['U1'];
   await f.writeInput();
@@ -264,10 +266,12 @@ test('unsupported external geometry drift reports its gap and does not bypass wi
     return f.invoke(action, request, context);
   };
   const result = await runSchematicConnect({ ...options(f), invoke, apply: true });
-  assert.equal(result.error.code, 'LOCAL_CHANGE_UNPROVEN');
+  assert.equal(result.error.code, 'RELATED_SCHEMATIC_CHANGED');
   assert.equal(f.eda.wireCreates, 0);
   const original = JSON.parse(await readFile(join(result.runDir, 'initial-plan.json'), 'utf8'));
   const action = await loadAction('schematic-wire-create', 'easyeda-pro');
+  delete original.wirePlan.source.nativeSource;
+  delete original.wirePlan.source.localDependencies;
   const lower = await action(f.eda, { mode: 'plan', plan: original.wirePlan });
   assert(lower.analysis.globalIssues.some(issue => issue.code === 'SOURCE_GEOMETRY_STALE'));
 });
@@ -332,4 +336,87 @@ test('a source race during one NC write stops before modifying the next pin', as
   assert.equal(result.error.code, 'EXECUTION_SOURCE_CHANGED');
   assert.equal(f.eda.ncWrites, 1);
   assert.equal(f.eda.saveCount, 0);
+});
+
+function nativeBounds(eda, textBounds = { minX: 800, minY: 800, maxX: 900, maxY: 820 }) {
+  eda.sch_Primitive = { async getPrimitivesBBox([id]) {
+    if (id === 'note') return textBounds;
+    const part = eda.parts.find(part => part.id === id);
+    if (part) return { minX: Math.min(part.x, ...part.pins.map(pin => pin.x)) - 2, maxX: Math.max(part.x, ...part.pins.map(pin => pin.x)) + 2,
+      minY: Math.min(part.y, ...part.pins.map(pin => pin.y)) - 2, maxY: Math.max(part.y, ...part.pins.map(pin => pin.y)) + 2 };
+    return null;
+  } };
+}
+async function isolatedFixture(t) {
+  const f = await connectFixture(t); f.input.designators = ['U1'];
+  f.contract.nets[0].endpoints = [{ component: 'U1', pin: '1' }];
+  await f.writeInput(); await f.writeContract(); return f;
+}
+
+test('an unrelated move and remote source text retain the original candidate and user content', async t => {
+  for (const kind of ['move', 'text']) await t.test(kind, async t => {
+    const f = await isolatedFixture(t); nativeBounds(f.eda); let inspections = 0;
+    const invoke = async (action, request, context) => {
+      if (action === 'schematic-inspect' && ++inspections === 2) {
+        if (kind === 'move') f.eda.parts[1].x += 10; else f.eda.note = 'keep this remote note';
+      }
+      return f.invoke(action, request, context);
+    };
+    const result = await runSchematicConnect({ ...options(f), invoke, apply: true });
+    assert.equal(result.ok, true, explain(result)); assert.equal(result.preservedChanges.length, 1);
+    if (kind === 'move') assert.equal(f.eda.parts[1].x, 210); else assert.equal(f.eda.note, 'keep this remote note');
+    const original = JSON.parse(await readFile(join(result.runDir, 'initial-plan.json'), 'utf8'));
+    const request = JSON.parse(await readFile(result.steps.find(step => step.name === 'wire-0-plan').inputFile, 'utf8'));
+    assert.deepEqual(request.plan.source, original.wirePlan.source);
+    assert.equal(request.plan.fingerprints.plan, original.wirePlan.fingerprints.plan);
+    assert.notEqual(request.plan.executionSource, request.plan.source.nativeSource);
+  });
+});
+test('a moved obstacle, missing bounds or changed settings cannot pass local preflight', async t => {
+  for (const kind of ['obstacle', 'missing-bounds', 'settings']) await t.test(kind, async t => {
+    const f = await isolatedFixture(t); if (kind === 'obstacle') nativeBounds(f.eda);
+    let inspections = 0; const originalSource = f.eda.source;
+    const invoke = async (action, request, context) => {
+      if (action === 'schematic-inspect' && ++inspections === 2) {
+        if (kind === 'obstacle') f.eda.parts[1].x = 30;
+        else if (kind === 'missing-bounds') f.eda.parts[1].x += 10;
+        else f.eda.source = () => originalSource() + '\n{"type":"SETTINGS","id":"settings"}||{"grid":4}|';
+      }
+      return f.invoke(action, request, context);
+    };
+    const result = await runSchematicConnect({ ...options(f), invoke, apply: true });
+    assert.equal(result.error.code, kind === 'obstacle' ? 'TARGET_OCCUPIED' : 'LOCAL_CHANGE_UNPROVEN', explain(result));
+    assert.equal(f.eda.wireCreates, 0); assert.equal(f.eda.saveCount, 0);
+  });
+});
+test('an existing related wire or port change rejects the local candidate', async t => {
+  for (const kind of ['wire', 'port']) await t.test(kind, async t => {
+    const f = await connectFixture(t); assert.equal((await apply(f)).ok, true); let inspections = 0;
+    const invoke = async (action, request, context) => {
+      if (action === 'schematic-inspect' && ++inspections === 2) {
+        if (kind === 'wire') f.eda.wires[0].points[2] += 1; else f.eda.markers[0].x += 1;
+      }
+      return f.invoke(action, request, context);
+    };
+    const result = await runSchematicConnect({ ...options(f), invoke, apply: true });
+    assert.equal(result.error.code, 'RELATED_SCHEMATIC_CHANGED', explain(result)); assert.equal(f.eda.saveCount, 1);
+  });
+});
+test('the connection workflow preserves old complete DRC records and blocks a same-count replacement', async t => {
+  for (const changed of [false, true]) await t.test(String(changed), async t => {
+    const f = await connectFixture(t);
+    const old = { type: 'warn', rule: 'unrelated-old-rule', primitives: ['part-2'] };
+    f.eda.sch_Drc.check = async () => f.eda.wires.length && changed ? [{ ...old, rule: 'new-rule' }] : [old];
+    const result = await apply(f); assert.equal(result.ok, !changed, explain(result)); assert.equal(result.saved, true);
+    assert.equal(result.checks.drc.passed, false); assert.equal(result.checks.drc.comparison.passed, !changed);
+    const baseline = result.steps.find(step => step.name === 'drc-baseline');
+    assert(baseline); assert(result.steps.indexOf(baseline) < result.steps.findIndex(step => step.mutates));
+  });
+});
+
+test('a thrown save is unknown and cannot be retried as a known save failure', async t => {
+  const f = await connectFixture(t);
+  f.eda.sch_Document.save = async () => { f.eda.saveCount++; throw new Error('save reply lost'); };
+  const result = await apply(f); assert.equal(result.status, 'outcome-unknown'); assert.equal(result.saved, null);
+  assert.equal((await apply(f)).error.code, 'UNRESOLVED_RUN'); assert.equal(f.eda.saveCount, 1);
 });

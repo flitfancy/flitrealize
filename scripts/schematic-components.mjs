@@ -7,11 +7,13 @@ import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { sourceChanges, placementOccupancy, targetBounds, assertPreserved } from './lib/schematic-local-state.mjs';
+import { sourceChanges, sourceRecords, placementOccupancy, targetBounds, assertPreserved } from './lib/schematic-local-state.mjs';
 
 const SCRIPT_ROOT = dirname(fileURLToPath(import.meta.url));
 const PLACE = 'schematic-component-place', SAVE = 'schematic-save-verify';
 const terminalStatuses = action => action === PLACE ? ['applied', 'apply-failed', 'blocked', 'rolled-back', 'rollback-incomplete'] : ['applied', 'apply-failed'];
+const settled = (action, result, response = {}) => terminalStatuses(action).includes(result?.status) && result?.uncertainWrite !== true
+  && response.success !== false && response.executionOutcome !== 'unknown' && !['unknown', 'in-flight'].includes(response.status);
 const HELP = `原理图批量放件：审计 → 绑定 → 布局计划 → 代表器件 → 分批放件/回读 → 保存/回读。
 node scripts/schematic-components.mjs --project-root <绝对路径> --input-file <项目内 JSON> --window-id <窗口> [--apply]
 node scripts/schematic-components.mjs --project-root <绝对路径> --resume <该项目内运行目录> --window-id <窗口> [--apply | --close]
@@ -19,7 +21,7 @@ node scripts/schematic-components.mjs --project-root <绝对路径> --resume <�
 --apply 允许本次放件和保存。续接也必须显式传 --apply 才能写入。
 --resume 默认只读对账；--close 在确认无未知写入后结束旧批次、保留现场，供重新规划。
 不连线、不重排已有对象、不运行整图 DRC、不自动删除或回滚。不重放结果未知的写入。
-输入格式、恢复边界和完整示例见 docs/providers/easyeda-pro/2.3-component-batch.md。`;
+输入格式、恢复边界和完整示例见 docs/providers/easyeda-pro/2.1-r-component-batch.md。`;
 const stable = value => Array.isArray(value) ? '[' + value.map(stable).join(',') + ']'
   : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + stable(value[k])).join(',') + '}' : JSON.stringify(value);
 const sha = value => createHash('sha256').update(value).digest('hex');
@@ -105,7 +107,16 @@ function reconcile(state, baseline, owned, desired, reportOnly = false, ownedSta
   let externalSourceChanges = [];
   try {
     externalSourceChanges = sourceChanges(baseline.localEvidence?.source, state.localEvidence?.source, [...ownedIds]);
-    if (ownedSource && sourceChanges(ownedSource, state.localEvidence?.source).some(change => change.before && (ownedIds.has(change.root) || ownedIds.has(change.beforeRoot)))) issue('CREATED_COMPONENT_CHANGED', '已创建目标对象的源码属性或引脚发生变化。');
+    if (ownedSource) {
+      const previousOwnedIds = new Set(sourceRecords(ownedSource).map(record => record.head.id).filter(id => ownedIds.has(id)));
+      if (sourceChanges(ownedSource, state.localEvidence?.source).some(change => previousOwnedIds.has(change.root) || previousOwnedIds.has(change.beforeRoot))) issue('CREATED_COMPONENT_CHANGED', '已创建目标对象的源码属性或引脚发生变化。');
+    }
+    const originalRecords = sourceRecords(baseline.localEvidence?.source), currentRecords = sourceRecords(state.localEvidence?.source);
+    const spatialTypes = new Set(['COMPONENT', 'PIN', 'WIRE', 'LINE', 'POLYLINE', 'POLYGON', 'RECT', 'ARC', 'CIRCLE', 'ELLIPSE', 'TEXT', 'JUNCTION']);
+    for (const change of externalSourceChanges) {
+      const roots = [currentRecords.find(record => record.head.id === change.root), originalRecords.find(record => record.head.id === change.beforeRoot)].filter(Boolean);
+      if (!roots.length || roots.some(record => !spatialTypes.has(record.head.type))) issue('LOCAL_SOURCE_DEPENDENCY_CHANGED', '源码设置或未知类型变化不能凭占位边界证明无关。', { id: change.id });
+    }
   } catch (error) {
     issue(error.code, error.message); // A failed source read never proves that only unrelated components changed.
   }
@@ -149,7 +160,8 @@ export function actionInvoker(projectRoot, windowId) {
     catch (error) { failure = error; }
     let report;
     try { report = await json(context.reportFile); } catch { /* No conclusive result was written. */ }
-    if (report?.action === action && report.mode === input.mode && report.response?.success !== false && report.response?.result) return report.response.result;
+    if (report?.action === action && report.mode === input.mode && report.response?.success !== false && report.response?.result
+      && report.response.executionOutcome !== 'unknown' && !['unknown', 'in-flight'].includes(report.response.status)) return report.response.result;
     throw Object.assign(new Error(failure?.message || 'Action did not return a result'), { code: 'ACTION_OUTCOME_UNKNOWN' });
   };
 }
@@ -225,7 +237,7 @@ export async function runComponentBatch(options) {
       // The production runner already wrote its complete report. Tests use the same envelope.
       try { await stat(reportFile); }
       catch (error) { if (error.code !== 'ENOENT') throw error; await atomic(reportFile, { action, mode: input.mode, response: { success: true, result } }); }
-      if (mutates && !terminalStatuses(action).includes(result.status)) fail('ACTION_OUTCOME_UNKNOWN', '写入返回的状态不是确定终态');
+      if (mutates && !settled(action, result)) fail('ACTION_OUTCOME_UNKNOWN', '写入返回的状态不是确定终态');
       attempt.result = result;
       attempt.state = 'settled';
       await persist();
@@ -252,7 +264,7 @@ export async function runComponentBatch(options) {
         need(sha(await readFile(requestFile)) === attempt.inputSha256, '运行请求已被修改');
         report = await json(await projectFile(runDir, attempt.reportFile));
       } catch { /* A missing/invalid receipt never proves that a write did not happen. */ }
-      if (report?.action === attempt.action && report.mode === attempt.mode && report.response?.success !== false && terminalStatuses(attempt.action).includes(report.response?.result?.status)) {
+      if (report?.action === attempt.action && report.mode === attempt.mode && settled(attempt.action, report.response?.result, report.response)) {
         attempt.result = report.response.result;
         attempt.state = 'settled';
       }

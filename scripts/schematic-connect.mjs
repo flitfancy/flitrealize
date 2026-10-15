@@ -8,7 +8,7 @@ import { dirname, join, resolve, relative, isAbsolute } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDirectExecution } from './lib/cli-entrypoint.mjs';
 import { planConnections } from './lib/schematic-connect-plan.mjs';
-import { stable, sourceChanges, sourceRecords, assertPreserved } from './lib/schematic-local-state.mjs';
+import { stable, sourceChanges, sourceRecords, assertPreserved, connectionDependencies, connectionSourceIssues } from './lib/schematic-local-state.mjs';
 
 const scriptRoot = dirname(fileURLToPath(import.meta.url));
 const json = async path => JSON.parse(await readFile(path, 'utf8'));
@@ -96,7 +96,7 @@ export async function runSchematicConnect(options) {
       || record?.action !== action || record?.mode !== request.mode;
     item.status = uncertain ? 'unknown' : result?.status || response?.status || 'failed';
     if (mutates) unresolvedWrite = uncertain;
-    if (typeof result?.saved === 'boolean') summary.saved = result.saved;
+    if (typeof result?.saved === 'boolean' || result?.uncertainWrite === true && result.saved === null) summary.saved = result.saved;
     if (result?.drc) summary.checks.drc = result.drc;
     await persist();
     if (uncertain || response?.success !== true || !statuses.includes(result?.status)) {
@@ -112,7 +112,14 @@ export async function runSchematicConnect(options) {
       if (typeof result.backupSource !== 'string' || !result.backupSource.trim()) fail('BACKUP_UNAVAILABLE', 'Source backup is unavailable.');
       await writeFile(join(runDir, name === 'initial-inspect' ? 'before.esch' : name + '.esch'), result.backupSource, { flag: 'wx' });
     }
-    return { ...snapshot, executionSource: result.backupSource };
+    let localEvidence;
+    if (includeSource) {
+      const native = await step('schematic-component-place', name + '-occupancy', { mode: 'inspect', includeLocalEvidence: true }, ['inspected']);
+      localEvidence = native.state?.localEvidence;
+      if (native.state?.document?.uuid !== target.expectedDocumentUuid || native.state?.document?.parentProjectUuid !== target.expectedProjectUuid) fail('DOCUMENT_MISMATCH', 'Occupancy read belongs to another target.');
+      if (stable(sourceRecords(localEvidence?.source)) !== stable(sourceRecords(result.backupSource))) fail('EXECUTION_SOURCE_CHANGED', 'Source changed during native occupancy inspection.');
+    }
+    return { ...snapshot, executionSource: result.backupSource, localEvidence };
   }
   async function assess(snapshot, phase, name) {
     const plan = await planConnections(input, snapshot, { phase });
@@ -130,26 +137,25 @@ export async function runSchematicConnect(options) {
       if (stable(component) !== stable(afterParts.get(component.nativeId))) fail('RELATED_SCHEMATIC_CHANGED', 'A target component, property, pin, or network changed after planning.');
     }
     if (current.components.some(component => refs.has(component.designator) && !beforeParts.has(component.nativeId))) fail('RELATED_SCHEMATIC_CHANGED', 'A target designator is duplicated or replaced.');
-    const relevantNets = nets => nets.map(net => ({ ...net, endpoints: (net.endpoints || []).filter(endpoint => refs.has(endpoint.component)) })).filter(net => net.endpoints.length);
+    const relevantNets = nets => nets.filter(net => (net.endpoints || []).some(endpoint => refs.has(endpoint.component)));
     if (stable(relevantNets(snapshot.nets)) !== stable(relevantNets(current.nets))) fail('RELATED_SCHEMATIC_CHANGED', 'Target pin/network membership changed after planning.');
     const changes = sourceChanges(snapshot.executionSource, current.executionSource);
-    const targetIds = new Set(snapshot.components.filter(component => refs.has(component.designator)).map(component => component.nativeId));
     const changedParts = current.components.filter(component => stable(component) !== stable(beforeParts.get(component.nativeId)));
     if (!changes.length && !changedParts.length && current.fingerprints.document === snapshot.fingerprints.document) return current;
     if (global) fail('STALE_SCHEMATIC', 'Whole-source reflow still requires an unchanged document.');
-    // Only nonspatial BOM/PCB inclusion flags can be proved irrelevant with current reads.
-    // Wire-create retains the original whole-geometry fingerprint, never a refreshed substitute.
-    const withoutFlags = component => { const copy = { ...component }; delete copy.includeInBom; delete copy.includeInPcb; return copy; };
-    const safePart = component => !refs.has(component.designator) && beforeParts.has(component.nativeId)
-      && stable(withoutFlags(component)) === stable(withoutFlags(beforeParts.get(component.nativeId)));
-    const safeRecord = change => {
-      if (targetIds.has(change.root) || !change.before || !change.current || change.before.head.type !== 'COMPONENT' || !safePart(afterParts.get(change.root) || {})) return false;
-      const trim = record => { const payload = { ...record.payload }; delete payload.addIntoBom; delete payload.addIntoPcb; return { ...record, payload }; };
-      return stable(trim(change.before)) === stable(trim(change.current));
+    const withoutGeometry = component => {
+      const copy = { ...component }; for (const key of ['includeInBom', 'includeInPcb', 'position', 'rotation', 'mirror']) delete copy[key];
+      copy.pins = (copy.pins || []).map(pin => { const value = { ...pin }; delete value.position; return value; });
+      return copy;
     };
-    if (current.components.length !== snapshot.components.length || changedParts.some(component => !safePart(component)) || changes.some(change => !safeRecord(change))) {
-      fail('LOCAL_CHANGE_UNPROVEN', 'Current reads cannot prove this source/geometry change safe. Wire-create still requires the original SOURCE_GEOMETRY; marker display imports whole source.');
+    const safePart = component => !refs.has(component.designator) && beforeParts.has(component.nativeId)
+      && stable(withoutGeometry(component)) === stable(withoutGeometry(beforeParts.get(component.nativeId)));
+    if (current.components.length !== snapshot.components.length || changedParts.some(component => !safePart(component)) || (!changes.length && changedParts.length)) {
+      fail('LOCAL_CHANGE_UNPROVEN', 'Component changes are not covered by the native source difference.');
     }
+    const dependencies = connectionDependencies(input, snapshot);
+    const localIssues = connectionSourceIssues(snapshot.executionSource, current.executionSource, dependencies, current.localEvidence?.occupancy);
+    if (localIssues.length) fail(localIssues[0].code, 'Source difference affects a dependency or lacks native bounds: ' + JSON.stringify(localIssues));
     summary.preservedChanges.push({ checkedAt: new Date().toISOString(), beforeFingerprint: snapshot.fingerprints.document,
       currentFingerprint: current.fingerprints.document, components: changedParts.map(component => ({ before: beforeParts.get(component.nativeId), current: component })), sourceRecords: changes });
     await persist();
@@ -207,6 +213,7 @@ export async function runSchematicConnect(options) {
       summary.pending = { wires: plan.wirePlan.wires.length, markers: plan.missingFlagItems.length, noConnect: plan.pendingNoConnectItems.length };
       await persist(); return summary;
     }
+    const baselineDrc = await step('schematic-save-verify', 'drc-baseline', { mode: 'inspect', ...target, strict: true, runDrc: true }, ['inspected']);
     // Plan each bounded batch against the immediate live state. Never replay an uncertain write.
     let wireBatchPlan = plan;
     for (let i = 0; wireBatchPlan.wirePlan.wires.length; i += 1) {
@@ -261,9 +268,10 @@ export async function runSchematicConnect(options) {
       await assess(snapshot, 'verify', 'reflow-audit');
     }
     snapshot = await assertSame(snapshot);
-    const savePlan = await step('schematic-save-verify', 'save-plan', { mode: 'plan', ...target, strict: true, runDrc: true, executionSource: snapshot.executionSource }, ['planned']);
+    const savePlan = await step('schematic-save-verify', 'save-plan', { mode: 'plan', ...target, strict: true, runDrc: true,
+      drcBaseline: baselineDrc.drcBaseline, executionSource: snapshot.executionSource }, ['planned']);
     const saved = await step('schematic-save-verify', 'save-apply', savePlan.applyRequest, ['applied']);
-    if (saved.saved !== true || saved.drc?.passed !== true) fail('FINALIZE_FAILED', 'Saving and strict DRC must both pass.');
+    if (saved.saved !== true || !(saved.drc?.passed === true || saved.drc?.comparison?.passed === true)) fail('FINALIZE_FAILED', 'Saving and DRC acceptance must both pass.');
     const final = await inspect('saved-readback', true);
     assertPreserved(snapshot.executionSource, final.executionSource);
     await assess(final, 'verify', 'saved-audit');
@@ -285,7 +293,7 @@ if (isDirectExecution(import.meta.url)) {
     for (let i = 2; i < process.argv.length; i += 1) {
       const arg = process.argv[i];
       if (arg === '--help') {
-        console.log('node scripts/schematic-connect.mjs --project-root PROJECT --input-file INPUT [--path-base project|legacy] [--window-id WINDOW] [--apply | --check]\nPaths: project resolves input and Contract from PROJECT; legacy (default) keeps cwd-relative input and input-directory-relative Contract.\nDefault: plan only. --apply connects, audits, optionally reflows, saves and runs strict DRC. --check verifies without writes. See docs/providers/easyeda-pro/2.4-schematic-connect.md.');
+        console.log('node scripts/schematic-connect.mjs --project-root PROJECT --input-file INPUT [--path-base project|legacy] [--window-id WINDOW] [--apply | --check]\nPaths: project resolves input and Contract from PROJECT; legacy (default) keeps cwd-relative input and input-directory-relative Contract.\nDefault: plan only. --apply connects, audits, optionally reflows, saves and runs strict DRC. --check verifies without writes. See docs/providers/easyeda-pro/2.1-r-schematic-connect.md.');
         process.exit(0);
       }
       if (arg === '--apply' || arg === '--check') { options[arg.slice(2)] = true; continue; }

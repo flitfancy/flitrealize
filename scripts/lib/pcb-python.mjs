@@ -19,17 +19,19 @@ export async function runPythonJson(script,input,{python,args=[],timeoutMs=18000
   const executable=resolvePcbPython({python});
   return await new Promise((resolve,reject)=>{
     const child=spawn(executable,['-X','utf8','-B',script,...args],{stdio:['pipe','pipe','pipe'],windowsHide:true});
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
     let stdout='',stderr='',pending='',settled=false;
     const fail=error=>{if(settled)return;settled=true;clearTimeout(timer);reject(error);};
     const timer=setTimeout(()=>{child.kill();fail(Error('PCB_PYTHON_TIMEOUT'));},timeoutMs);
     child.on('error',fail);
-    child.stdout.on('data',chunk=>{
-      const text=chunk.toString();stdout+=text;pending+=text;
+    child.stdout.on('data',text=>{
+      stdout+=text;pending+=text;
       if(Buffer.byteLength(stdout)>maxOutputBytes){child.kill();fail(Error('PCB_PYTHON_OUTPUT_LIMIT'));return;}
       const lines=pending.split(/\r?\n/);pending=lines.pop();
       for(const line of lines){try{const value=JSON.parse(line);if(value.progress||value.event)log(value);}catch{}}
     });
-    child.stderr.on('data',chunk=>{stderr+=chunk.toString();if(stderr.length>65536)stderr=stderr.slice(-65536);});
+    child.stderr.on('data',text=>{stderr+=text;if(stderr.length>65536)stderr=stderr.slice(-65536);});
     child.on('close',code=>{
       if(settled)return;clearTimeout(timer);settled=true;
       const values=[];for(const line of stdout.trim().split(/\r?\n/)){try{values.push(JSON.parse(line));}catch{}}

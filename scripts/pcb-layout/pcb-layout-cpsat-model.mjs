@@ -6,6 +6,7 @@ import { transformBox, angle } from './pcb-layout-geometry.mjs';
 import { scoreReferenceMil } from './pcb-layout-reference-scale.mjs';
 import { resolveAssemblyPairSpacing } from './pcb-layout-spacing-evaluation.mjs';
 import { spacingNeighbors } from './pcb-layout-uniformity.mjs';
+import { blockLayoutStageModel, applyBlockLayoutObjective } from './pcb-layout-block-objective.mjs';
 
 const union = bs => ({ minX: Math.min(...bs.map(b=>b.minX)), minY: Math.min(...bs.map(b=>b.minY)), maxX: Math.max(...bs.map(b=>b.maxX)), maxY: Math.max(...bs.map(b=>b.maxY)) });
 const shift = (b,x,y) => ({minX:b.minX+x,minY:b.minY+y,maxX:b.maxX+x,maxY:b.maxY+y});
@@ -104,7 +105,7 @@ export function compileCpSatProblem(model, settings = {}, { weights=model.config
   const divisor=Object.keys(model.config.comparisonWeights).filter(k=>k!=='uniformity').reduce((n,k)=>n+(weights[k]??0),0);
   if(!(divisor>0))throw Error('NO_OBJECTIVE_WEIGHTS');
   const links=model.links.map(l=>({id:l.id,left:l.left.map(pin),right:l.right.map(pin),weight:(weights[l.group]??0)/divisor/scoreReferenceMil(model,l.group)}));
-  const limits=model.limits.map(l=>({id:l.id??l.a+'/'+l.b,left:l.left.map(pin),right:l.right.map(pin),maxMil:l.maxMil}));
+  const limits=model.limits.map((l,index)=>({id:l.id??'source-limit:'+index+':'+l.a+'/'+l.b,left:l.left.map(pin),right:l.right.map(pin),maxMil:l.maxMil}));
   for(const r of model.couplingModel.relations)if(r.maxDistanceMil!==undefined)limits.push({id:r.id,left:r.from.padIds.map(id=>({ref:padRef.get(id),id,geometry:'bbox-center'})),right:r.to.padIds.map(id=>({ref:padRef.get(id),id,geometry:'bbox-center'})),maxMil:r.maxDistanceMil});
   const nets=model.connectivity.map(n=>({name:n.name,pads:n.pads.map(pin),weight:(weights.connectivity??0)/divisor/scoreReferenceMil(model,'connectivity')}));
   const physicalMinima=new Map((model.assemblyPolicy?.pairClearancesMil??[]).map(r=>[pairKey(r.a,r.b),r.hardMinMil]));
@@ -153,9 +154,11 @@ export function decodeCpSatCandidate(model, problem, result, {name='cpsat',label
       }
     }
   }
-  const plan={status:'planned',sourceHash:model.snapshot.sourceHash,boardBounds:model.config.hard.boardBounds,clearanceMil:model.mechanical.clearanceMil,components,labels,testPads,bundles,issues:[],
+  const stageModel=problem.blockLayout?blockLayoutStageModel(model,{clearanceMil:problem.blockLayout.spacing.requestedMil}):model;
+  const plan={status:'planned',sourceHash:model.snapshot.sourceHash,boardBounds:model.config.hard.boardBounds,clearanceMil:stageModel.mechanical.clearanceMil,components,labels,testPads,bundles,issues:[],
     counts:{components:components.length,labels:labels.length,testPads:testPads.length,moved:components.filter(c=>c.dx||c.dy).length,rotated:components.filter(c=>c.deltaRotation).length,labelsChanged:labels.filter(l=>l.changed).length,testPadsMoved:testPads.filter(p=>p.dx||p.dy).length},maxMoveMil:Math.max(0,...components.map(c=>Math.hypot(c.dx,c.dy)))};
-  const validation=validatePlan(model,plan),metrics=validation.valid?measure(model,components,labels,bundles,testPads):null;
+  const validation=validatePlan(stageModel,plan),metrics=validation.valid?measure(stageModel,components,labels,bundles,testPads):null;
   if(metrics)plan.counts.silkRelocated=metrics.silkRelocatedCount;
-  return {name,label,plan,validation,metrics,comparisonScore:metrics?score(model,metrics):null,scores:metrics?scoreBreakdown(model,metrics):null,stats:{backend:'cpsat',...result.solver},coverage:problem.coverage};
+  const candidate={name,label,plan,validation,metrics,comparisonScore:metrics?score(model,metrics):null,scores:metrics?scoreBreakdown(model,metrics):null,stats:{backend:'cpsat',...result.solver},coverage:problem.coverage};
+  return problem.blockLayout?applyBlockLayoutObjective(model,problem,candidate):candidate;
 }

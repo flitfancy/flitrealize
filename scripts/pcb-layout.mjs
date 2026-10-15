@@ -18,9 +18,10 @@ import { evaluateBlockCoupling } from './pcb-layout/pcb-layout-block-coupling.mj
 import { evaluateSpacingPolicy } from './pcb-layout/pcb-layout-spacing-evaluation.mjs';
 import { auditNativeNetlist } from './pcb-layout/pcb-layout-netlist.mjs';
 import { runCpsatLayout } from './pcb-layout/pcb-layout-cpsat.mjs';
-import { convertSemanticInputs } from './pcb-layout/pcb-layout-semantic.mjs';
+import { convertSemanticInputs, validateSemanticPolicy } from './pcb-layout/pcb-layout-semantic.mjs';
 import { resolvePcbPython } from './lib/pcb-python.mjs';
 import { writeRunConfiguration } from './pcb-layout/pcb-layout-run.mjs';
+import { blockLayoutStageModel, applyBlockLayoutObjective, blockLayoutPhysicalIssues, blockLayoutHardLimitIssues } from './pcb-layout/pcb-layout-block-objective.mjs';
 
 const help = `PCB layout: prepare inputs, solve candidates, or apply an explicit candidate.
 Fine layout: node scripts/pcb-layout.mjs fine --help
@@ -32,7 +33,7 @@ node <skill>/scripts/pcb-layout.mjs --project-root <project> [--mode prepare|sem
   apply: --window-id <window> --from <report-directory> --candidate <stable-id>
   save recovery: --mode apply --window-id <window> --resume-save <execution-result.json>
   CP-SAT: --backend cpsat --python <executable> --seconds N --candidates N
-          --semantic-policy <project-json>; cold start, no old placement hints
+          --semantic-policy <project-json> accepts only {} or {"groupScope":"declared-block"}
 Default prepare reads and checks; it never searches or modifies EDA.`;
 
 function options(args) {
@@ -73,7 +74,7 @@ async function readbackChecks(model, actual) {
   const coupling = evaluateBlockCoupling(model.couplingModel, actual.placements, actual.pads);
   const spacingPolicy = evaluateSpacingPolicy(model.spacingPolicy, geometry, actual.placements.map(c => c.ref));
   const nativeNetwork = auditNativeNetlist({ snapshot: { ...actual, components: actual.placements }, contract: model.contract });
-  return { edge, block, spatial, coupling, spacingPolicy, nativeNetwork, issues: [...edge.issues, ...block.issues, ...spatial.issues, ...coupling.issues, ...(spacingPolicy?.issues ?? []), ...nativeNetwork.diagnostics.filter(d => d.severity === 'error')] };
+  return { edge, block, spatial, coupling, spacingPolicy, nativeNetwork, issues: [...edge.issues, ...block.issues, ...spatial.issues, ...coupling.issues, ...(spacingPolicy?.issues ?? []), ...(model.blockLayoutSpacing ? [...blockLayoutPhysicalIssues(model,{components:actual.placements,testPads:actual.testPads??[]},actual.pads),...blockLayoutHardLimitIssues(model,actual.pads)] : []), ...nativeNetwork.diagnostics.filter(d => d.severity === 'error')] };
 }
 
 export async function main(args = process.argv.slice(2), { log = value => console.log(JSON.stringify(value)), executionOptions = {} } = {}) {
@@ -122,9 +123,10 @@ export async function main(args = process.argv.slice(2), { log = value => consol
     if (hash(bundle) !== manifest.inputsHash || hash(bundle.snapshot) !== manifest.snapshotHash || hash(receipt.snapshot) !== hash(bundle.snapshot)) throw Error('RECOVERY_INPUT_CHANGED');
     const prepared = prepareLayoutInputs(bundle);
     if (!prepared.state.ready) throw Error('RECOVERY_INPUT_INVALID');
-    if (hash(prepared.model.mechanical) !== hash(receipt.config)) throw Error('RECOVERY_RULES_CHANGED');
+    const recoveryModel=manifest.blockLayoutSpacing?blockLayoutStageModel(prepared.model,{clearanceMil:manifest.blockLayoutSpacing.requestedMil}):prepared.model;
+    if (hash(recoveryModel.mechanical) !== hash(receipt.config)) throw Error('RECOVERY_RULES_CHANGED');
     const validateReadback = async actual => {
-      const checked = await readbackChecks(prepared.model,actual);
+      const checked = await readbackChecks(recoveryModel,actual);
       await write('feature-verification.json',checked);
       if (checked.issues.length) throw Error('READBACK_CONSTRAINTS_FAILED ' + JSON.stringify(checked.issues));
     };
@@ -177,6 +179,7 @@ export async function main(args = process.argv.slice(2), { log = value => consol
   if (['solve','apply'].includes(mode) && snapshot.sourceKind !== 'synthetic-example' && snapshot.padOwnership?.status !== 'verified') throw Error('REFRESH_NATIVE_OWNERSHIP: prepare a new snapshot from the current PCB before solving or applying');
   await write('baseline.json',baseline);await writeRunConfiguration(dir,config);
   const semanticPolicy=o['--semantic-policy']?await readJson(path.resolve(root,o['--semantic-policy'])):config.semanticPolicy;
+  validateSemanticPolicy(semanticPolicy);
   if(mode==='semantic'){
     const semantic=convertSemanticInputs(model,semanticPolicy);await write('semantic-conversion.json',semantic);
     const result={status:'semantic-ready',mode,groups:semantic.groups.length,unresolved:semantic.unresolvedRoles,nativeWrites:0,report:dir};await write('summary.json',result);log(result);return result;
@@ -193,10 +196,12 @@ export async function main(args = process.argv.slice(2), { log = value => consol
     if (!record) throw Error('UNKNOWN_CANDIDATE');
     const raw=await fs.readFile(path.join(from,id+'.json'),'utf8');
     if(hash(raw)!==record.sha256)throw Error('CANDIDATE_FILE_CHANGED_REPLAN');
-    const candidate=JSON.parse(raw),validation=validatePlan(model,candidate.plan);
+    const candidate=JSON.parse(raw),candidateModel=candidate.blockLayout?blockLayoutStageModel(model,{clearanceMil:candidate.blockLayout.spacing.requestedMil}):model,validation=validatePlan(candidateModel,candidate.plan);
+    if(candidate.blockLayout){validation.issues.push(...blockLayoutPhysicalIssues(candidateModel,candidate.plan));validation.valid=!validation.issues.length;}
     if(!validation.valid)throw Error('CANDIDATE_INVALID '+JSON.stringify(validation.issues));
-    const validateReadback=async actual=>{const checked=await readbackChecks(model,actual);await write('feature-verification.json',checked);if(checked.issues.length)throw Error('READBACK_CONSTRAINTS_FAILED '+JSON.stringify(checked.issues));};
-    const result=await applyLayout({projectRoot:root,windowId,providerId:config.provider,config:model.mechanical,plan:candidate.plan,snapshot,reportDir:dir,validateReadback});
+    if(candidate.blockLayout)await write('manifest.json',{...manifestBase,blockLayoutSpacing:candidate.blockLayout.spacing});
+    const validateReadback=async actual=>{const checked=await readbackChecks(candidateModel,actual);await write('feature-verification.json',checked);if(checked.issues.length)throw Error('READBACK_CONSTRAINTS_FAILED '+JSON.stringify(checked.issues));};
+    const result=await applyLayout({projectRoot:root,windowId,providerId:config.provider,config:candidateModel.mechanical,plan:candidate.plan,snapshot,reportDir:dir,validateReadback});
     const summary={...result,candidate:id,from,report:dir};await write('summary.json',summary);log(summary);
     if(result.saved!==true||result.status!=='verified')process.exitCode=1;return summary;
   }
@@ -214,8 +219,11 @@ export async function main(args = process.argv.slice(2), { log = value => consol
     const parameters={candidateCount,maxRuns,timeLimitSeconds:seconds,seed:Number(o['--start-seed']??0),semanticPolicy};await write('cpsat-parameters.json',parameters);
     const solved=await runCpsatLayout(model,{timeLimitSeconds:seconds,seed:parameters.seed},{candidateCount,maxRuns,semanticPolicy,runtime:{pythonPath:resolvePcbPython({python:o['--python']})},onProgress:log});
     await write('cpsat-problem.json',solved.problem);await write('semantic-conversion.json',solved.semantic);await write('cpsat-runs.json',solved.runs);
-    const records=[];for(const candidate of solved.candidates){const raw=JSON.stringify(candidate);await fs.writeFile(path.join(dir,candidate.name+'.json'),raw);records.push({name:candidate.name,sha256:hash(raw),score:candidate.comparisonScore,valid:candidate.validation.valid,...(candidate.roughLayoutMetrics?{semanticCompactnessScore:candidate.semanticCompactnessScore,roughLayoutScore:candidate.roughLayoutScore,rankingScore:candidate.comparisonScore+candidate.semanticCompactnessScore+candidate.roughLayoutScore}:{})});}
-    await fs.writeFile(path.join(dir,'comparison.html'),comparisonReport(solved.candidates,baseline,{...config,reportMode:'cpsat-candidates',reportSource:sourceKind},contract,snapshot,prepared.receipt));
+    if(solved.problem.blockLayout){applyBlockLayoutObjective(model,solved.problem,baseline,{validatePhysical:true});await write('baseline.json',baseline);}
+    const records=[];for(const candidate of solved.candidates){const raw=JSON.stringify(candidate);await fs.writeFile(path.join(dir,candidate.name+'.json'),raw);records.push({name:candidate.name,sha256:hash(raw),score:candidate.comparisonScore,valid:candidate.validation.valid,...(candidate.blockLayout?{semanticCompactnessScore:candidate.semanticCompactnessScore,roughLayoutScore:candidate.roughLayoutScore,rankingScore:candidate.comparisonScore}:{})});}
+    const stageReceipt=solved.problem.blockLayout?{...prepared.receipt,blockLayout:solved.problem.blockLayout,board:{...prepared.receipt.board,placementClearanceMil:solved.problem.blockLayout.spacing.effectiveMil,...(prepared.receipt.board.assemblyPolicy?{assemblyPolicy:{...prepared.receipt.board.assemblyPolicy,absoluteFloorMil:Math.max(prepared.receipt.board.assemblyPolicy.absoluteFloorMil??0,solved.problem.blockLayout.spacing.effectiveMil)}}:{}),...(prepared.receipt.board.spacingPolicy?{spacingPolicy:{...prepared.receipt.board.spacingPolicy,absoluteFloorMil:Math.max(prepared.receipt.board.spacingPolicy.absoluteFloorMil,solved.problem.blockLayout.spacing.effectiveMil)}}:{}),scoreReferences:solved.candidates[0]?.metrics.scoreReferences??prepared.receipt.board.scoreReferences}}:prepared.receipt;
+    await write('layout-input.json',stageReceipt);
+    await fs.writeFile(path.join(dir,'comparison.html'),comparisonReport(solved.candidates,baseline,{...config,reportMode:'cpsat-candidates',reportSource:sourceKind},contract,snapshot,stageReceipt));
     await write('manifest.json',{...manifestBase,backend:'cpsat',parameters,candidates:records});
     result={status:solved.status,...(solved.noCandidateReason?{noCandidateReason:solved.noCandidateReason}:{}),backend:'cpsat',candidateCount:records.length,candidates:records,scope:solved.scope,nativeWrites:0,report:dir};await write('summary.json',result);log(result);if(solved.status==='no-candidate')process.exitCode=1;return result;
   }

@@ -299,7 +299,30 @@ return await (async () => {
       catch (error) { error.uncertainWrite = true; throw error; }
       if (!imported) fail('SOURCE_IMPORT_REJECTED', 'Marker display settings were rejected.');
       await new Promise(resolve => setTimeout(resolve, 500));
-      await guardSource(output);
+      const actualSource = await eda.sys_FileManager.getDocumentSource();
+      const actual = new Map(parseSourceRecords(actualSource).map(record => [record.head.id, record]));
+      // The desktop importer hydrates cached DeviceName and the null z-index
+      // of Relevance on newly created markers. Accept only those exact native
+      // normalizations, retaining every other field and all unowned records.
+      const expectedRecords = parseSourceRecords(output);
+      const normalized = output.split(/\r?\n/).map((line, index) => {
+        const record = expectedRecords.find(item => item.index === index);
+        const seen = record && actual.get(record.head.id);
+        if (!record || !seen) return line;
+        if (record.head.type === 'COMPONENT' && byId.has(record.head.id) && record.payload.attrs?.DeviceName == null && seen.payload.attrs?.DeviceName != null) {
+          const device = expectedRecords.find(item => item.head.type === 'ATTR' && item.payload.parentId === record.head.id && item.payload.key === 'Device');
+          let cache; try { cache = JSON.parse(seen.payload.attrs.DeviceName); } catch { return line; }
+          if (cache.uuid === device?.payload.value && typeof cache.name === 'string' && cache.source === '') {
+            record.payload = { ...record.payload, attrs: { ...record.payload.attrs, DeviceName: seen.payload.attrs.DeviceName } };
+            return serializeRecord(record);
+          }
+        }
+        if (record.head.type === 'ATTR' && byId.has(record.payload.parentId) && record.payload.key === 'Relevance' && record.payload.zIndex === null && seen.payload.zIndex === 0) {
+          record.payload = { ...record.payload, zIndex: 0 }; return serializeRecord(record);
+        }
+        return line;
+      }).join('\n');
+      await guardSource(normalized);
     }
     const visibility = nameVisibilityByParent(await eda.sys_FileManager.getDocumentSource());
     if ([...hidden].some(id => visibility.get(id) !== false)) fail('SOURCE_READBACK_MISMATCH', 'Name visibility did not persist.');

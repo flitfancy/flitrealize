@@ -124,20 +124,38 @@ return await (async () => {
     }
     const probe = await optionalCall('lib_Device', 'getByLcscIds', String(actual.supplierId));
     if (probe.error) fail('SUPPLIER_VALUE_LOOKUP_FAILED', `Supplier ${actual.supplierId}: ${probe.error}`);
-    const matches = Array.isArray(probe.value) ? probe.value : [];
-    const exact = matches.filter((candidate) => String(candidate?.supplierId || '') === String(actual.supplierId)
+    let matches = Array.isArray(probe.value) ? probe.value : [];
+    let lookup = 'getByLcscIds';
+    // Some desktop builds expose getByLcscIds but return undefined. A real,
+    // exact catalog search is an independent lookup, not a missing-value pass.
+    if (probe.value === undefined && typeof eda?.lib_Device?.search === 'function') {
+      const search = await optionalCall('lib_Device', 'search', String(actual.supplierId), actual.libraryUuid || undefined);
+      if (search.error) fail('SUPPLIER_VALUE_LOOKUP_FAILED', `Supplier ${actual.supplierId}: ${search.error}`);
+      matches = Array.isArray(search.value) ? search.value : [];
+      lookup = 'search';
+    }
+    let exact = matches.filter((candidate) => String(candidate?.supplierId || '') === String(actual.supplierId)
       && (!actual.manufacturerId || String(candidate?.manufacturerId || '') === String(actual.manufacturerId)));
+    // Numeric supplier searches can be paginated behind longer prefix matches.
+    // A manufacturer search must still agree on both exact identities.
+    if (exact.length === 0 && lookup === 'search' && actual.manufacturerId) {
+      const search = await optionalCall('lib_Device', 'search', String(actual.manufacturerId), actual.libraryUuid || undefined);
+      if (search.error) fail('SUPPLIER_VALUE_LOOKUP_FAILED', `Supplier ${actual.supplierId}: ${search.error}`);
+      exact = (Array.isArray(search.value) ? search.value : []).filter(candidate => String(candidate?.supplierId || '') === String(actual.supplierId)
+        && String(candidate?.manufacturerId || '') === String(actual.manufacturerId));
+      lookup = 'search-manufacturer';
+    }
     // Active parts and switches can deliberately omit Value and use a
     // Manufacturer Part-derived Name. This is distinct from a failed lookup or
     // a catalog record explicitly declaring an empty Value.
     if (exact.length === 1 && !Object.prototype.hasOwnProperty.call(exact[0]?.otherProperty || {}, 'Value')) {
-      return { value: fallbackValue, source: 'contract-fallback-no-catalog-value', supplierId: String(actual.supplierId) };
+      return { value: fallbackValue, source: 'contract-fallback-no-catalog-value', supplierId: String(actual.supplierId), lookup };
     }
     const canonical = exact.length === 1 ? exact[0]?.otherProperty?.Value : null;
     if (typeof canonical !== 'string' || !canonical.trim()) {
       fail('SUPPLIER_VALUE_UNRESOLVED', `Supplier ${actual.supplierId} did not resolve to one non-empty canonical Value.`);
     }
-    return { value: canonical, source: 'supplier-catalog', supplierId: String(actual.supplierId) };
+    return { value: canonical, source: 'supplier-catalog', supplierId: String(actual.supplierId), lookup };
   }
 
   function componentMatches(actual, expected) {
@@ -213,7 +231,9 @@ return await (async () => {
         });
         const byId = new Map(records.map(record => [record.head.id, record]));
         const owner = record => record.payload.parentId || (record.head.type === 'LINE' ? record.payload.lineGroup : null);
-        for (let record of records.filter(record => !['DOCHEAD', 'ATTR'].includes(record.head.type))) {
+        // CANVAS stores document settings, not drawable geometry. It remains
+        // protected by the source-stability check but has no native bbox.
+        for (let record of records.filter(record => !['DOCHEAD', 'CANVAS', 'ATTR'].includes(record.head.type))) {
           const seen = new Set();
           while (owner(record) && byId.has(owner(record))) {
             if (seen.has(record.head.id)) throw new Error('cyclic source ownership');
@@ -248,7 +268,25 @@ return await (async () => {
         else occupancy.push({ id, ownerId: owners.get(id) || id, bounds: { minX: bounds.minX, maxX: bounds.maxX, minY: bounds.minY, maxY: bounds.maxY } });
       }
       const afterSource = await optionalCall('sys_FileManager', 'getDocumentSource');
-      if (source.value !== afterSource.value) fail('STATE_CHANGED_DURING_INSPECTION', 'Source changed while reading native occupancy.');
+      // Exporting native source refreshes DOCHEAD session/version stamps even
+      // when the document is unchanged. Keep identity and every object record.
+      const stableInspectionSource = value => value.split(/\r?\n/).filter(Boolean).map(line => {
+        try {
+          const split = line.indexOf('||');
+          const head = JSON.parse(line.slice(0, split));
+          if (head.type !== 'DOCHEAD') return line;
+          const payload = JSON.parse(line.slice(split + 2).replace(/\|$/, ''));
+          delete payload.client;
+          delete payload.updateTime;
+          delete payload.version;
+          return stableStringify({ head, payload });
+        } catch {
+          // Keep unsupported records exact; incomplete local evidence is
+          // rejected by reconciliation rather than leaking a parser error.
+          return line;
+        }
+      }).join('\n');
+      if (stableInspectionSource(source.value) !== stableInspectionSource(afterSource.value)) fail('STATE_CHANGED_DURING_INSPECTION', 'Source changed while reading native occupancy.');
       await assertTarget(document.uuid, document.parentProjectUuid);
       localEvidence = { source: source.value, complete: missing.length === 0, missing, occupancy };
     }

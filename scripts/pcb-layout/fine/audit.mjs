@@ -62,7 +62,7 @@ function measureSourceLimits(model,plan,moving=new Set()) {
   const point=p=>p.owner?transformPoint({x:p.x,y:p.y},model.components.get(p.owner),positions.get(p.owner)):{x:p.x,y:p.y};
   return model.limits.map((l,index)=>{
     const distanceMil=Math.min(...l.left.flatMap(a=>l.right.map(b=>{a=point(a);b=point(b);return Math.abs(a.x-b.x)+Math.abs(a.y-b.y);}))),refs=[...new Set([...l.left,...l.right].map(p=>p.owner??p.number))];
-    return {id:l.id??'source-limit:'+index+':'+l.a+'/'+l.b,refs,distanceMil,maxMil:l.maxMil,active:refs.some(ref=>moving.has(ref)),passed:distanceMil<=l.maxMil+1e-4};
+    return {id:l.id??'source-limit:'+index+':'+l.a+'/'+l.b,refs,endpoints:{left:l.left.map(p=>({id:p.id,owner:p.owner,number:p.number,net:p.net})),right:l.right.map(p=>({id:p.id,owner:p.owner,number:p.number,net:p.net}))},distanceMil,maxMil:l.maxMil,active:refs.some(ref=>moving.has(ref)),passed:distanceMil<=l.maxMil+1e-4};
   });
 }
 function review(scope,plan,bodyOnly=false) {
@@ -71,21 +71,23 @@ function review(scope,plan,bodyOnly=false) {
   const validation=validatePlan(bodyModel,bodyPlan),geometry=buildGeometryViews(bodyOnly?bodyModel.geometryModel:model.geometryModel,plan.components,bodyOnly?[]:plan.labels,plan.testPads);
   geometry.physical??=plan.components.map(c=>({ref:c.ref,bbox:union([c.body,...geometry.pads.filter(p=>(p.owner??p.ref)===c.ref).map(p=>p.bbox)]),source:'native-footprint-and-pad-bbox-proxy'}));
   for(const p of plan.testPads)if(!geometry.physical.some(v=>v.ref===p.number))geometry.physical.push({ref:p.number,bbox:p.bbox,source:'native-standalone-pad-bbox'});
-  // Public validatePlan short-circuits feature checks after geometry failures.
-  // Evaluate them independently, so unchanged outside issues never hide a new
-  // boundary, assembly or electrical violation involving the moving block.
+  // Re-evaluate the full views here: separate-label body validation deliberately
+  // uses a label-free model, while the final audit must also inspect live glyphs.
   const features=[...checkEdges(model.edgeRules,plan.components,model.config.hard.boardBounds).issues,...checkBlocks(model.blockRules,plan.components).issues,
     ...evaluateSpatial(model.spatialRules,plan.components,plan.bundles,geometry).issues,...evaluateBlockCoupling(model.couplingModel,plan.components,geometry.pads).issues,
     ...(geometry.assemblyPolicy?.issues??[]),...(evaluateSpacingPolicy(model.spacingPolicy,geometry,plan.components.map(c=>c.ref))?.issues??[])];
   const silk=separate&&!bodyOnly?independentLabelGeometry({components:plan.components,pads:geometry.pads,labels:plan.labels,...fineLabelRules(model,scope.request.labels),orientationOwnerRefs:[...scope.labelMoving]}):{issues:[]};
   const labelIdentity=[];
   if(!bodyOnly){if(plan.labels.length!==model.snapshot.items.length||new Set(plan.labels.map(l=>l.id)).size!==model.snapshot.items.length)labelIdentity.push({code:'FINE_LABEL_COUNT'});for(const l of plan.labels){const old=model.snapshot.items.find(i=>i.id===l.id);if(!old||['owner','parentId','type','text','fontSize','lineWidth'].some(k=>old[k]!==l[k]))labelIdentity.push({code:'FINE_LABEL_METADATA_CHANGED',owner:l.owner,id:l.id});if(l.bbox&&!within(l.bbox,model.config.hard.boardBounds))labelIdentity.push({code:'FINE_LABEL_BOARD_BOUNDARY',owner:l.owner,id:l.id,bbox:l.bbox});}}
-  // Public validation short-circuits these checks after a geometry failure and
-  // reports unnamed limits without owners. Independently measure ALL source
-  // limits on BOTH poses so a latent, unchanged outside failure cannot become
-  // a falsely new local defect merely because an unrelated overlap was repaired.
-  const limits=measureSourceLimits(model,plan).filter(l=>!l.passed).map(l=>({code:'PIN_DISTANCE_LIMIT',id:l.id,refs:l.refs,mil:l.distanceMil,maxMil:l.maxMil}));
-  const issues=[...new Map([...validation.issues.filter(i=>i.code!=='PIN_DISTANCE_LIMIT'),...features,...limits,...silk.issues,...labelIdentity].map(i=>[issueKey(i),i])).values()];
+  // Measure every source limit on both poses, with stable endpoint identities.
+  const limits=measureSourceLimits(model,plan).filter(l=>!l.passed).map(l=>({code:'PIN_DISTANCE_LIMIT',id:l.id,refs:l.refs,endpoints:l.endpoints,mil:l.distanceMil,maxMil:l.maxMil}));
+  const physicalIssues=[];
+  for(let i=0;i<geometry.physical.length;i++)for(let j=i+1;j<geometry.physical.length;j++){
+    const a=geometry.physical[i],b=geometry.physical[j];if(!scope.moving.has(a.ref)&&!scope.moving.has(b.ref))continue;
+    const gapMil=Math.max(a.bbox.minX-b.bbox.maxX,b.bbox.minX-a.bbox.maxX,a.bbox.minY-b.bbox.maxY,b.bbox.minY-a.bbox.maxY),requiredMil=model.pairClearanceMap.get(JSON.stringify([a.ref,b.ref].sort()))??model.mechanical.clearanceMil;
+    if(gapMil<requiredMil-1e-4)physicalIssues.push({code:'FINE_PHYSICAL_GAP',refs:[a.ref,b.ref],gapMil,requiredMil});
+  }
+  const issues=[...new Map([...validation.issues.filter(i=>i.code!=='PIN_DISTANCE_LIMIT'),...features,...limits,...silk.issues,...labelIdentity,...physicalIssues].map(i=>[issueKey(i),i])).values()];
   return {validation,geometry,issues};
 }
 export function verifyFineReadback(model,plan,actual) {
@@ -118,18 +120,28 @@ export function auditFineCandidate(scope,compilation,plan,options={}) {
 }
 function auditFineCandidateCore(scope,compilation,plan,{bodyOnly=false,liveBaseline=false}={}) {
   const {model,request,moving}=scope,actual=review(scope,plan,bodyOnly),before=review(scope,compilation.baseline.plan,bodyOnly);
-  const frame=(p,r)=>({components:p.components,labels:bodyOnly?[]:p.labels,pads:r.geometry.pads,boardBounds:p.boardBounds});
-  const {retainedOutsideIssues,blockingIssues,retainedOutsideProofs,changedObjects}=classifyFineIssues({issues:actual.issues,baselineIssues:before.issues,before:frame(compilation.baseline.plan,before),after:frame(plan,actual),labelMode:request.labels.mode,baselinePolicy:liveBaseline?'retain-outside-issues':request.baselinePolicy});
+  const frame=(p,r)=>({components:p.components.map(c=>({...c,layer:c.layer??model.components.get(c.ref)?.layer})),labels:bodyOnly?[]:p.labels,pads:r.geometry.pads,boardBounds:p.boardBounds,zones:r.validation.spatial.zones,
+    rules:{assembly:model.assemblyPolicy,spacing:model.spacingPolicy,spatial:model.spatialRules,edges:model.edgeRules,blocks:model.blockRules,labels:fineLabelRules(model,request.labels)}});
+  const mustFix=i=>scope.labelMoving.has(i.owner)&&(['FINE_LABEL_OWNER_FACING','FINE_LABEL_ORIENTATION_ANGLE'].includes(i.code)||i.code==='FINE_LABEL_OWNER_DISTANCE'&&request.labels.maxOwnerDistanceMil!==undefined);
+  const {retainedOutsideIssues,blockingIssues,retainedOutsideProofs,changedObjects}=classifyFineIssues({issues:actual.issues,baselineIssues:before.issues,before:frame(compilation.baseline.plan,before),after:frame(plan,actual),labelMode:request.labels.mode,baselinePolicy:liveBaseline?'retain-outside-issues':request.baselinePolicy,allowMovedIssues:request.baselinePolicy==='retain-outside-issues',mustFix});
   const outsidePoseChanges=scope.frozenRefs.filter(ref=>!samePose(model.components.get(ref),plan.components.find(c=>c.ref===ref)));
   const outsideLabelChanges=compilation.baseline.plan.labels.filter(l=>!scope.labelMoving.has(l.owner)).filter(l=>digest(l)!==digest(plan.labels.find(p=>p.id===l.id))).map(l=>l.id);
   const standaloneChanges=compilation.baseline.plan.testPads.filter(p=>{const q=plan.testPads.find(q=>q.id===p.id);return !q||!near(p.x,q.x)||!near(p.y,q.y)||!sameBox(p.bbox,q.bbox)||p.net!==q.net;}).map(p=>p.id);
-  const areaViolations=actual.geometry.physical.filter(p=>moving.has(p.ref)&&!within(p.bbox,request.region.boundsMil)).map(p=>p.ref);
-  const physicalIssues=[];
-  for(let i=0;i<actual.geometry.physical.length;i++)for(let j=i+1;j<actual.geometry.physical.length;j++){
-    const a=actual.geometry.physical[i],b=actual.geometry.physical[j];if(!moving.has(a.ref)&&!moving.has(b.ref))continue;
-    const gap=Math.max(a.bbox.minX-b.bbox.maxX,b.bbox.minX-a.bbox.maxX,a.bbox.minY-b.bbox.maxY,b.bbox.minY-a.bbox.maxY),required=model.pairClearanceMap.get(JSON.stringify([a.ref,b.ref].sort()))??model.mechanical.clearanceMil;
-    if(gap<required-1e-4)physicalIssues.push({code:'FINE_PHYSICAL_GAP',refs:[a.ref,b.ref],gapMil:gap,requiredMil:required});
+  const areaViolations=[],retainedAreaProofs=[],board=model.config.hard.boardBounds;
+  const overflow=b=>[Math.max(0,board.minX-b.minX),Math.max(0,b.maxX-board.maxX),Math.max(0,board.minY-b.minY),Math.max(0,b.maxY-board.maxY)];
+  for(const p of actual.geometry.physical.filter(p=>moving.has(p.ref)&&!within(p.bbox,request.region.boundsMil))){
+    // A board-wide work region must not contradict an already proven body-only
+    // board overhang. Smaller windows remain strict, as do every pad and the
+    // full collision geometry. Recheck physical overflow separately: a joint
+    // body/label bundle proof cannot authorize a newly protruding body.
+    const proof=retainedOutsideProofs.find(v=>v.issue.code==='BOARD_BOUNDARY_VIOLATION'&&v.issue.kind==='placement'&&v.issue.ref===p.ref);
+    const prior=before.geometry.physical.find(v=>v.ref===p.ref),pads=actual.geometry.pads.filter(v=>(v.owner??v.ref)===p.ref);
+    const previous=prior?overflow(prior.bbox):null,current=overflow(p.bbox);
+    if(request.baselinePolicy==='retain-outside-issues'&&sameBox(request.region.boundsMil,board)&&proof&&previous&&current.every((v,k)=>v<=previous[k]+1e-6)&&pads.every(v=>within(v.bbox,board))){
+      retainedAreaProofs.push({ref:p.ref,proof:'retained-board-body-overhang',boardProof:proof,physicalOverflowMil:{before:previous,after:current},padsInsideBoard:true,padIds:pads.map(v=>v.id)});
+    }else areaViolations.push(p.ref);
   }
+  const physicalIssues=blockingIssues.filter(i=>i.code==='FINE_PHYSICAL_GAP');
   const reservationIssues=request.reservedRegions.flatMap(r=>{
     const rows=r.geometry==='physical'?actual.geometry.physical:r.geometry==='assembly'?actual.geometry.assembly:actual.geometry.placement;
     return rows.filter(p=>moving.has(p.ref)&&Math.min(p.bbox.maxX,r.boundsMil.maxX)>Math.max(p.bbox.minX,r.boundsMil.minX)+1e-4&&Math.min(p.bbox.maxY,r.boundsMil.maxY)>Math.max(p.bbox.minY,r.boundsMil.minY)+1e-4).map(p=>({id:r.id,ref:p.ref}));
@@ -146,6 +158,6 @@ function auditFineCandidateCore(scope,compilation,plan,{bodyOnly=false,liveBasel
   const borrowedRefs=request.region.referenceBoundsMil?actual.geometry.physical.filter(p=>moving.has(p.ref)&&!within(p.bbox,request.region.referenceBoundsMil)).map(p=>p.ref):[];
   const localAccepted=!blockingIssues.length&&!outsidePoseChanges.length&&!outsideLabelChanges.length&&!standaloneChanges.length&&!areaViolations.length&&!physicalIssues.length&&!reservationIssues.length&&sourceLimits.filter(l=>l.active).every(l=>l.passed)&&relations.every(r=>r.passed===true)&&!unboundCritical.length;
   const wholeBoardAccepted=!actual.issues.length&&sourceLimits.every(l=>l.passed)&&localAccepted;
-  return {localAccepted,wholeBoardAccepted,blockingIssues,retainedOutsideIssues,retainedOutsideProofs,changedObjects,outsidePreserved:!outsidePoseChanges.length&&!outsideLabelChanges.length&&!standaloneChanges.length,outsidePoseChanges,outsideLabelChanges,standaloneChanges,areaViolations,physicalIssues,reservationIssues,sourceLimits,relations,unboundCritical,weightedBeforeMil,weightedAfterMil,regressions:relations.filter(r=>r.regressed).map(r=>r.id),borrowedRefs,region:request.region,lockSources:scope.lockSources,crossingNets:scope.crossingNets,selection:scope.selection,objectiveComposition:compilation.objectiveComposition,
+  return {localAccepted,wholeBoardAccepted,blockingIssues,retainedOutsideIssues,retainedOutsideProofs,changedObjects,outsidePreserved:!outsidePoseChanges.length&&!outsideLabelChanges.length&&!standaloneChanges.length,outsidePoseChanges,outsideLabelChanges,standaloneChanges,areaViolations,retainedAreaProofs,physicalIssues,reservationIssues,sourceLimits,relations,unboundCritical,weightedBeforeMil,weightedAfterMil,regressions:relations.filter(r=>r.regressed).map(r=>r.id),borrowedRefs,region:request.region,lockSources:scope.lockSources,crossingNets:scope.crossingNets,selection:scope.selection,objectiveComposition:compilation.objectiveComposition,
     labelStatus:bodyOnly?'pending':request.labels.mode==='separate'?'individual-native-glyphs-checked':'joint-templates-and-placement-envelope-checked',assemblyStatus:model.assemblyPolicy?'configured-policy-checked':'explicit-envelopes-only; absent envelopes are not assembly acceptance',measurement:'Manhattan native pad positions or pad-bbox centres, declared per relation; no actual copper-length, return-current or thermal claim',nativeEligible:localAccepted&&!bodyOnly};
 }

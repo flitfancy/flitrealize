@@ -27,15 +27,14 @@ async function freePort() {
 async function fixture(t) {
   const dir=await mkdtemp(join(tmpdir(),'flitrealize-bridge-paths-'));
   const pidFile=join(dir,'test-server.pid');
-  const preloader=join(dir,'linux-preload.mjs');
-  // Exercise the Linux selection branch on every CI host. Filesystem and child
-  // processes remain native; this is not a claim of a native Linux run.
-  await writeFile(preloader,`import {writeFileSync} from 'node:fs';\nObject.defineProperty(process,'platform',{value:'linux'});\nif(process.argv[1]===${JSON.stringify(serverScript)})writeFileSync(${JSON.stringify(pidFile)},String(process.pid));\n`);
+  const preloader=join(dir,'track-bridge-pid.mjs');
+  // Track this fixture's detached Bridge without changing its native platform.
+  await writeFile(preloader,`import {writeFileSync} from 'node:fs';\nif(process.argv[1]===${JSON.stringify(serverScript)})writeFileSync(${JSON.stringify(pidFile)},String(process.pid));\n`);
   const env={...process.env};
   for(const key of envKeys) delete env[key];
   const port=await freePort();
   Object.assign(env,{
-    HOME:join(dir,'user'),USERPROFILE:join(dir,'user'),
+    HOME:join(dir,'user'),USERPROFILE:join(dir,'user'),LOCALAPPDATA:join(dir,'local-app-data'),
     XDG_RUNTIME_DIR:join(dir,'runtime'),XDG_STATE_HOME:join(dir,'state'),XDG_CONFIG_HOME:join(dir,'config'),
     EASYEDA_BRIDGE_PORT_START:String(port),EASYEDA_BRIDGE_PORT_END:String(port),
     NODE_OPTIONS:'--import='+pathToFileURL(preloader).href,
@@ -56,6 +55,7 @@ async function fixture(t) {
         try {process.kill(pid,0);} catch(error) {if(error.code==='ESRCH')break;throw error;}
         await delay(20);
       }
+      assert.throws(()=>process.kill(pid,0),{code:'ESRCH'},'Fixture detached Bridge must exit before cleanup');
     }
     for(const path of cleanupDirs) await rm(path,{recursive:true,force:true,maxRetries:10,retryDelay:50});
   });
@@ -113,8 +113,9 @@ async function fixture(t) {
 }
 
 const cases=[
-  ['Linux runtime directory',f=>join(f.env.XDG_RUNTIME_DIR,'flitrealize','bridge','easyeda-pro')],
-  ['Linux XDG state directory',f=>{delete f.env.XDG_RUNTIME_DIR;return join(f.env.XDG_STATE_HOME,'flitrealize','bridge','easyeda-pro');}],
+  [process.platform==='win32'?'Windows LOCALAPPDATA before XDG directories':'Native XDG runtime directory',f=>process.platform==='win32'
+    ?join(f.env.LOCALAPPDATA,'FlitRealize','bridge','easyeda-pro'):join(f.env.XDG_RUNTIME_DIR,'flitrealize','bridge','easyeda-pro')],
+  ['Native XDG state fallback without platform runtime directories',f=>{delete f.env.LOCALAPPDATA;delete f.env.XDG_RUNTIME_DIR;return join(f.env.XDG_STATE_HOME,'flitrealize','bridge','easyeda-pro');}],
   ['FLITREALIZE_HOME before platform defaults',f=>{f.env.FLITREALIZE_HOME=join(f.dir,'home');return join(f.env.FLITREALIZE_HOME,'bridge','easyeda-pro');}],
   ['Bridge override before FLITREALIZE_HOME',f=>{f.env.FLITREALIZE_HOME=join(f.dir,'home');f.env.FLITREALIZE_BRIDGE_STATE_DIR=join(f.dir,'override');return f.env.FLITREALIZE_BRIDGE_STATE_DIR;}],
 ];
@@ -122,10 +123,14 @@ for(const [name,configure] of cases) {
   test(`${name}: real server, control and default View State share a session`,async t=>{
     const f=await fixture(t);
     const stateDir=configure(f);
+    const platform=await f.run(['--print','process.platform']);
+    assert.equal(platform.code,0,platform.stderr);
+    assert.equal(platform.stdout.trim(),process.platform,'Integration children must retain their real platform');
     await f.start();
     const status=await f.control();
     assert.equal(status.status,'bridge-ready');
     const session=JSON.parse(await readFile(join(stateDir,'session.json'),'utf8'));
+    assert.equal(Number(await readFile(join(f.dir,'test-server.pid'),'utf8')),session.pid);
     assert.equal(status.bridge.sessionId,session.sessionId);
     assert.equal(status.bridge.port,f.port);
     const view=await f.view();
@@ -163,6 +168,7 @@ for(const [entry,variable] of [
     assert.equal(status.status,'bridge-ready');
     const stateDir=variable==='FLITREALIZE_HOME'?join(f.dir,name,'bridge','easyeda-pro'):join(f.dir,name);
     const session=JSON.parse(await readFile(join(stateDir,'session.json'),'utf8'));
+    assert.equal(Number(await readFile(join(f.dir,'test-server.pid'),'utf8')),session.pid,'Detached Bridge PID remains owned by the fixture');
     assert.equal(status.bridge.sessionId,session.sessionId);
     assert.equal((await f.view()).state,'bridge-ready');
   });

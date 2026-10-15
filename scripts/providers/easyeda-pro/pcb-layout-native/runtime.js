@@ -284,7 +284,9 @@ async function layoutNative(eda, input) {
     if(policy.schemaVersion!==1||!['require-clean','retain-outside-issues'].includes(policy.baselinePolicy)||policy.sourceHash!==before.sourceHash||plan.sourceHash!==before.sourceHash)fail('FINE_BASELINE_BINDING_INVALID');
     const sourceComponents=writeBaseline.components.map(c=>({...c,body:c.bbox})),sourceLabels=writeBaseline.items.map(l=>({...l,...l.original}));
     const baseline=geometry(sourceComponents,sourceLabels,writeBaseline.pads,boardBounds);
-    const partition=classifyFineIssues({issues:checked.issues,baselineIssues:baseline.issues,before:{components:sourceComponents,labels:sourceLabels,pads:writeBaseline.pads,boardBounds},after:{components,labels,pads,boardBounds},labelMode:cfg.labelGeometryMode??'joint',baselinePolicy:policy.liveScope ? 'retain-outside-issues' : policy.baselinePolicy});
+    const rules={assembly:cfg.assemblyPolicy,pairs:cfg.pairClearancesMil,clearanceMil:cfg.clearanceMil,labels:labelRules,orientation:cfg.labelOrientation};
+    const mustFix=i=>['FINE_LABEL_OWNER_FACING','FINE_LABEL_ORIENTATION_ANGLE'].includes(i.code)&&(cfg.labelOrientationOwnerRefs??[]).includes(i.owner)||i.code==='FINE_LABEL_OWNER_DISTANCE'&&cfg.labelOwnerMaxDistanceMil!==undefined&&(policy.labelMovableOwnerRefs??[]).includes(i.owner);
+    const partition=classifyFineIssues({issues:checked.issues,baselineIssues:baseline.issues,before:{components:sourceComponents,labels:sourceLabels,pads:writeBaseline.pads,boardBounds,rules},after:{components:components.map(c=>({...c,layer:c.layer??sourceComponents.find(p=>p.id===c.id)?.layer})),labels,pads,boardBounds,rules},labelMode:cfg.labelGeometryMode??'joint',baselinePolicy:policy.liveScope ? 'retain-outside-issues' : policy.baselinePolicy,allowMovedIssues:policy.baselinePolicy==='retain-outside-issues',mustFix});
     return {...checked,...partition,geometryIssues:checked.issues,issues:partition.blockingIssues,wholeBoardAccepted:!checked.issues.length};
   }
   function obstacleIssues(obstacles = [], placements, labels, pads, writeSet) {

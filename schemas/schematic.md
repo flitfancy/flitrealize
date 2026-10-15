@@ -1,6 +1,6 @@
 # 原理图数据约定
 
-现有机器定义保持原文件与版本：[电路设计稿](schematic-contract.v1.schema.json)、[放置计划](schematic-placement-plan.v1.schema.json)、[现场快照](schematic-snapshot.v1.schema.json)。本页集中原有字段语义；设计和实现流程仍见 [2.1](../docs/2.1-schematic-contract.md) 与 [2.2](../docs/providers/easyeda-pro/2.2-schematic-workflow.md)。
+现有机器定义保持原文件与版本：[电路设计稿](schematic-contract.v1.schema.json)、[放置计划](schematic-placement-plan.v1.schema.json)、[现场快照](schematic-snapshot.v1.schema.json)。本页集中原有字段语义；设计和实现流程仍见 [2.1](../docs/2.1-schematic-contract.md) 与 [2.1-r 原理图实现](../docs/providers/easyeda-pro/2.1-r-schematic-workflow.md)。
 
 ## 电路设计稿字段
 
@@ -56,7 +56,7 @@
 
 网络端点使用 `{component, pin}`。例如 `{"component": "U1", "pin": "1"}` 引用 U1 的 `pins[].number: "1"`；同一引脚只属于一个网络。
 
-软件适配层的 `bindings` 保存库身份及电路设计稿引脚与原生引脚的映射。具体操作见 [器件绑定与放置](../docs/providers/easyeda-pro/2.3-component-batch.md)。引脚功能来自准确器件资料，实际画出的连接由 EDA 回读确认。
+软件适配层的 `bindings` 保存库身份及电路设计稿引脚与原生引脚的映射。具体操作见 [器件绑定与放置](../docs/providers/easyeda-pro/2.1-r-component-batch.md)。引脚功能来自准确器件资料，实际画出的连接由 EDA 回读确认。
 
 ### 要求、例外与依据
 
@@ -71,3 +71,9 @@
 `exceptions[]` 使用 `id`、`rule`、`appliesTo`、`rationale`、`evidenceState`，说明有意例外及其依据。
 
 `evidenceState` 为 `OPEN`、`CONDITIONAL` 或 `PASSED`，分别表示未决、有条件成立、已有依据确认。确认状态针对所记录的要求，不代表整个电路通过验收。
+
+## 现场快照与原生网表证据
+
+对已支持的格式，仅将与当前页实际器件及引脚编号对应的端点写入原有 `snapshot.nets.endpoints` 和 `pins.net`；原文及覆盖状态保存在 `snapshot.extensions.easyedaPro.nativeNetlist`。
+
+导出中超出当前页的器件、未匹配引脚和未知格式分别保留未覆盖信息，不据此宣布整个多页工程已核验。

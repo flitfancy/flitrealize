@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {summarizeNativeDrc} from '../../scripts/providers/easyeda-pro/drc-summary.mjs';
+import {summarizeNativeDrc,compareNativeDrc} from '../../scripts/providers/easyeda-pro/drc-summary.mjs';
 
 test('native grouped DRC counts every physical leaf, not group or declared count',()=>{
  const result=summarizeNativeDrc([
@@ -20,4 +20,19 @@ test('empty reports and empty zero-count groups have no errors',()=>{
 });
 test('malformed or incomplete verbose results cannot pass as clean',()=>{
  for(const value of [true,null,[null],[{list:null}],[{list:[],count:3}]])assert.throws(()=>summarizeNativeDrc(value),/DRC_/);
+});
+
+test('DRC increment acceptance compares full records as a multiset, retaining rule context',()=>{
+ const old={name:'Clearance Error',list:[{name:'Common',list:[{errorType:'Clearance Error',objs:['line-a','pad-b'],distance:4,ruleName:'minimum-6'}]}]};
+ assert.equal(compareNativeDrc([old],[old]).passed,true);
+ assert.equal(compareNativeDrc([], [old]).passed,true);
+ for(const change of [
+  value=>value.list[0].list[0].objs=['line-c','pad-b'],
+  value=>value.list[0].name='Different rule',
+  value=>value.list[0].list[0].distance=3,
+  value=>value.list[0].list[0].distance=5,
+  value=>value.list[0].list.push(structuredClone(value.list[0].list[0])),
+ ]){const now=structuredClone(old);change(now);assert.equal(compareNativeDrc([now],[old]).passed,false);}
+ for(const baseline of [null,true,[{name:'Clearance Error',count:1}],[]])assert.equal(compareNativeDrc([old],baseline).passed,false);
+ assert.equal(compareNativeDrc([{name:'Clearance Error',count:1}],[{name:'Clearance Error',count:1}]).passed,false);
 });

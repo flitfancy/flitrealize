@@ -39,6 +39,8 @@
 
 `2755.9055 mil = 70 mm`（`mil = mm / 0.0254`）。已有板框时默认拒绝；确认后才 `replace: true` 且仅允许替换唯一已有板框。plan → apply → verify → save 与其它 PCB 编辑入口一致。
 
+apply 逐项核对原生回读路径与线宽，数值容差为 `1e-7 mil`。返回的 `verifyRequest` 和 `saveRequest` 携带原 `plan.path`、`plan.lineWidthMil` 及目标身份，后续沿这两份请求核对原计划；保存前发现差异时拒绝写入，保存后也核对路径和线宽。只给目标身份的独立 verify 仅检查板框数量、层与基础路径结构，不表示尺寸已经与设计计划对账。
+
 ## 明确移动输入
 
 示例只展示字段，不是任何实际电路的推荐尺寸：

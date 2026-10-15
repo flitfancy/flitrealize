@@ -38,3 +38,14 @@ test('compatibility diagnostics reach the workflow report and no save follows re
  const compatibility={schemaVersion:1,kind:'flitrealize.routing-compatibility',state:'blocked',requestedTarget:{status:'known',value:f.board.target},findings:[{source:'naturecraft-autorouter',scope:'unknown',state:'blocked',reasons:['journal-state-unknown']}]};
  try{const native=async req=>{calls.push(req.mode);throw Object.assign(Error('OTHER_ROUTER_PENDING'),{code:'OTHER_ROUTER_PENDING',compatibility});};const r=await runWorkflow({...f,directory,runtime:{},route,native,apply:true,windowId:'MOCK'});assert.equal(r.status,'needs-attention');assert.equal(r.saved,false);assert.deepEqual(calls,['apply']);assert.deepEqual(r.issues[0].compatibility,compatibility);const saved=JSON.parse(await fs.readFile(path.join(directory,'workflow.json'),'utf8'));assert.deepEqual(saved.issues[0].compatibility,compatibility);}finally{await fs.rm(directory,{recursive:true,force:true});}
 });
+
+test('the workflow carries complete captured DRC and retains a confirmed save after readback failure',async()=>{
+ const directory=await fs.mkdtemp(path.join(os.tmpdir(),'flit-routing-')),f=fixture(),calls=[];
+ f.board.native.drc=[{errorType:'Clearance Error',ruleName:'old-rule',objs:['old','pad-A']}];
+ const after={sourceInvariantHash:'S',footprintHash:'F',objects:{...f.board.native.objects,lines:[f.line,{PrimitiveId:'new',Net:'Q',Layer:1,LineWidth:6,StartX:70,StartY:0,EndX:100,EndY:0}]},counts:{lines:2,vias:0}};
+ try{
+  const native=async req=>{calls.push(req.mode);if(req.mode==='apply'){assert.deepEqual(req.input.before.drc,f.board.native.drc);return{status:'applied-verified-unsaved',...after};}return{status:'saved-readback-failed',saved:true,error:'POST_SAVE_CHANGED'};};
+  const result=await runWorkflow({...f,directory,runtime:{},route,native,apply:true,windowId:'WINDOW'});
+  assert.equal(result.saved,true);assert.equal(result.status,'needs-attention');assert.deepEqual(calls,['apply','save']);
+ }finally{await fs.rm(directory,{recursive:true,force:true});}
+});

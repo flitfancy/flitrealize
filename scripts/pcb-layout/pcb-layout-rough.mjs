@@ -7,12 +7,12 @@ const sides=['left','right','bottom','top'];
 
 export function compileRoughLayoutPolicy(model,problem,policy){
  if(policy===undefined)return null;
- if(!policy||policy.schemaVersion!==1||!finite(policy.groupCompactnessWeight))throw Error('INVALID_ROUGH_LAYOUT_POLICY');
+ if(!policy||policy.schemaVersion!==1||!finite(policy.groupCompactnessWeight??1)||policy.clearanceMil!==undefined&&!finite(policy.clearanceMil))throw Error('INVALID_ROUGH_LAYOUT_POLICY');
  if(problem.openPlacement||!problem.board||problem.blockObjective)throw Error('ROUGH_LAYOUT_REQUIRES_BOARD_OBJECTIVE');
  const d=policy.density,c=policy.connectionSide;
  if(d&&(!finite(d.weight)||!finite(d.cellMil,problem.settings.resolutionMil)||!finite(d.targetCount,.1)||!Array.isArray(d.offsetFractions)||!d.offsetFractions.length||d.offsetFractions.some(x=>!finite(x)||x>=1)))throw Error('INVALID_ROUGH_DENSITY');
  if(c&&(!finite(c.weight)||!Number.isInteger(c.minimumConnectedPads)||c.minimumConnectedPads<1||!Array.isArray(c.excludeNets)||!Array.isArray(c.depthLevels)||!c.depthLevels.length||c.depthLevels.some(l=>!Number.isInteger(l.minimumSidePads)||l.minimumSidePads<1||!finite(l.depthMil,problem.settings.resolutionMil))))throw Error('INVALID_CONNECTION_SIDE_POLICY');
- const out={schemaVersion:1,groupCompactnessWeight:policy.groupCompactnessWeight,density:null,bands:[],connectionSideWeight:c?.weight??0,limitations:['Coarse centroid counts, not occupied area or routing capacity.','Side bands are soft obstacle-count preferences, not individual pin escape corridors.']};
+ const out={schemaVersion:1,groupCompactnessWeight:policy.groupCompactnessWeight??1,density:null,bands:[],connectionSideWeight:c?.weight??0,limitations:['Coarse centroid counts, not occupied area or routing capacity.','Side bands are soft obstacle-count preferences, not individual pin escape corridors.','Group compactness scales existing intra-block centre relations; no extra span objective.']};
  if(d?.weight){
   const unit=problem.settings.resolutionMil,cellUnits=Math.round(d.cellMil/unit);
   const cellMil=cellUnits*unit,refs=problem.entities.filter(e=>e.kind==='component'&&Math.max(...e.variants.map(v=>area(v.physical)))<cellMil*cellMil).map(e=>e.ref);

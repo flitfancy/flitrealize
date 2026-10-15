@@ -3,7 +3,7 @@ import path from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {compileTasks,buildTaskDsn,decodeSes,validateCandidate,overlayBoard,taskConnectivity} from './model.mjs';
 import {runRouter} from './runtime.mjs';
-import {executeNative,prepareNativeSource,updateBoardSnapshot} from './provider.mjs';
+import {executeNative,prepareNativeSource,updateBoardSnapshot} from '../providers/easyeda-pro/routing-provider.mjs';
 
 export async function runWorkflow({board,policy,directory,runtime,selection={},escapes={seeds:[],traceSeeds:[]},apply=false,windowId=null,reworkNets=[],settings={},route=runRouter,native=executeNative,log=()=>{}}){
  await fs.mkdir(directory,{recursive:true});const started=performance.now(),runId=randomUUID();
@@ -40,7 +40,7 @@ export async function runWorkflow({board,policy,directory,runtime,selection={},e
  // Native writing preserves the validated candidate exactly. Keep only new
  // model objects; explicitly reworked nets replace their previous copper.
  const expected={segments:current.segments.filter(s=>mutableApplied.has(s.net)||!initialSegments.some(o=>o===s)),vias:current.vias.filter(v=>mutableApplied.has(v.net)||!initialVias.some(o=>o===v))};
- const set={schemaVersion:1,runId,target:initial.target,before:{objects:initial.native.objects,sourceInvariantHash:initial.native.sourceInvariantHash,footprintHash:initial.native.footprintHash},selectedNets,mutableNets:mutable,layerIds:initial.layers,pads:initial.pads,expected,tasks:accepted.map(a=>a.task)};
+ const set={schemaVersion:1,runId,target:initial.target,before:{objects:initial.native.objects,sourceInvariantHash:initial.native.sourceInvariantHash,footprintHash:initial.native.footprintHash,drc:initial.native.drc},selectedNets,mutableNets:mutable,layerIds:initial.layers,pads:initial.pads,expected,tasks:accepted.map(a=>a.task)};
  await fs.writeFile(path.join(directory,'candidate-set.json'),JSON.stringify(set,null,2));
  if(apply&&accepted.length){
   if(!windowId)throw Error('WINDOW_ID_REQUIRED');
@@ -53,7 +53,9 @@ export async function runWorkflow({board,policy,directory,runtime,selection={},e
     const actual=updateBoardSnapshot(initial,result);
     const actualConnectivity=set.tasks.map(task=>({id:task.id,...taskConnectivity(actual,task)}));if(actualConnectivity.some(c=>!c.connected))throw Error('ACTUAL_TASK_CONNECTIVITY_FAILED');
     const s=performance.now(),saved=await native({directory,windowId,mode:'save',input:{target:set.target,runId},sourceFile,logName:'save'});state.timings.save=(performance.now()-s)/1000;
-    if(saved.status!=='saved'||!saved.saved)throw Error('SAVE_NOT_CONFIRMED');state.saved=true;
+    if(saved.saved===true)state.saved=true;
+    else if(saved.saved===null)state.saved=null;
+    if(saved.status!=='saved'||!saved.saved)throw Error(saved.error??'SAVE_NOT_CONFIRMED');
     const readback=await native({directory,windowId,mode:'inspect',input:{target:set.target},sourceFile,logName:'readback'});
     if(readback.sourceInvariantHash!==saved.sourceInvariantHash||JSON.stringify(readback.objects)!==JSON.stringify(saved.objects))throw Error('INDEPENDENT_READBACK_CHANGED');
     state.status=state.counts.blocked?'saved-with-blocked-tasks':'saved-and-read-back';state.actualConnectivity=actualConnectivity;state.pcbCounts=saved.counts;

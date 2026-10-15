@@ -43,13 +43,13 @@ export async function ensureRuntime({runtimeFile=null,cache=runtimeCache(),insta
  }
  const result={freeroutingVersion:FR_VERSION,jarPath,jarSha256:JAR_SHA256,javaExe,localOnly:true};await fs.writeFile(path.join(cache,'runtime.json'),JSON.stringify(result,null,2)+'\n');return result;
 }
-export async function runRouter(runtime,{input,output,result,log,layers,layerOrder,ignoredClasses=[],maxPasses=5,optimize=true,fanout=false,heap='2g',timeoutMs=180000}){
+export async function runRouter(runtime,{input,output,result,log,layers,layerOrder,ignoredClasses=[],maxPasses=5,optimize=true,fanout=false,heap='2g',timeoutMs=180000},{runner=exec}={}){
  if(!/^\d+[mg]$/i.test(heap)||parseInt(heap)<=0)throw Error('INVALID_HEAP_LIMIT');
  if(!Number.isInteger(maxPasses)||maxPasses<1||!Number.isFinite(timeoutMs)||timeoutMs<=0)throw Error('INVALID_ROUTER_BUDGET');
  if(!Array.isArray(ignoredClasses)||ignoredClasses.some(n=>typeof n!=='string'||n.startsWith('-')||n.includes(',')))throw Error('INVALID_IGNORED_NET_CLASSES');
  const args=['-Xmx'+heap,'-Djava.awt.headless=true','-jar',runtime.jarPath,'-de',input,'-do',output,'-mp',String(maxPasses),'--gui.enabled=false','--api_server.enabled=false','--profile.allow_telemetry=false','--usage_and_diagnostic_data.disable_analytics=true','--user_data_path='+path.join(path.dirname(output),'fr-state'),'--router.result_json='+result,'--router.layers.routable='+layerOrder.map(l=>layers.includes(l)).join(','),'--router.optimizer.enabled='+optimize,'--router.fanout.enabled='+fanout,'--router.automatic_neckdown=false'];
  if(ignoredClasses.length)args.push('-inc',ignoredClasses.join(','));
  args.push('--router.strict_drc=true');
- const started=performance.now();try{const r=await exec(runtime.javaExe,args,{windowsHide:true,timeout:timeoutMs,maxBuffer:4*1024*1024});await fs.writeFile(log,r.stdout+r.stderr);}catch(error){await fs.writeFile(log,(error.stdout??'')+(error.stderr??''));throw error;}
+ const started=performance.now();try{const r=await runner(runtime.javaExe,args,{windowsHide:true,timeout:timeoutMs,maxBuffer:4*1024*1024});await fs.writeFile(log,r.stdout+r.stderr);}catch(error){await fs.writeFile(log,(error.stdout??'')+(error.stderr??''));throw error;}
  const report=JSON.parse(await fs.readFile(result,'utf8'));if(report.final_state!=='COMPLETED'||!report.output_written)throw Error('ROUTER_DID_NOT_COMPLETE');return{seconds:(performance.now()-started)/1000,report};
 }

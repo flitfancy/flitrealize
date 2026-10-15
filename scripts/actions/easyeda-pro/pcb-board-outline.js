@@ -58,6 +58,49 @@ return await (async () => {
     return [...value];
   }
 
+  function samePath(actual, expected) {
+    // Native serialization quantizes mil coordinates to four decimals and may
+    // reverse a closed polygon or move its first vertex without changing it.
+    const points = value => {
+      if (!Array.isArray(value) || value.some(v=>typeof v==='string' && v!=='L')) return null;
+      const numbers=value.filter(v=>v!=='L').map(Number);
+      if(numbers.length<8 || numbers.length%2 || numbers.some(v=>!Number.isFinite(v)))return null;
+      const result=[];for(let i=0;i<numbers.length;i+=2)result.push([Math.round(numbers[i]*1e4)/1e4,Math.round(numbers[i+1]*1e4)/1e4]);
+      if(JSON.stringify(result[0])!==JSON.stringify(result.at(-1)))return null;
+      return result.slice(0,-1);
+    };
+    const a=points(actual),e=points(expected);
+    if(a&&e&&a.length===e.length){
+      const equal=(p,q)=>p.every((v,i)=>Math.abs(v-q[i])<=1e-7);
+      for(let start=0;start<e.length;start++)for(const direction of [1,-1]){
+        if(a.every((p,index)=>equal(p,e[(start+direction*index+e.length)%e.length])))return true;
+      }
+      return false;
+    }
+    return Array.isArray(actual) && actual.length === expected.length && actual.every((value, index) => {
+      const wanted = expected[index];
+      if (wanted === 'L' || wanted === 'ARC') return value === wanted;
+      return Number.isFinite(Number(value)) && Math.abs(Number(value) - Number(wanted)) <= 1e-7;
+    });
+  }
+
+  function requestedGeometry(value) {
+    const source = value.rect ? rectPath(normalizeRect(value.rect)) : value.path ? normalizePath(value.path) : null;
+    return { source, lineWidthMil: value.lineWidthMil === undefined ? null : Number(value.lineWidthMil) };
+  }
+
+  function outlineIssues(outline, expected = {}) {
+    const issues = [];
+    if (outline.layer !== BOARD_OUTLINE_LAYER) issues.push({ code: 'OUTLINE_LAYER', layer: outline.layer });
+    if (!Array.isArray(outline.source) || outline.source.length < 10) issues.push({ code: 'OUTLINE_SOURCE_MISSING' });
+    if (expected.source && !samePath(outline.source, expected.source)) issues.push({ code: 'OUTLINE_GEOMETRY_MISMATCH' });
+    if (expected.lineWidthMil !== null && expected.lineWidthMil !== undefined
+      && (!Number.isFinite(outline.lineWidthMil) || Math.abs(outline.lineWidthMil - expected.lineWidthMil) > 1e-7)) {
+      issues.push({ code: 'OUTLINE_LINE_WIDTH_MISMATCH' });
+    }
+    return issues;
+  }
+
   function outlinePlan(requestValue, existing) {
     const replace = requestValue.replace === true;
     if (existing.length && !replace) {
@@ -121,9 +164,7 @@ return await (async () => {
     const issues = [];
     if (after.length !== 1) issues.push({ code: 'OUTLINE_COUNT', count: after.length });
     else {
-      const outline = after[0];
-      if (outline.layer !== BOARD_OUTLINE_LAYER) issues.push({ code: 'OUTLINE_LAYER', layer: outline.layer });
-      if (!Array.isArray(outline.source) || outline.source.length < 10) issues.push({ code: 'OUTLINE_SOURCE_MISSING' });
+      issues.push(...outlineIssues(after[0], requestedGeometry(request.plan ?? request)));
     }
     return {
       status: issues.length ? 'mismatch' : 'verified',
@@ -139,9 +180,12 @@ return await (async () => {
     await assertTarget(target);
     const after = await listOutlines();
     if (after.length !== 1) fail('STALE_SAVE', 'Exactly one board outline must exist before save.');
+    if (outlineIssues(after[0], requestedGeometry(request.plan ?? request)).length) fail('STALE_SAVE', 'Outline geometry or width differs from the requested plan.');
     if (await eda.pcb_Document.save() !== true) fail('SAVE_FAILED', 'PCB save did not confirm success.');
     const saved = await listOutlines();
-    if (saved.length !== 1) fail('SAVE_READBACK_CHANGED', 'Outline count changed while saving.');
+    if (saved.length !== 1 || outlineIssues(saved[0], { source: after[0].source, lineWidthMil: after[0].lineWidthMil }).length) {
+      fail('SAVE_READBACK_CHANGED', 'Outline geometry or width changed while saving.');
+    }
     return { status: 'applied', saved: true, ...display, outlines: saved.map(({ raw, ...summary }) => summary) };
   }
 
@@ -197,8 +241,8 @@ return await (async () => {
     const layer = Number(getter(created, 'getState_Layer'));
     const lineWidthMil = Number(getter(created, 'getState_LineWidth'));
     const source = getter(created, 'getState_Polygon')?.getSource?.() ?? null;
-    if (layer !== BOARD_OUTLINE_LAYER || !Array.isArray(source) || source.length < 10) {
-      fail('OUTLINE_READBACK_FAILED', 'Created outline did not read back as a layer-11 closed polyline.');
+    if (outlineIssues({ layer, lineWidthMil, source }, planned).length) {
+      fail('OUTLINE_READBACK_FAILED', 'Created outline geometry or width differs from the layer-11 plan.');
     }
     const primitiveId = getter(created, 'getState_PrimitiveId');
     return {
@@ -208,8 +252,8 @@ return await (async () => {
       createdId: primitiveId,
       removedIds: removed,
       outline: { primitiveId, layer, lineWidthMil, source },
-      verifyRequest: { mode: 'verify', ...target },
-      saveRequest: { mode: 'save', ...target },
+      verifyRequest: { mode: 'verify', plan: { ...target, path: planned.source, lineWidthMil: planned.lineWidthMil } },
+      saveRequest: { mode: 'save', plan: { ...target, path: planned.source, lineWidthMil: planned.lineWidthMil } },
     };
   } catch (error) {
     let rolledBack = false;

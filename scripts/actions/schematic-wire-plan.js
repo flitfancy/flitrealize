@@ -349,6 +349,7 @@ return await (async () => {
       bindingFingerprint: placementPlan?.fingerprints?.bindings ?? null,
       snapshotFingerprint: snapshot.fingerprints.document,
       geometryFingerprint,
+      ...(typeof snapshot.executionSource === 'string' ? { nativeSource: snapshot.executionSource, localDependencies: request.localDependencies ?? null } : {}),
     };
     const planFingerprint = hashText(stableStringify({
       provider: snapshot.provider,

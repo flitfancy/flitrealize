@@ -13,6 +13,7 @@ import { digest } from '../../scripts/pcb-layout/fine/common.mjs';
 import { buildGeometryViews } from '../../scripts/pcb-layout/pcb-layout-geometry-views.mjs';
 import { fineRoutingRequest, routeFineCandidate, verifyFineRoutingReceipt } from '../../scripts/pcb-layout/fine/routing.mjs';
 import { preparePrerouteInput } from '../../scripts/pcb-routing/preroute/prepare.mjs';
+import { classifyFineIssues } from '../../scripts/pcb-layout/fine/issue-policy.mjs';
 
 async function temporaryDirectory(t,prefix){const directory=await mkdtemp(join(tmpdir(),prefix));t.after(()=>rm(directory,{recursive:true,force:true}));return directory;}
 
@@ -82,4 +83,85 @@ test('trial routing rejects a nonzero board origin before invoking the backend',
  const f=inputs();f.config.hard.boardBounds.minX=-10;
  const c=compiled(f,routingRequest());
  assert.throws(()=>fineRoutingRequest(c.scope,c.baseline.plan),/FINE_ROUTING_BOARD_UNSUPPORTED/);
+});
+
+test('fixed unrelated keepout failures remain in the complete baseline report without constant solver failures',()=>{
+ const f=inputs();f.config.spatial={zones:[{id:'old-fixed-zone',mode:'keepout',geometry:'body',box:{minX:35,maxX:45,minY:75,maxY:85}}]};
+ const r=request();assert.throws(()=>compiled(f,r),/FINE_BASELINE_NOT_CLEAN/);r.baselinePolicy='retain-outside-issues';
+ const c=compiled(f,r),old=c.baseline.validation.issues.find(i=>i.code==='SPATIAL_KEEPOUT');assert.equal(old.ref,'U1');assert.ok(old.shapes.every(s=>Number.isFinite(s.penetrationXMil)));
+ assert.deepEqual(c.problem.zones.find(z=>z.id==='old-fixed-zone').targetRefs,['C1']);
+ assert.ok(c.constantConstraints.some(c=>c.kind==='keepout'&&c.id==='old-fixed-zone:U1'&&c.issues.length));
+ const candidate=materializeFineCandidate(c.scope,c,baselineResult(c));assert.equal(candidate.audit.localAccepted,true,JSON.stringify(candidate.audit.blockingIssues));
+ assert.ok(candidate.audit.retainedOutsideIssues.some(i=>i.id==='old-fixed-zone'));
+});
+test('moving keepout owners still constrain fixed external targets and fixed geometry stays real',()=>{
+ const f=inputs();f.config.spatial={zones:[{id:'moving-owner',owner:'C1',mode:'keepout',geometry:'body',box:{minX:-185,maxX:-175,minY:-5,maxY:5},targetRefs:['U1']}]};
+ const r=request();r.baselinePolicy='retain-outside-issues';const c=compiled(f,r);
+ assert.deepEqual(c.problem.zones.find(z=>z.id==='moving-owner').targetRefs,['U1']);
+ assert.equal(c.problem.entities.find(e=>e.ref==='U1').variants[0].body.maxX-c.problem.entities.find(e=>e.ref==='U1').variants[0].body.minX,20);
+ assert.ok(c.problem.zones.some(z=>z.id==='fine-context-physical:U1:8'&&z.targetRefs.includes('C1')));
+});
+test('fixed spatial relations and blocks are partitioned by all anchors, while cross-boundary rules remain',()=>{
+ const f=inputs(),c=structuredClone(f.snapshot.components[0]);c.id='U2:';c.ref='U2';c.x+=310;c.bbox.minX+=310;c.bbox.maxX+=310;f.snapshot.components.push(c);
+ const p=structuredClone(f.snapshot.pads[0]);p.id='U2:1';p.owner='U2';p.x+=310;p.bbox.minX+=310;p.bbox.maxX+=310;f.snapshot.pads.push(p);
+ const l=structuredClone(f.snapshot.items[0]);l.id='U2:label';l.owner='U2';l.parentId=c.id;l.text='U2';l.original.x+=310;l.original.bbox.minX+=310;l.original.bbox.maxX+=310;f.snapshot.items.push(l);
+ f.contract.components.push({designator:'U2',role:'fixed external anchor',includeInPcb:true,pins:[{number:'1'}]});f.contract.blocks[0].components.push('U2');f.contract.nets[0].endpoints.push({component:'U2',pin:'1'});
+ f.config.componentFeatures=[{ref:'U1',block:{anchors:['U2'],maxDistanceMil:10}},{ref:'C1',block:{anchors:['U1'],maxDistanceMil:10}}];
+ f.config.spatial={relations:[{id:'fixed-distance',a:'U1',b:'U2',metric:'origin-manhattan',category:'proximity',band:{hardMaxMil:20,scaleMil:1}},{id:'cross-distance',a:'U1',b:'C1',metric:'origin-manhattan',category:'proximity',band:{hardMaxMil:10,scaleMil:1}}]};
+ const r=request();r.baselinePolicy='retain-outside-issues';const result=compiled(f,r);
+ assert.deepEqual(result.problem.blocks.map(r=>r.ref),['C1']);assert.deepEqual(result.problem.relations.map(r=>r.id),['cross-distance']);
+ assert.ok(result.baseline.validation.issues.some(i=>i.code==='SPATIAL_DISTANCE_LIMIT'&&i.id==='fixed-distance'));
+ assert.ok(result.baseline.validation.issues.some(i=>i.code==='BLOCK_DISTANCE_EXCEEDED'&&i.ref==='U1'));
+ assert.ok(result.baseline.validation.issues.some(i=>i.code==='BLOCK_DISTANCE_EXCEEDED'&&i.ref==='C1'));
+});
+test('an old geometric failure never suppresses initial spatial or electrical findings',()=>{
+ const f=inputs();f.snapshot.items[0].original.bbox.minX=-30;f.config.hard.pinDistanceLimits=[{id:'strict-source',a:'U1',aPin:'1',b:'C1',bPin:'1',net:'SUPPLY',maxMil:10}];
+ f.config.spatial={zones:[{id:'fixed-zone',mode:'keepout',geometry:'body',box:{minX:35,maxX:45,minY:75,maxY:85}}]};
+ const r=request();r.baselinePolicy='retain-outside-issues';const c=compiled(f,r),codes=c.baseline.validation.issues.map(i=>i.code);
+ assert.ok(codes.includes('BOARD_BOUNDARY_VIOLATION'));assert.ok(codes.includes('SPATIAL_KEEPOUT'));assert.ok(codes.includes('PIN_DISTANCE_LIMIT'));
+ assert.ok(c.problem.limits.some(l=>l.id==='strict-source'),'real moving/fixed endpoints still enforce source caps');
+});
+test('explicit active label distance caps cannot be retained as unchanged baseline failures',()=>{
+ const r=request();r.labels={mode:'separate',clearanceMil:0,maxOwnerDistanceMil:1};r.baselinePolicy='retain-outside-issues';
+ const c=compiled(inputs(),r),audit=auditFineCandidate(c.scope,c,c.baseline.plan);
+ assert.ok(audit.blockingIssues.some(i=>i.code==='FINE_LABEL_OWNER_DISTANCE'&&i.owner==='C1'));
+ assert.equal(audit.localAccepted,false);
+});
+
+test('eight outside issues need independent non-worsening proofs; one regression or substituted issue still blocks',()=>{
+ const before={components:[{id:'fixed-body',ref:'A',x:0,y:0,rotation:0,body:{minX:-10,maxX:10,minY:-10,maxY:10}}],
+  labels:Array.from({length:8},(_,i)=>({id:'external-label-'+i,owner:'B',x:1,y:0,rotation:0,bbox:{minX:-1,maxX:3,minY:-2,maxY:2}})),pads:[],rules:{clearanceMil:8}};
+ const baselineIssues=before.labels.map(l=>({code:'FINE_LABEL_BODY_GAP',id:l.id,owner:l.owner,ref:'A',gapMil:-11,requiredMil:8}));
+ const after=structuredClone(before);
+ for(const l of after.labels){l.x=2;l.bbox.minX++;l.bbox.maxX++;}
+ const issues=baselineIssues.map(i=>({...i,gapMil:-10}));
+ const check=(frame,current)=>classifyFineIssues({before,after:frame,issues:current,baselineIssues,labelMode:'separate',baselinePolicy:'retain-outside-issues'});
+ const accepted=check(after,issues);
+ assert.deepEqual(accepted.blockingIssues,[]);
+ assert.equal(accepted.retainedOutsideProofs.length,8);
+ assert.ok(accepted.retainedOutsideProofs.every(p=>p.proof==='per-issue-non-worsening'&&p.measurement.after.gapMil>p.measurement.before.gapMil));
+ const worsened=structuredClone(after);worsened.labels[0].x=0;worsened.labels[0].bbox={minX:-2,maxX:2,minY:-2,maxY:2};
+ const rejected=check(worsened,issues.map((i,n)=>n?i:{...i,gapMil:-12}));
+ assert.deepEqual(rejected.blockingIssues.map(i=>i.id),['external-label-0'],'Seven improvements cannot compensate one deeper intrusion');
+ assert.equal(rejected.retainedOutsideProofs.length,7);
+ const substituted=check(after,issues.map((i,n)=>n?i:{...i,requiredMil:9}));
+ assert.deepEqual(substituted.blockingIssues.map(i=>i.id),['external-label-0'],'Equal issue counts cannot replace the original rule');
+});
+
+test('bounded numeric backend drops only the proven fixed zone failure and retains an active-owner conflict',{
+ skip:!process.env.FLITREALIZE_CPSAT_PYTHON&&'Existing OR-Tools runtime required'
+},async()=>{
+ const {executeCpSat}=await import('../../scripts/pcb-layout/pcb-layout-cpsat.mjs');
+ const runtime={pythonPath:process.env.FLITREALIZE_CPSAT_PYTHON};
+ const f=inputs();f.config.spatial={zones:[{id:'old-fixed-zone',mode:'keepout',geometry:'body',box:{minX:35,maxX:45,minY:75,maxY:85}}]};
+ const r=request();r.baselinePolicy='retain-outside-issues';const c=compiled(f,r),result=await executeCpSat(c.problem,runtime);
+ assert.ok(['FEASIBLE','OPTIMAL'].includes(result.status),JSON.stringify(result));
+ const candidate=materializeFineCandidate(c.scope,c,result);assert.equal(candidate.audit.localAccepted,true,JSON.stringify(candidate.audit));
+ const g=inputs();g.config.spatial={zones:[{id:'moving-owner',owner:'C1',mode:'keepout',geometry:'body',box:{minX:-185,maxX:-175,minY:-5,maxY:5},targetRefs:['U1']}]};
+ const active=compiled(g,r);active.problem.entities.find(e=>e.ref==='C1').radiusMil=0;
+ const rotated=await executeCpSat(active.problem,runtime);assert.ok(['FEASIBLE','OPTIMAL'].includes(rotated.status),JSON.stringify(rotated));
+ const repaired=materializeFineCandidate(active.scope,active,rotated);assert.equal(repaired.audit.localAccepted,true,JSON.stringify(repaired.audit));
+ assert.notEqual(repaired.plan.components.find(c=>c.ref==='C1').rotation,0,'rotation can legitimately move the owner-local zone away');
+ g.config.hard.preserveRotations=true;const lockedRotation=compiled(g,r);lockedRotation.problem.entities.find(e=>e.ref==='C1').radiusMil=0;
+ const blocked=await executeCpSat(lockedRotation.problem,runtime);assert.equal(blocked.status,'INFEASIBLE',JSON.stringify(blocked));
 });

@@ -16,9 +16,12 @@ function makeStageCode(chunk){
   return storeCode+`const a=${args};`+uploadBody;
 }
 const stageCode=makeStageCode();
-const queryCode=registry+`return store.requests.get(a.requestId)??null;`;
-const executeCode=registry+`
-if(store.requests.has(a.requestId))return store.requests.get(a.requestId);
+// Keep large result records ASCII on the desktop stdout channel. Some desktop
+// builds decode individual pipe chunks and replace split UTF-8 characters.
+const asciiRecordCode=String.raw`const asciiRecord=value=>({__flitrealizeAsciiRecordV1:JSON.stringify(value).replace(/[^\x00-\x7f]/g,c=>'\\u'+c.charCodeAt(0).toString(16).padStart(4,'0'))});`;
+const queryCode=registry+asciiRecordCode+`const current=store.requests.get(a.requestId)??null;return current===null?null:asciiRecord(current);`;
+const executeCode=registry+asciiRecordCode+`
+if(store.requests.has(a.requestId))return asciiRecord(store.requests.get(a.requestId));
 const u=store.uploads.get(a.requestId);if(!u||u.hash!==a.hash||u.chunks.filter(c=>typeof c==='string').length!==u.total)throw Error('CLI_UPLOAD_INCOMPLETE');
 const record={requestId:a.requestId,sessionId:a.sessionId,windowId:a.sessionId,codeSha256:a.hash,status:'preparing',submittedAt:a.submittedAt,actionStarted:false};store.requests.set(a.requestId,record);
 try{
@@ -28,7 +31,7 @@ await writer.write(packed);await writer.close();const code=await decoded;
 const actual=Array.from(new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256',new TextEncoder().encode(code))),v=>v.toString(16).padStart(2,'0')).join('');if(actual!==a.hash)throw Error('CLI_CODE_HASH_MISMATCH');
 store.uploads.delete(a.requestId);record.status='running';record.actionStarted=true;const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;const result=await new AsyncFunction('eda','__CLI__',code)(eda,__CLI__);record.result=result??null;record.status='succeeded';}
 catch(error){record.status='failed';record.error={code:error.code??'CLI_SCRIPT_ERROR',message:String(error.message??error)};}
-record.completedAt=new Date().toISOString();return record;`;
+record.completedAt=new Date().toISOString();return asciiRecord(record);`;
 
 export function resolveOfficialCli(explicit,{env=process.env,platform=process.platform}={}){
   const specified=explicit??env.FLITREALIZE_EASYEDA_CLI;
@@ -42,7 +45,11 @@ export function resolveOfficialCli(explicit,{env=process.env,platform=process.pl
 
 function parseEnvelope(text){
   const lines=(text??'').replace(/^\uFEFF/,'').trim().split(/\r?\n/);
-  for(const line of lines.reverse())try{const result=JSON.parse(line);if(typeof result?.ok==='boolean')return result;}catch{}
+  for(const line of lines.reverse())try{const result=JSON.parse(line);if(typeof result?.ok==='boolean'){
+    const value=result.value;
+    if(value&&Object.keys(value).length===1&&typeof value.__flitrealizeAsciiRecordV1==='string')result.value=JSON.parse(value.__flitrealizeAsciiRecordV1);
+    return result;
+  }}catch{}
   throw Object.assign(Error('Official CLI returned no JSON envelope.'),{code:'CLI_INVALID_RESULT'});
 }
 export function callOfficialCli(executable,args,{timeoutMs=45000,runner=spawnSync}={}){

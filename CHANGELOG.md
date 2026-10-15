@@ -4,6 +4,19 @@ All notable changes to FlitRealize will be recorded here.
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-10-15
+
+FlitRealize 3.1 继续理清工作逻辑、调整阶段架构，将电路校核、布局输入转置和布局、走线职责分别说明，让已有设计与现场结果更容易按本次任务复用。
+
+- 将电路设计校核独立为 2.2，衔接原理图实现与转 PCB 核对，明确器件能力、电路行为、余量和取舍的检查与交接。
+- 将 3.3 拆为共同准备、功能块布局输入与转置、块内布局输入与转置，分别说明功能块电气拓扑与整体空间依据，以及块内真实焊盘、局部范围和验收条件。
+- 理顺功能块布局与块内布局的职责：前者安排整体分布与空间，后者落实局部电气关系、几何和位号；功能块阶段使用独立间距和去重的中心距离比较，块内布局沿用自己的规则。
+- 独立 3.7 预走线优化阶段，整理引脚交换、器件旋转和出线空间调整的适用范围；工程阶段、软件实现与旧离线工具参考分开维护，导航和能力发现同步更新。
+- 电气规则统一说明来源、作用对象、计算口径、硬条件、软目标及独立验收，区分当前已接通的指标、观察值和未覆盖要求。
+- 完善局部布局对已有问题的逐项比较与固定条件保持，修正原理图局部变化核对、原生读写兼容及 PCB 板框回读；保存、DRC 和未知结果分别记录，避免把局部通过当作整板结论。
+
+[完整变更对比：v3.0.0 → v3.1.0](https://github.com/flitfancy/flitrealize/compare/v3.0.0...v3.1.0)
+
 ## [3.0.0] - 2026-10-14
 
 FlitRealize 3.0 围绕理清工作逻辑、调整架构，重新整理从需求、原理图、PCB 到制造和样机验证的衔接，让每个阶段的输入、工作范围和交付结果更清楚。
@@ -200,7 +213,7 @@ FlitRealize 2.0 保留一个 Skill，将日常入口、通用计算与 EDA 接�
 
 ### 新增
 
-- **`pcb-board-outline`**：在 `BOARD_OUTLINE`（layer 11）用 `pcb_PrimitivePolyline.create` + `pcb_MathPolygon.createPolygon` 创建或替换矩形板框。默认拒绝覆盖已有板框；`replace: true` 仅允许替换唯一已有板框。发现关键词：「板框」。说明见 [3.2](docs/providers/easyeda-pro/3.2-pcb-foundation.md)。
+- **`pcb-board-outline`**：在 `BOARD_OUTLINE`（layer 11）用 `pcb_PrimitivePolyline.create` + `pcb_MathPolygon.createPolygon` 创建或替换矩形板框。默认拒绝覆盖已有板框；`replace: true` 仅允许替换唯一已有板框。发现关键词：「板框」。说明见 [3.2](docs/providers/easyeda-pro/3.2-r-pcb-foundation.md)。
 - 能力探测补充 `polyline.create` / `polyline.delete`。
 
 ### 修复

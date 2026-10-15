@@ -32,9 +32,9 @@ function atlas() {
 
 test('semantic conversion covers all parts once and leaves hard rules untouched', () => {
   const model = prepared(), hard = structuredClone(model.config.hard), semantic = convertSemanticInputs(model);
-  assert.equal(semantic.groups.length, 1); assert.deepEqual(semantic.groups[0].members, ['C1', 'U1']);
-  assert.equal(semantic.groups[0].type, 'flexible'); assert.equal(semantic.groups[0].normalizedWeight, 1);
-  assert.deepEqual(model.config.hard, hard); assert.equal(semantic.policy.hardRules, 'unchanged');
+  assert.equal(semantic.groups.length, 1); assert.deepEqual(semantic.groups[0].members, ['U1', 'C1']);
+  assert.equal(semantic.groups[0].type, 'flexible'); assert.equal(semantic.groups[0].normalizedWeight, 0);
+  assert.deepEqual(model.config.hard, hard); assert.equal(semantic.policy.hardRules, 'retained independently');
 });
 
 test('CP-SAT refuses obsolete refinement parameters instead of accepting ignored controls', () => {
@@ -42,7 +42,7 @@ test('CP-SAT refuses obsolete refinement parameters instead of accepting ignored
   assert.deepEqual(Object.keys(cpSatSettings()).sort(), ['displacementWeight', 'resolutionMil', 'seed', 'timeLimitSeconds', 'workers']);
 });
 
-test('role inference is activated by external patterns and association weights', () => {
+test('descriptive roles cannot replace confirmed block membership or invent pad objectives', () => {
   const fixture = prepareFixture();
   fixture.contract.components[0].role = 'alpha rail controller'; fixture.contract.components[1].role = 'alpha rail bypass';
   fixture.contract.components[0].pins.push({ number: '2' }, { number: '3' }); fixture.contract.components[1].pins.push({ number: '2' });
@@ -53,9 +53,9 @@ test('role inference is activated by external patterns and association weights',
   }
   const result = prepareLayoutInputs(fixture); assert.equal(result.state.ready, true, JSON.stringify(result.diagnostics));
   assert.equal(convertSemanticInputs(result.model).inferredLinks.length, 0);
-  const semantic = convertSemanticInputs(result.model, { roles: { bypass: ['rail bypass'] }, associationWeights: { direct: 4, block: 2, role: 1 } });
-  assert.equal(semantic.inferredLinks.length, 1); assert.equal(semantic.inferredLinks[0].net, 'SUPPLY');
-  assert.deepEqual(semantic.groups[0].members, ['C1', 'U1']); assert.equal(semantic.policy.associationWeights.direct, 4);
+  const semantic = convertSemanticInputs(result.model, { groupScope: 'declared-block' });
+  assert.equal(semantic.inferredLinks.length, 0);
+  assert.deepEqual(semantic.groups[0].members, ['U1', 'C1']); assert.equal(semantic.policy.roleHeuristics, 'not-used');
 });
 
 test('fresh CP-SAT model retains explicit hard constraints and has zero pose bias', () => {
@@ -63,7 +63,7 @@ test('fresh CP-SAT model retains explicit hard constraints and has zero pose bia
   assert.equal(problem.noInitialHints, true); assert.equal(problem.settings.displacementWeight, 0);
   assert.ok(problem.entities.every(e => e.fixed || e.base.x === 0 && e.base.y === 0));
   assert.ok(problem.entities.every(e => !Object.hasOwn(e, 'preferredVariant')));
-  assert.deepEqual(problem.board, model.config.hard.boardBounds); assert.equal(problem.pairs[0].gapMil, model.mechanical.clearanceMil);
+  assert.deepEqual(problem.board, model.config.hard.boardBounds); assert.equal(problem.pairs[0].gapMil, 16); assert.equal(model.mechanical.clearanceMil, 8);
   assert.deepEqual(model.snapshot, before);
 });
 

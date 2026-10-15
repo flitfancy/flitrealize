@@ -1,10 +1,10 @@
 # 原理图操作数据约定
 
-本页集中现有批量放件、绑定及连接请求与结果说明。调用和恢复分别见 [2.3](../docs/providers/easyeda-pro/2.3-component-batch.md) 与 [2.4](../docs/providers/easyeda-pro/2.4-schematic-connect.md)。未在原说明中完整定义的操作对象不在此补造格式。
+本页集中现有批量放件、绑定及连接请求与结果说明。调用和恢复分别见 [2.1-r 批量放件](../docs/providers/easyeda-pro/2.1-r-component-batch.md) 与 [2.1-r 连接收尾](../docs/providers/easyeda-pro/2.1-r-schematic-connect.md)。未在原说明中完整定义的操作对象不在此补造格式。
 
 ## 批量放件路径
 
-输入文件和电路设计稿都位于当前项目内。本入口的 `--input-file` 和 `contractFile` 相对路径都从项目根目录解析，绝对路径也须位于项目内。连接入口显式使用 `--path-base project` 时采用相同规则；其默认 `legacy` 模式保留旧路径解释，见 [2.4 输入](../docs/providers/easyeda-pro/2.4-schematic-connect.md#输入)。示例中的 UUID 必须替换为现场实际值；这里只示意已有电路设计稿中的位号，不是可直接放置的器件样本。
+输入文件和电路设计稿都位于当前项目内。本入口的 `--input-file` 和 `contractFile` 相对路径都从项目根目录解析，绝对路径也须位于项目内。连接入口显式使用 `--path-base project` 时采用相同规则；其默认 `legacy` 模式保留旧路径解释，见 [2.1-r 连接输入](../docs/providers/easyeda-pro/2.1-r-schematic-connect.md#输入)。示例中的 UUID 必须替换为现场实际值；这里只示意已有电路设计稿中的位号，不是可直接放置的器件样本。
 
 ## 批量放件输入
 
@@ -35,6 +35,12 @@
 ## 批次可选参数
 
 - 可选 `selections`、`pinMaps`、`searchMapping` 直接传给现有绑定 resolver；可选 `catalog`、`layout` 直接传给现有布局生成器。按位号索引的参数仅包含本批次器件，布局字段的单位/语义沿用原生成器。
+
+## 批量放件目标占位
+
+旧计划遇到现场外部变化时，放行还需每个目标的 `catalog.<位号>.symbol.occupancy`：`unit: "easyeda-schematic"`、准确 `libraryUuid/deviceUuid`、`value`、本次 `rotation/mirror`、`includesAttributes: true`，以及该朝向下包含实际属性占位的 `bounds: {minX,maxX,minY,maxY}`，边界相对于 Provider 创建参数的锚点。使用已确认的原生几何，不能填布局估计。`position` 直接传给 Provider，布局器的中心矩形仅用于排版，单独 width/height 不能证明原生符号居中；occupancy 已对应本次原生旋转/镜像，入口不猜变换规则或换算单位。
+
+普通无变化批次不新增几何输入要求。
 
 ## 批次大小
 
@@ -81,7 +87,11 @@
 
 位号、分组、尺寸、标识类型与参数来自本项目。坐标单位同现有原理图操作，布局配置直接复用 `schematic-reflow` 的格式。
 
-`designators` 可显式限定本次器件范围；没有该字段时检查整个电路设计稿。报告记录范围，局部完成不等于整张图所有设计已实现。严格 DRC 仍检查当前整张图。
+`designators` 可显式限定本次器件范围；没有该字段时检查整个电路设计稿。报告记录范围，局部完成不等于整张图所有设计已实现。DRC 读取仍检查当前整张图，增量验收见[连接实现说明](../docs/providers/easyeda-pro/2.1-r-schematic-connect.md#证据与恢复)。
+
+连接执行派生的 `wirePlan.source.nativeSource` 保存原始源码，`source.localDependencies` 保存 `targetIds/nets/regions/occupancy`；occupancy 是同次读取的原生边界，用于变化前后比较。执行层的 `executionSource` 单独绑定已接受的本轮现场，不能替换原来源指纹。缺少局部证据的历史计划仍严格比较全图几何或完整来源。
+
+`schematic-save-verify inspect` 的 `runDrc:true` 返回 `drcBaseline`（document、strict、inspectionFingerprint、source、drc）；plan 捕获或接收该 baseline，并传到 apply 请求。`drc.passed` 表示零违规，`drc.comparison` 记录增量验收、比较覆盖、保留／消除／新增数量和证据缺项；它不证明保存。只有保存动作回执的 `saved:true` 证明保存已经确认，后续失败保留这个事实。
 
 现场缺少电路设计稿声明的器件时默认报错。确实属于其他阶段的器件可列入 `deferredComponents: [{"designator":"TP1","reason":"PCB 阶段实现的裸露焊盘"}]`；延后项保留在覆盖报告里，不默认忽略所有未放器件。
 
@@ -89,7 +99,7 @@
 
 ## 连接路径解释
 
-使用嵌入的 `contract` 或 `contractFile` 二选一。新调用建议显式使用 `--path-base project`：`--input-file` 和 `contractFile` 相对路径都从项目根目录解析，与 [2.3 放件入口](../docs/providers/easyeda-pro/2.3-component-batch.md#输入)一致；绝对路径也须位于项目内，联接的实际目标越出项目时拒绝。输入文件可以放在项目子目录，电路设计稿路径仍以项目根目录为准。
+使用嵌入的 `contract` 或 `contractFile` 二选一。新调用建议显式使用 `--path-base project`：`--input-file` 和 `contractFile` 相对路径都从项目根目录解析，与 [2.1-r 放件入口](../docs/providers/easyeda-pro/2.1-r-component-batch.md#输入)一致；绝对路径也须位于项目内，联接的实际目标越出项目时拒绝。输入文件可以放在项目子目录，电路设计稿路径仍以项目根目录为准。
 
 未传 `--path-base` 或传 `--path-base legacy` 时完整保留旧规则：输入相对命令运行目录，`contractFile` 相对输入 JSON 所在目录；绝对路径保持原义。已有配置不需要改写。切换到 `project` 时明确调整旧的 `../design/` 等路径，不按文件是否存在自动猜测基准。报告的 `inputPaths` 记录所用基准和实际文件路径。以下示例用于 `project` 模式。
 
@@ -111,4 +121,4 @@
 
 - 重排配置 `layout.groundElbows: false` 可保留已有接地路线。
 - 连接配置 `allowGroundElbows` 默认允许复核标准接地折线，设为 `false` 时禁用。
-- `maxExistingStubLength` 限定已有直线或路径的总长，为大于 0 且不超过 1000 的原理图单位数值；省略时沿用 `stubLength`。标准接地折线的接受长度下限按[原理图重排的固定折线规则](../docs/providers/easyeda-pro/2.2-schematic-workflow.md#2-按电路设计稿完成连接)计算，不因该值较小而拒绝标准折线；长度判定仍包含本次网格与连接容差。
+- `maxExistingStubLength` 限定已有直线或路径的总长，为大于 0 且不超过 1000 的原理图单位数值；省略时沿用 `stubLength`。标准接地折线的接受长度下限按[原理图重排的固定折线规则](../docs/providers/easyeda-pro/2.1-r-schematic-workflow.md#2-按电路设计稿完成连接)计算，不因该值较小而拒绝标准折线；长度判定仍包含本次网格与连接容差。

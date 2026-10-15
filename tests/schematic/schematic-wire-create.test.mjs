@@ -125,4 +125,24 @@ await checkCreateRecovery({
   },
 });
 
+// Desktop source exports update session stamps. Object edits during the
+// local check must still block, even when the component geometry is unchanged.
+for (const changed of [false, true]) {
+  const local = createMockEda();
+  let reads = 0;
+  const source = (stamp, originX = 0) => [
+    `${JSON.stringify({ type: 'DOCHEAD' })}||${JSON.stringify({ uuid: 'doc-wire', updateTime: stamp })}|`,
+    `${JSON.stringify({ type: 'CANVAS', id: 'CANVAS' })}||${JSON.stringify({ originX })}|`,
+  ].join('\n');
+  local.sys_FileManager = { async getDocumentSource() { reads++; return source(reads, changed && reads > 1 ? 5 : 0); } };
+  const state = (await wireCreateAction(local, { mode: 'inspect' })).state;
+  const request = { mode: 'plan', plan: {
+    expectedDocumentUuid: 'doc-wire', sourceGeometryFingerprint: state.geometryFingerprint,
+    sourceNativeSource: source(0), localDependencies: { targetIds: [], regions: [], occupancy: [] },
+    wires: [{ key: 'local', net: 'SIG', points: [{ x: 110, y: 100 }, { x: 118, y: 100 }] }],
+  } };
+  if (changed) await assert.rejects(() => wireCreateAction(local, request), error => error.code === 'EXECUTION_SOURCE_CHANGED');
+  else assert.equal((await wireCreateAction(local, request)).analysis.applyReady, true);
+}
+
 process.stdout.write('schematic-wire-create tests passed\n');

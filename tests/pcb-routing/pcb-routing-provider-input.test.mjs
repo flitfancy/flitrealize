@@ -1,11 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeBoard} from '../../scripts/providers/easyeda-pro/routing-input.mjs';
-import * as provider from '../../scripts/providers/easyeda-pro/routing-provider.mjs';
-import * as compatibility from '../../scripts/pcb-routing/provider.mjs';
 import {compileTasks} from '../../scripts/pcb-routing/model.mjs';
 import * as sourceInvariant from '../../scripts/providers/easyeda-pro/source-invariant.mjs';
-import * as legacyInvariant from '../../scripts/pcb-routing/source-invariant.mjs';
 
 function fixture(){
  const exported={project:'PROJECT',document:'BOARD',netNames:['N'],objects:{lines:[{PrimitiveId:'line',Net:'N',Layer:1,LineWidth:6,StartX:10,StartY:10,EndX:40,EndY:10}],vias:[],arcs:[],polylines:[]},
@@ -22,12 +19,7 @@ test('EasyEDA Provider owns native/DSN binding and exposes a public net inventor
  assert.equal(compileTasks(publicBoard,f.policy)[0].status,'already-connected');
  const before=structuredClone(f.padRead);f.padRead.pads[0].x+=1;assert.throws(()=>normalizeBoard(f.exported,f.padRead,f.policy),/PAD_BINDING_CHANGED/);assert.deepEqual(before.pads[1],f.padRead.pads[1]);
 });
-test('legacy Provider exports delegate to the same implementation',()=>{
- for(const name of ['digest','prepareNativeSource','executeNative','activeWindow','legacySnapshot','updateBoardSnapshot'])assert.equal(compatibility[name],provider[name]);
-});
-
-test('native source normalization is Provider-owned and the legacy module only delegates',()=>{
- assert.equal(legacyInvariant.invariant,sourceInvariant.invariant);assert.equal(legacyInvariant.canonical,sourceInvariant.canonical);
+test('native source normalization ignores rendering and copper but retains component changes',()=>{
  const record=(type,id,value)=>JSON.stringify({type,id})+'||'+JSON.stringify(value)+'|';
  const source=(session,x,copper)=>[record('DOCHEAD','head',{session}),record('COMPONENT','part',{x,y:20,zIndex:session}),record('LINE','wire',{layerId:1,x:copper})].join('\n');
  assert.equal(sourceInvariant.invariant(source(1,10,5)),sourceInvariant.invariant(source(2,10,30)));

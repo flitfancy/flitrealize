@@ -20,6 +20,14 @@ async function fixture(t,{mode='normal',code='return {count:eda.probe()};',fileD
  return{home,file,state,settings,execute:extra=>officialCliControl({command:'execute',codeFile:file,windowId:'A',requestId:randomUUID(),...extra},settings),readState:async()=>JSON.parse(await readFile(state,'utf8'))};
 }
 
+test('result and recovery records survive desktop chunk decoding inside a UTF-8 character',async t=>{
+ const payload='充电与保护℃😀'.repeat(10000);
+ const f=await fixture(t,{mode:'split-utf8',code:`return {count:eda.probe(),text:${JSON.stringify(payload)}};`});
+ const result=await f.execute();assert.equal(result.result.text,payload);
+ const queried=await officialCliControl({command:'request',sessionId:'A',requestId:result.request.requestId},f.settings);
+ assert.equal(queried.request.result.text,payload);assert.equal((await f.readState()).executions,1);
+});
+
 test('ordinary CLI registration records file support consumed by the execution channel',async t=>{
  const payload=randomBytes(80000).toString('base64')+'汉字α';
  const f=await fixture(t,{code:`return {count:eda.probe(),text:${JSON.stringify(payload)}};`});

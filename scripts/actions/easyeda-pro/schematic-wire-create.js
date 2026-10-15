@@ -1,3 +1,111 @@
+// Local source comparison mirrors schematic-local-state.mjs for this standalone EDA Action.
+const stable = value => Array.isArray(value) ? '[' + value.map(stable).join(',') + ']'
+  : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(key => JSON.stringify(key) + ':' + stable(value[key])).join(',') + '}' : JSON.stringify(value);
+
+function sourceRecords(source) {
+  if (typeof source !== 'string' || !source.trim()) throw Object.assign(new Error('Native source is unavailable.'), { code: 'LOCAL_SOURCE_UNAVAILABLE' });
+  const records = source.split(/\r?\n/).filter(Boolean).map(line => {
+    const split = line.indexOf('||');
+    try {
+      if (split < 0) throw new Error();
+      return { head: JSON.parse(line.slice(0, split)), payload: JSON.parse(line.slice(split + 2).replace(/\|$/, '')) };
+    } catch { throw Object.assign(new Error('Cannot prove local ownership of an unsupported source record.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' }); }
+  }).filter(record => record.head.type !== 'DOCHEAD');
+  if (records.some(record => !record.head.id) || new Set(records.map(record => record.head.id)).size !== records.length) {
+    throw Object.assign(new Error('Native source IDs are missing or duplicated.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+  }
+  return records;
+}
+
+function recordRoot(record, records) {
+  const byId = new Map(records.map(item => [item.head.id, item]));
+  const seen = new Set();
+  const owner = item => item.payload.parentId || (item.head.type === 'LINE' ? item.payload.lineGroup : null);
+  while (owner(record) && byId.has(owner(record))) {
+    if (seen.has(record.head.id)) throw Object.assign(new Error('Cyclic source ownership.'), { code: 'LOCAL_SOURCE_UNSUPPORTED' });
+    seen.add(record.head.id); record = byId.get(owner(record));
+  }
+  return owner(record) || record.head.id;
+}
+
+function sourceChanges(before, current, ignoredIds = []) {
+  const old = sourceRecords(before), now = sourceRecords(current), ignored = new Set(ignoredIds);
+  const byId = new Map(now.map(record => [record.head.id, record]));
+  const oldIds = new Set(old.map(record => record.head.id));
+  return [...old.filter(record => stable(record) !== stable(byId.get(record.head.id))).map(record => ({ id: record.head.id,
+    root: recordRoot(byId.get(record.head.id) || record, byId.has(record.head.id) ? now : old), beforeRoot: recordRoot(record, old), before: record, current: byId.get(record.head.id) || null })),
+  ...now.filter(record => !oldIds.has(record.head.id)).map(record => ({ id: record.head.id, root: recordRoot(record, now), before: null, current: record }))]
+    .filter(change => !ignored.has(change.root) || (change.before && !ignored.has(change.beforeRoot)));
+}
+
+const validBounds = box => box && ['minX', 'minY', 'maxX', 'maxY'].every(key => Number.isFinite(box[key])) && box.minX <= box.maxX && box.minY <= box.maxY;
+
+const overlap = (a, b) => a.minX <= b.maxX && a.maxX >= b.minX && a.minY <= b.maxY && a.maxY >= b.minY;
+
+function connectionSourceIssues(before, current, dependencies, occupancy = []) {
+  const changes = sourceChanges(before, current);
+  if (!changes.length) return [];
+  const old = sourceRecords(before), now = sourceRecords(current);
+  const protectedIds = new Set(dependencies.targetIds), nets = new Set(dependencies.nets);
+  const regions = dependencies.regions;
+  if (!protectedIds.size || !Array.isArray(regions) || !regions.length || regions.some(box => !validBounds(box))) return [{ code: 'LOCAL_CHANGE_UNPROVEN', message: 'Candidate dependencies or space are incomplete.' }];
+  const issues = [], roots = new Set();
+  const trim = record => {
+    const payload = { ...record.payload };
+    for (const key of ['x', 'y', 'rotation', 'mirror', 'addIntoBom', 'addIntoPcb']) delete payload[key];
+    return { ...record, payload };
+  };
+  for (const change of changes) {
+    const root = change.root;
+    if (protectedIds.has(root) || protectedIds.has(change.beforeRoot)) {
+      issues.push({ code: 'RELATED_SCHEMATIC_CHANGED', id: change.id }); continue;
+    }
+    const members = [...old.filter(record => recordRoot(record, old) === root), ...now.filter(record => recordRoot(record, now) === root)];
+    if (members.some(record => nets.has(record.payload.net) || nets.has(record.payload.Net)
+      || (record.head.type === 'ATTR' && ['NET', 'Name'].includes(record.payload.key) && nets.has(record.payload.value)))) {
+      issues.push({ code: 'RELATED_SCHEMATIC_CHANGED', id: change.id }); continue;
+    }
+    // Unknown settings, ownership changes and electrical edits are not spatial evidence.
+    const rootRecord = now.find(record => record.head.id === root);
+    if (!change.before || !change.current || change.beforeRoot !== root || !['COMPONENT', 'WIRE', 'TEXT', 'LINE', 'RECT', 'ARC', 'POLYLINE'].includes(rootRecord?.head.type)
+      || stable(trim(change.before)) !== stable(trim(change.current))) {
+      // Free text may change its content, but still needs its actual native extent.
+      if (!(change.current?.head.type === 'TEXT' && change.root === change.id && (!change.before || change.before.head.type === 'TEXT' && change.beforeRoot === change.id))) {
+        issues.push({ code: 'LOCAL_CHANGE_UNPROVEN', id: change.id }); continue;
+      }
+    }
+    // Inclusion flags cannot move geometry, including attribute extents.
+    const withoutFlags = record => { const payload = { ...record.payload }; delete payload.addIntoBom; delete payload.addIntoPcb; return { ...record, payload }; };
+    if (change.before && stable(withoutFlags(change.before)) === stable(withoutFlags(change.current))) continue;
+    roots.add(root);
+  }
+  if (!roots.size) return issues;
+  // Both sides matter: moving an object away from a dependency is still a change to that dependency.
+  const originalOccupancy = dependencies.occupancy || [];
+  const protectedBounds = new Set([...protectedIds, ...old.filter(record => record.head.type === 'ATTR' && protectedIds.has(recordRoot(record, old))).map(record => record.head.id)]);
+  const regionsWithBounds = regions.slice();
+  for (const id of protectedBounds) for (const [kind, evidence] of [['baseline', originalOccupancy], ['current', occupancy]]) {
+    const box = evidence.find(item => item.id === id)?.bounds;
+    if (!validBounds(box)) issues.push({ code: 'LOCAL_CHANGE_UNPROVEN', id, message: kind === 'baseline' ? 'Native baseline bounds are unavailable.' : 'Native bounds are unavailable.' });
+    else regionsWithBounds.push(box);
+  }
+  for (const root of roots) {
+    for (const record of old.filter(record => record.head.id === root || record.head.type === 'ATTR' && recordRoot(record, old) === root)) {
+      const box = originalOccupancy.find(item => item.id === record.head.id)?.bounds;
+      if (!validBounds(box)) issues.push({ code: 'LOCAL_CHANGE_UNPROVEN', id: record.head.id, message: 'Native baseline bounds are unavailable.' });
+      else if (regionsWithBounds.some(region => overlap(box, region))) issues.push({ code: 'TARGET_OCCUPIED', id: record.head.id });
+    }
+    const ids = [root, ...now.filter(record => record.head.type === 'ATTR' && recordRoot(record, now) === root).map(record => record.head.id)];
+    for (const id of ids) {
+      const box = occupancy.find(item => item.id === id)?.bounds;
+      if (!validBounds(box)) issues.push({ code: 'LOCAL_CHANGE_UNPROVEN', id, message: 'Native bounds are unavailable.' });
+      else if (regionsWithBounds.some(region => overlap(box, region))) issues.push({ code: 'TARGET_OCCUPIED', id });
+    }
+  }
+  return issues;
+}
+
+
 // Execution guard is independent of the immutable candidate's source fingerprint.
 async function guardSource(expected, ownedIds = []) {
   if (expected == null) return;
@@ -260,12 +368,14 @@ return await (async () => {
       sourceGeometryFingerprint: wirePlan ? value.source?.geometryFingerprint ?? null : value.sourceGeometryFingerprint ?? null,
       sourceSnapshotFingerprint: wirePlan ? value.source?.snapshotFingerprint ?? null : value.sourceSnapshotFingerprint ?? null,
       sourceWirePlanFingerprint: wirePlan ? value.fingerprints?.plan ?? null : value.sourceWirePlanFingerprint ?? null,
+      sourceNativeSource: wirePlan ? value.source?.nativeSource ?? null : value.sourceNativeSource ?? null,
+      localDependencies: wirePlan ? value.source?.localDependencies ?? null : value.localDependencies ?? null,
       unresolved: wirePlan && Array.isArray(value.unresolved) ? value.unresolved : [],
       executionSource: value.executionSource ?? null,
     };
   }
 
-  function analyzePlan(state, plan) {
+  async function analyzePlan(state, plan) {
     const globalIssues = [];
     if (plan.expectedProjectUuid && state.document?.parentProjectUuid !== plan.expectedProjectUuid) globalIssues.push({ code: 'PROJECT_MISMATCH' });
     if (state.coverage.components !== 'queried' || state.coverage.wires !== 'queried') globalIssues.push({ code: 'INCOMPLETE_INSPECTION_COVERAGE' });
@@ -274,7 +384,34 @@ return await (async () => {
       globalIssues.push({ code: 'DOCUMENT_MISMATCH', expected: plan.expectedDocumentUuid, actual: state.document?.uuid });
     }
     if (!plan.sourceGeometryFingerprint) globalIssues.push({ code: 'SOURCE_GEOMETRY_REQUIRED' });
-    else if (state.geometryFingerprint !== plan.sourceGeometryFingerprint) {
+    else if (plan.sourceNativeSource && plan.localDependencies) {
+      try {
+        const current = await eda.sys_FileManager.getDocumentSource();
+        const changes = sourceChanges(plan.sourceNativeSource, current), dependencies = JSON.parse(JSON.stringify(plan.localDependencies));
+        if (!changes.length && state.geometryFingerprint !== plan.sourceGeometryFingerprint) throw Object.assign(new Error('Geometry differs without matching source evidence.'), { code: 'SOURCE_GEOMETRY_STALE' });
+        let issues = connectionSourceIssues(plan.sourceNativeSource, current, dependencies);
+        if (issues.length && issues.every(issue => issue.message === 'Native bounds are unavailable.')) {
+          const records = sourceRecords(current), roots = new Set([...changes.map(change => change.root), ...dependencies.targetIds]);
+          const ids = new Set([...roots, ...records.filter(record => record.head.type === 'ATTR' && roots.has(recordRoot(record, records))).map(record => record.head.id)]);
+          const occupancy = [];
+          for (const id of ids) {
+            const probe = await optionalCall('sch_Primitive', 'getPrimitivesBBox', [id]);
+            if (validBounds(probe.value)) occupancy.push({ id, bounds: probe.value });
+          }
+          const protectedBounds = new Set([...dependencies.targetIds, ...records.filter(record => record.head.type === 'ATTR' && dependencies.targetIds.includes(recordRoot(record, records))).map(record => record.head.id)]);
+          for (const id of protectedBounds) {
+            const box = occupancy.find(item => item.id === id)?.bounds;
+            if (!box) throw Object.assign(new Error('Target bounds unavailable.'), { code: 'LOCAL_CHANGE_UNPROVEN' });
+            dependencies.regions.push(box);
+          }
+          issues = connectionSourceIssues(plan.sourceNativeSource, current, dependencies, occupancy);
+        }
+        // Native exports refresh DOCHEAD stamps on every read. Compare parsed
+        // object records, retaining CANVAS and every drawable/property change.
+        if (sourceChanges(current, await eda.sys_FileManager.getDocumentSource()).length) throw Object.assign(new Error('Source changed during local check.'), { code: 'EXECUTION_SOURCE_CHANGED' });
+        globalIssues.push(...issues);
+      } catch (error) { globalIssues.push({ code: error.code || 'LOCAL_CHANGE_UNPROVEN', message: error.message }); }
+    } else if (state.geometryFingerprint !== plan.sourceGeometryFingerprint) {
       globalIssues.push({ code: 'SOURCE_GEOMETRY_STALE', expected: plan.sourceGeometryFingerprint, actual: state.geometryFingerprint });
     }
     if (plan.unresolved.length) globalIssues.push({ code: 'WIRE_PLAN_UNRESOLVED', count: plan.unresolved.length });
@@ -385,7 +522,9 @@ return await (async () => {
 
   async function applyPlan(plan, expectedPlanFingerprint) {
     const before = await captureState();
-    const analysis = analyzePlan(before, plan);
+    try { await guardSource(plan.executionSource); }
+    catch (error) { return { status: 'blocked', readOnly: true, error: { code: error.code, message: error.message } }; }
+    const analysis = await analyzePlan(before, plan);
     if (!analysis.applyReady || analysis.planFingerprint !== expectedPlanFingerprint) {
       return {
         schemaVersion: 2,
@@ -525,7 +664,9 @@ return await (async () => {
   if (mode === 'plan') {
     const plan = normalizePlan(request.plan);
     const state = await captureState();
-    const analysis = analyzePlan(state, plan);
+    if (plan.sourceNativeSource && !plan.executionSource) plan.executionSource = plan.localDependencies ? await eda.sys_FileManager.getDocumentSource() : plan.sourceNativeSource;
+    const analysis = await analyzePlan(state, plan);
+    await guardSource(plan.executionSource);
     return {
       schemaVersion: 2,
       status: analysis.noOp ? 'planned-noop' : analysis.applyReady ? 'planned' : 'planned-with-blockers',

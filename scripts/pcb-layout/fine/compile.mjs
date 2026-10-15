@@ -4,6 +4,7 @@ import { transformPoint } from '../pcb-layout-geometry.mjs';
 import { scopeLayoutModel } from '../pcb-layout-scope.mjs';
 import { fineLabelRules } from './label-geometry.mjs';
 import { fail, issueKey, issueRefs } from './common.mjs';
+import { classifyFineIssues } from './issue-policy.mjs';
 
 export const relationEndpoints=(relation,side)=>relation[side].pads??[relation[side]];
 export function relationMeasurements(model, poses, relation) {
@@ -17,15 +18,36 @@ export function relationMeasurements(model, poses, relation) {
 export const relationDistance=(model,poses,relation)=>relationMeasurements(model,poses,relation).distanceMil;
 export function compileFineProblem(scope, settings={}) {
   const {model,request,moving}=scope,baseline=inspectCandidate(model),separate=request.labels.mode==='separate',solverModel=separate?scopeLayoutModel(model,{includeLabels:false}):model,bodyBaseline=separate?inspectCandidate(solverModel):baseline;
-  const outsideIssue=i=>{const refs=issueRefs(i);return refs.length&&refs.every(r=>!moving.has(r));};
-  if(request.baselinePolicy==='require-clean'&&baseline.validation.issues.length)fail('FINE_BASELINE_NOT_CLEAN');
-  // In incremental mode the moving scope may repair its current defects;
-  // only unchanged OUTSIDE issues may later be retained by the audit.
+  const baselinePolicy=request.baselinePolicy??'require-clean';
+  if(baselinePolicy==='require-clean'&&baseline.validation.issues.length)fail('FINE_BASELINE_NOT_CLEAN');
+  // Active constraints still execute. Only proven fixed dependencies are
+  // partitioned here; the audit remeasures any old issues left in a candidate.
   const problem=compileCpSatProblem(solverModel,settings,{movableRefs:request.allMovableRefs,includeLabels:!separate});
   // Frozen standalone pads never become implicit movable neighbors.
   for(const entity of problem.entities.filter(e=>e.kind==='testPad'))entity.fixed=true;
-  problem.pairs=problem.pairs.filter(p=>moving.has(p.a)||moving.has(p.b));
+  const fixed=ref=>problem.entities.some(e=>e.ref===ref&&e.fixed);
+  const source=bodyBaseline,frame={components:source.plan.components,labels:source.plan.labels,pads:source.metrics.geometry.pads,boardBounds:source.plan.boardBounds,zones:source.validation.spatial.zones,rules:{assembly:solverModel.assemblyPolicy,spacing:solverModel.spacingPolicy,spatial:solverModel.spatialRules,limits:solverModel.limits,edges:solverModel.edgeRules,blocks:solverModel.blockRules}};
+  const proof=classifyFineIssues({issues:source.validation.issues,baselineIssues:source.validation.issues,before:frame,after:frame,labelMode:request.labels.mode,baselinePolicy});
+  const retained=new Set(proof.retainedOutsideIssues.map(issueKey)),constantConstraints=[];
+  const mayOmit=(kind,id,dependencies,relevant)=>{
+    if(!dependencies.length||!dependencies.every(fixed))return false;
+    const failures=source.validation.issues.filter(relevant);
+    if(failures.length&&(baselinePolicy!=='retain-outside-issues'||failures.some(i=>!retained.has(issueKey(i)))))return false;
+    constantConstraints.push({kind,id,dependencies,issues:failures,proof:failures.length?'unchanged-fixed-dependencies':'satisfied-fixed-dependencies'});return true;
+  };
+  problem.pairs=problem.pairs.filter(p=>!mayOmit('pair',p.a+'/'+p.b,[p.a,p.b],i=>issueRefs(i).includes(p.a)&&issueRefs(i).includes(p.b)));
   problem.spacing=problem.spacing.filter(p=>moving.has(p.a)||moving.has(p.b));
+  problem.blocks=problem.blocks.filter(r=>!mayOmit('block',r.blockId+':'+r.ref,[r.ref,...r.anchors],i=>i.code==='BLOCK_DISTANCE_EXCEEDED'&&i.ref===r.ref&&i.blockId===r.blockId));
+  problem.relations=problem.relations.filter(r=>{
+    const kinds=r.metric==='bundle-gap'?['bundle','bundle']:r.metric==='geometry-gap'?[r.geometryA,r.geometryB]:[];
+    if([r.a,...r.anchors].some((ref,index)=>scope.labelMoving.has(ref)&&['bundle','placement','silkscreen'].includes(kinds[index])))return true;
+    return !mayOmit('spatial-relation',r.id,[r.a,...r.anchors],i=>i.id===r.id);
+  });
+  problem.zones=problem.zones.flatMap(z=>{
+    const targets=problem.entities.map(e=>e.ref).filter(ref=>!z.excludeRefs.includes(ref)&&(z.targetRefs===undefined||z.targetRefs.includes(ref)));
+    const targetRefs=targets.filter(ref=>['silkscreen','placement','bundle'].includes(z.geometry)&&scope.labelMoving.has(ref)||!mayOmit('keepout',z.id+':'+ref,[ref,...(z.owner?[z.owner]:[])],i=>i.id===z.id&&(i.ref===ref||i.refs?.includes(ref)||i.code==='GEOMETRY_MODEL_UNAVAILABLE')));
+    return targetRefs.length?[{...z,targetRefs}]:[];
+  });
   for(const entity of problem.entities.filter(e=>e.fixed)){
     const bundle=bodyBaseline.plan.bundles.find(b=>b.ref===entity.ref)?.bbox;
     if(!bundle)fail('FINE_CONTEXT_BUNDLE_MISSING',entity.ref);
@@ -40,9 +62,17 @@ export function compileFineProblem(scope, settings={}) {
     const assembly=baseline.metrics.geometry.assembly.filter(v=>v.ref===entity.ref);
     assembly.forEach((view,index)=>problem.zones.push({id:'fine-context-assembly:'+entity.ref+':'+index,mode:'keepout',geometry:'assembly',box:view.bbox,excludeRefs:[],targetRefs:request.allMovableRefs.filter(ref=>problem.entities.find(e=>e.ref===ref).variants.every(v=>v.views.assembly.length))}));
     // Keep real fixed pad coordinates for ALL source/cross-boundary relations.
-    // Their collision footprints are constant zones, so frozen baseline defects
-    // are not re-solved. Decode restores their real bodies and labels below.
-    for(const v of entity.variants){const zero={minX:0,maxX:0,minY:0,maxY:0};delete v.edge;for(const k of ['body','bundle','physical','courtyard','boardBox'])v[k]={...zero};for(const k of ['body','bundle','physical','placement','assembly','silkscreen'])v.views[k]=k==='silkscreen'?[]:[{...zero}];}
+    // Preserve geometry used by active-owner keepouts and cross-boundary rules.
+    // Only a proven constant board/edge failure may lose that specific constraint.
+    const outside=source.validation.issues.filter(i=>i.code==='BOARD_BOUNDARY_VIOLATION'&&i.ref===entity.ref);
+    const omitBoard=outside.length&&mayOmit('board',entity.ref,[entity.ref],i=>outside.includes(i));
+    const omitEdge=mayOmit('edge',entity.ref,[entity.ref],i=>i.code==='EDGE_CONSTRAINT_UNSATISFIED'&&i.ref===entity.ref);
+    for(const v of entity.variants){
+      if(omitEdge)delete v.edge;
+      if(omitBoard){const x=(model.config.hard.boardBounds.minX+model.config.hard.boardBounds.maxX)/2-entity.base.x,y=(model.config.hard.boardBounds.minY+model.config.hard.boardBounds.maxY)/2-entity.base.y;v.boardBox={minX:x,maxX:x,minY:y,maxY:y};}
+      const local=b=>({minX:b.minX-entity.base.x,maxX:b.maxX-entity.base.x,minY:b.minY-entity.base.y,maxY:b.maxY-entity.base.y});
+      v.bundle=local(bundle);v.views.bundle=[v.bundle];v.views.placement=[v.bundle];
+    }
   }
   if(separate){const glyphRules=fineLabelRules(model,request.labels);for(const label of baseline.plan.labels.filter(l=>!scope.labelMoving.has(l.owner))){const b=label.bbox,required=glyphRules.clearancesByOwner[label.owner],expand=g=>({minX:b.minX-g,maxX:b.maxX+g,minY:b.minY-g,maxY:b.maxY+g});
     if(required.body===required.pad)problem.zones.push({id:'fine-context-label:'+label.id,mode:'keepout',geometry:'physical',box:expand(required.body),excludeRefs:[],targetRefs:request.allMovableRefs});
@@ -54,7 +84,7 @@ export function compileFineProblem(scope, settings={}) {
     const xy=p=>{const e=problem.entities.find(e=>e.ref===p.ref),v=e.variants[0],q=(p.geometry==='bbox-center'?v.padCenters:v.pads)[p.id];return {x:e.base.x+q.x,y:e.base.y+q.y};};
     const distanceMil=Math.min(...l.left.flatMap(a=>l.right.map(b=>{const from=xy(a),to=xy(b);return Math.abs(from.x-to.x)+Math.abs(from.y-to.y);}))),passed=distanceMil<=l.maxMil+1e-4;
     constants.push({id:l.id,distanceMil,maxMil:l.maxMil,passed,scope:'frozen context'});
-    if(!passed&&request.baselinePolicy!=='retain-outside-issues')fail('FINE_FROZEN_LIMIT_FAILED',l.id);
+    if(!passed&&(!source.validation.issues.some(i=>i.id===l.id)||!mayOmit('limit',l.id,[...l.left,...l.right].map(e=>e.ref),i=>i.id===l.id)))return true;
     return false;
   });
   const bounds=request.region.boundsMil;
@@ -84,6 +114,6 @@ export function compileFineProblem(scope, settings={}) {
   }
   const objectiveComposition={retainSource:request.objective.retainSource,relations:effectiveRelations.map(r=>({id:r.id,...r.composition})),effectiveLinks:problem.links.map(l=>({id:l.id,weight:l.weight,geometry:l.left[0]?.geometry??'pad-position'}))};
   problem.objectiveComposition=objectiveComposition;
-  problem.fineScope={region:request.region,allMovableRefs:request.allMovableRefs,contextRefs:scope.frozenRefs,lockSources:scope.lockSources,crossingNets:scope.crossingNets,baselinePolicy:request.baselinePolicy,selection:scope.selection};
-  return {problem,solverModel,baseline,bodyBaseline,baselineRelations,effectiveRelations,objectiveComposition,constantLimits:constants,baselineIssueKeys:new Set(baseline.validation.issues.map(issueKey))};
+  problem.fineScope={region:request.region,allMovableRefs:request.allMovableRefs,contextRefs:scope.frozenRefs,lockSources:scope.lockSources,crossingNets:scope.crossingNets,baselinePolicy,selection:scope.selection,baselineIssues:baseline.validation.issues,constantConstraints};
+  return {problem,solverModel,baseline,bodyBaseline,baselineRelations,effectiveRelations,objectiveComposition,constantLimits:constants,constantConstraints,baselineIssueKeys:new Set(baseline.validation.issues.map(issueKey))};
 }

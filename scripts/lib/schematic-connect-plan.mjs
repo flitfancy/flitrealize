@@ -1,4 +1,5 @@
 import { readFile } from 'node:fs/promises';
+import { connectionDependencies } from './schematic-local-state.mjs';
 
 // Reuse the existing host Action; this module never receives an EDA instance.
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -203,7 +204,8 @@ export async function planConnections(input, snapshot, { phase = 'plan' } = {}) 
   const scopedContract = { ...contract, components: contract.components.filter(component => refs.has(component.designator)),
     nets: contract.nets.map(net => ({ ...net, endpoints: (net.endpoints || []).filter(endpoint => refs.has(endpoint.component)) })).filter(net => net.endpoints.length) };
   try {
-    wirePlan = (await wireAction(null, { mode: 'generate', contract: scopedContract, snapshot, stubLength, grid, connectionTolerance: tolerance })).wirePlan;
+    wirePlan = (await wireAction(null, { mode: 'generate', contract: scopedContract, snapshot, stubLength, grid, connectionTolerance: tolerance,
+      localDependencies: connectionDependencies(input, snapshot) })).wirePlan;
     // The Action timestamps creation; expose stable provenance for this pure planner.
     wirePlan.generatedAt = snapshot.capturedAt ?? '1970-01-01T00:00:00.000Z';
     for (const diagnostic of wirePlan.unresolved) issue(diagnostic.code, diagnostic.message, Object.fromEntries(Object.entries(diagnostic).filter(([key]) => !['code', 'message'].includes(key))));

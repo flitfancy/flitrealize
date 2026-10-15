@@ -93,7 +93,7 @@ export function evaluateSpatial(rules, components, bundles = [], geometryViews) 
       distanceMil = Math.min(...left.flatMap(a => right.map(b => gap(a.bbox, b.bbox))));
     } else distanceMil = r.metric === 'origin-manhattan' ? Math.abs(a.x - center.x) + Math.abs(a.y - center.y) : gap(boxes.get(r.a), boxes.get(r.anchors[0]));
     const penalty = bandPenalty(distanceMil, r.band), satisfied = distanceMil >= (r.band.hardMinMil ?? -Infinity) - .001 && distanceMil <= (r.band.hardMaxMil ?? Infinity) + .001;
-    if (!satisfied) issues.push({ code: 'SPATIAL_DISTANCE_LIMIT', id: r.id, ref: r.a, distanceMil, band: r.band });
+    if (!satisfied) issues.push({ code: 'SPATIAL_DISTANCE_LIMIT', id: r.id, ref: r.a, anchors:r.anchors, metric:r.metric, geometryA:r.geometryA, geometryB:r.geometryB, distanceMil, band: r.band });
     add(r.category, penalty, r.weight);
     return { id: r.id, a: r.a, anchors: r.anchors, category: r.category, metric: r.metric, geometryA: r.geometryA, geometryB: r.geometryB, band: r.band, distanceMil, penalty, satisfied };
   });
@@ -118,7 +118,10 @@ export function evaluateSpatial(rules, components, bundles = [], geometryViews) 
     const area = occupiedArea(objects.map(s => s.bbox), box), fraction = Math.min(1, area / ((box.maxX - box.minX) * (box.maxY - box.minY)));
     const penalty = z.mode === 'preferFilled' ? 1 - fraction : fraction;
     const conflicts = z.mode === 'keepout' ? [...new Set(objects.filter(s => occupiedArea([s.bbox], box) > .000001).map(s => s.ref))] : [];
-    if (conflicts.length) issues.push({ code: 'SPATIAL_KEEPOUT', id: z.id, refs: conflicts });
+    for(const ref of conflicts)issues.push({ code: 'SPATIAL_KEEPOUT', id: z.id, ref, refs:[ref], owner:z.owner, geometry:z.geometry, envelopeId:z.envelopeId, box,
+      shapes:objects.filter(s=>s.ref===ref).map((s,index)=>({id:s.id??ref+':'+index,
+        overlapXMil:occupiedArea([s.bbox],box)>0?Math.max(0,Math.min(s.bbox.maxX,box.maxX)-Math.max(s.bbox.minX,box.minX)):0,overlapYMil:occupiedArea([s.bbox],box)>0?Math.max(0,Math.min(s.bbox.maxY,box.maxY)-Math.max(s.bbox.minY,box.minY)):0,
+        penetrationXMil:occupiedArea([s.bbox],box)>0?Math.min(s.bbox.maxX-box.minX,box.maxX-s.bbox.minX):0,penetrationYMil:occupiedArea([s.bbox],box)>0?Math.min(s.bbox.maxY-box.minY,box.maxY-s.bbox.minY):0})) });
     if (z.mode !== 'keepout') add('whitespace', penalty, z.weight);
     return { id: z.id, mode: z.mode, owner: z.owner, box, geometry: z.geometry, occupiedFraction: fraction, penalty, conflicts, coverage };
   });

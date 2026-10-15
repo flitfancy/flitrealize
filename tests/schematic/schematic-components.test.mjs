@@ -564,3 +564,41 @@ test('remote component bodies cannot certify attributes that extend into the tar
     assert.equal(f.eda.createCount, 0);
   });
 });
+
+test('source settings cannot be accepted merely because they return remote bounds', async t => {
+  const f = await batchFixture(t); await explicitGeometry(f);
+  const planned = await runComponentBatch(options(f)), source = f.eda.sys_FileManager.getDocumentSource, bounds = f.eda.sch_Primitive.getPrimitivesBBox;
+  f.eda.sys_FileManager.getDocumentSource = async () => await source() + '\n{"type":"SETTINGS","id":"settings"}||{"grid":8}|';
+  f.eda.sch_Primitive.getPrimitivesBBox = async ids => ids[0] === 'settings' ? { minX: 9000, maxX: 9001, minY: 9000, maxY: 9001 } : bounds(ids);
+  await assert.rejects(resume(f, planned.runDir), error => error.code === 'LOCAL_SOURCE_DEPENDENCY_CHANGED');
+  assert.equal(f.eda.createCount, 0);
+});
+test('a new source attribute attached to a previously created object is protected on resume', async t => {
+  const f = await batchFixture(t); f.eda.failCreateAt = 3; let runDir;
+  await assert.rejects(runComponentBatch({ ...options(f), apply: true }), error => { runDir = error.runDir; return true; });
+  const source = f.eda.sys_FileManager.getDocumentSource, id = f.eda.records[0].id;
+  f.eda.sys_FileManager.getDocumentSource = async () => await source() + '\n' + JSON.stringify({ type: 'ATTR', id: 'user-new-property' }) + '||' + JSON.stringify({ parentId: id, key: 'UserProperty', value: 'keep' }) + '|';
+  const count = f.eda.createCount;
+  await assert.rejects(resume(f, runDir), error => error.code === 'CREATED_COMPONENT_CHANGED');
+  assert.equal(f.eda.createCount, count);
+});
+test('contradictory durable receipts do not settle an unknown placement request', async t => {
+  for (const kind of ['uncertain-result', 'unknown-envelope']) await t.test(kind, async t => {
+    const f = await batchFixture(t); let runDir;
+    const invoke = async (action, input, context) => {
+      const result = await f.invoke(action, input, context);
+      if (action === 'schematic-component-place' && input.mode === 'apply') {
+        const response = kind === 'uncertain-result' ? { success: true, result: { ...result, uncertainWrite: true } }
+          : { success: true, status: 'unknown', executionOutcome: 'unknown', result };
+        await writeFile(context.reportFile, JSON.stringify({ action, mode: input.mode, response }));
+        throw new Error('wrapper lost reply');
+      }
+      return result;
+    };
+    await assert.rejects(runComponentBatch({ ...options(f), invoke, apply: true }), error => { runDir = error.runDir; return true; });
+    const count = f.eda.createCount, inspected = await resume(f, runDir, false);
+    assert.equal(inspected.reconciliation.canClose, false);
+    await assert.rejects(resume(f, runDir), error => error.code === 'IN_FLIGHT_OUTCOME_UNKNOWN');
+    assert.equal(f.eda.createCount, count);
+  });
+});

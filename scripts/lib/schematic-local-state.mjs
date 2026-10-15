@@ -84,3 +84,93 @@ export function assertPreserved(before, current, newIds = []) {
     throw Object.assign(new Error('预检之后的范围外源码发生变化；停止并对账。'), { code: 'EXECUTION_SOURCE_CHANGED' });
   }
 }
+
+// A local candidate keeps its original source. Acceptance of an invocation's
+// current source is separate from the strict guard used after preflight.
+export function connectionDependencies(input, snapshot) {
+  const refs = new Set(input.designators || input.contract.components.map(component => component.designator));
+  const nets = new Set(input.contract.nets.filter(net => net.endpoints.some(endpoint => refs.has(endpoint.component))).map(net => net.name));
+  for (const net of snapshot.nets || []) if ((net.endpoints || []).some(endpoint => refs.has(endpoint.component))) nets.add(net.name);
+  const members = new Set([...refs, ...input.contract.nets.filter(net => nets.has(net.name)).flatMap(net => net.endpoints.map(endpoint => endpoint.component)),
+    ...(snapshot.nets || []).filter(net => nets.has(net.name)).flatMap(net => (net.endpoints || []).map(endpoint => endpoint.component))]);
+  const components = snapshot.components.filter(component => refs.has(component.designator));
+  const margin = (input.stubLength ?? 8) + (input.grid ?? 1) + (input.connectionTolerance ?? input.tolerance ?? 0.1);
+  const regions = components.flatMap(component => [component.position, ...component.pins.map(pin => pin.position)]).filter(point => point && Number.isFinite(point.x) && Number.isFinite(point.y))
+    .map(point => ({ minX: point.x - margin, maxX: point.x + margin, minY: point.y - margin, maxY: point.y + margin }));
+  for (const wire of snapshot.extensions?.easyedaPro?.wires || []) if (nets.has(wire.net)) {
+    const points = wire.points;
+    if (!Array.isArray(points) || points.length < 2 || points.some(point => !Number.isFinite(point.x) || !Number.isFinite(point.y))) continue;
+    const pad = Math.max(1, (wire.lineWidth ?? 0) / 2) + (input.connectionTolerance ?? input.tolerance ?? 0.1);
+    regions.push({ minX: Math.min(...points.map(point => point.x)) - pad, maxX: Math.max(...points.map(point => point.x)) + pad,
+      minY: Math.min(...points.map(point => point.y)) - pad, maxY: Math.max(...points.map(point => point.y)) + pad });
+  }
+  const targetIds = new Set(snapshot.components.filter(component => members.has(component.designator)).map(component => component.nativeId));
+  if (snapshot.executionSource) {
+    const records = sourceRecords(snapshot.executionSource);
+    for (const record of records) if (nets.has(record.payload.net) || record.head.type === 'ATTR' && ['NET', 'Name'].includes(record.payload.key) && nets.has(record.payload.value)) targetIds.add(recordRoot(record, records));
+  }
+  return { targetIds: [...targetIds], nets: [...nets], regions, occupancy: snapshot.localEvidence?.occupancy ?? [] };
+}
+
+export function connectionSourceIssues(before, current, dependencies, occupancy = []) {
+  const changes = sourceChanges(before, current);
+  if (!changes.length) return [];
+  const old = sourceRecords(before), now = sourceRecords(current);
+  const protectedIds = new Set(dependencies.targetIds), nets = new Set(dependencies.nets);
+  const regions = dependencies.regions;
+  if (!protectedIds.size || !Array.isArray(regions) || !regions.length || regions.some(box => !validBounds(box))) return [{ code: 'LOCAL_CHANGE_UNPROVEN', message: 'Candidate dependencies or space are incomplete.' }];
+  const issues = [], roots = new Set();
+  const trim = record => {
+    const payload = { ...record.payload };
+    for (const key of ['x', 'y', 'rotation', 'mirror', 'addIntoBom', 'addIntoPcb']) delete payload[key];
+    return { ...record, payload };
+  };
+  for (const change of changes) {
+    const root = change.root;
+    if (protectedIds.has(root) || protectedIds.has(change.beforeRoot)) {
+      issues.push({ code: 'RELATED_SCHEMATIC_CHANGED', id: change.id }); continue;
+    }
+    const members = [...old.filter(record => recordRoot(record, old) === root), ...now.filter(record => recordRoot(record, now) === root)];
+    if (members.some(record => nets.has(record.payload.net) || nets.has(record.payload.Net)
+      || (record.head.type === 'ATTR' && ['NET', 'Name'].includes(record.payload.key) && nets.has(record.payload.value)))) {
+      issues.push({ code: 'RELATED_SCHEMATIC_CHANGED', id: change.id }); continue;
+    }
+    // Unknown settings, ownership changes and electrical edits are not spatial evidence.
+    const rootRecord = now.find(record => record.head.id === root);
+    if (!change.before || !change.current || change.beforeRoot !== root || !['COMPONENT', 'WIRE', 'TEXT', 'LINE', 'RECT', 'ARC', 'POLYLINE'].includes(rootRecord?.head.type)
+      || stable(trim(change.before)) !== stable(trim(change.current))) {
+      // Free text may change its content, but still needs its actual native extent.
+      if (!(change.current?.head.type === 'TEXT' && change.root === change.id && (!change.before || change.before.head.type === 'TEXT' && change.beforeRoot === change.id))) {
+        issues.push({ code: 'LOCAL_CHANGE_UNPROVEN', id: change.id }); continue;
+      }
+    }
+    // Inclusion flags cannot move geometry, including attribute extents.
+    const withoutFlags = record => { const payload = { ...record.payload }; delete payload.addIntoBom; delete payload.addIntoPcb; return { ...record, payload }; };
+    if (change.before && stable(withoutFlags(change.before)) === stable(withoutFlags(change.current))) continue;
+    roots.add(root);
+  }
+  if (!roots.size) return issues;
+  // Both sides matter: moving an object away from a dependency is still a change to that dependency.
+  const originalOccupancy = dependencies.occupancy || [];
+  const protectedBounds = new Set([...protectedIds, ...old.filter(record => record.head.type === 'ATTR' && protectedIds.has(recordRoot(record, old))).map(record => record.head.id)]);
+  const regionsWithBounds = regions.slice();
+  for (const id of protectedBounds) for (const [kind, evidence] of [['baseline', originalOccupancy], ['current', occupancy]]) {
+    const box = evidence.find(item => item.id === id)?.bounds;
+    if (!validBounds(box)) issues.push({ code: 'LOCAL_CHANGE_UNPROVEN', id, message: kind === 'baseline' ? 'Native baseline bounds are unavailable.' : 'Native bounds are unavailable.' });
+    else regionsWithBounds.push(box);
+  }
+  for (const root of roots) {
+    for (const record of old.filter(record => record.head.id === root || record.head.type === 'ATTR' && recordRoot(record, old) === root)) {
+      const box = originalOccupancy.find(item => item.id === record.head.id)?.bounds;
+      if (!validBounds(box)) issues.push({ code: 'LOCAL_CHANGE_UNPROVEN', id: record.head.id, message: 'Native baseline bounds are unavailable.' });
+      else if (regionsWithBounds.some(region => overlap(box, region))) issues.push({ code: 'TARGET_OCCUPIED', id: record.head.id });
+    }
+    const ids = [root, ...now.filter(record => record.head.type === 'ATTR' && recordRoot(record, now) === root).map(record => record.head.id)];
+    for (const id of ids) {
+      const box = occupancy.find(item => item.id === id)?.bounds;
+      if (!validBounds(box)) issues.push({ code: 'LOCAL_CHANGE_UNPROVEN', id, message: 'Native bounds are unavailable.' });
+      else if (regionsWithBounds.some(region => overlap(box, region))) issues.push({ code: 'TARGET_OCCUPIED', id });
+    }
+  }
+  return issues;
+}

@@ -1,9 +1,9 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { compileCpSatProblem, cpSatSettings, decodeCpSatCandidate } from './pcb-layout-cpsat-model.mjs';
-import { convertSemanticInputs, semanticGroupMetrics } from './pcb-layout-semantic.mjs';
-import { scoreReferenceMil } from './pcb-layout-reference-scale.mjs';
-import { compileRoughLayoutPolicy, roughLayoutMetrics } from './pcb-layout-rough.mjs';
+import { convertSemanticInputs, validateSemanticPolicy } from './pcb-layout-semantic.mjs';
+import { compileRoughLayoutPolicy } from './pcb-layout-rough.mjs';
+import { blockLayoutStageModel, compileBlockCenterObjective } from './pcb-layout-block-objective.mjs';
 
 export { compileCpSatProblem, cpSatSettings, decodeCpSatCandidate };
 export const cpSatBackendPath = fileURLToPath(new URL('./pcb-layout-cpsat.py', import.meta.url));
@@ -44,6 +44,7 @@ export async function executeCpSat(problem, { pythonPath = process.env.FLITREALI
 }
 
 export function compileSemanticCpSatProblem(model, settings = {}, { semanticPolicy, nativeBoardEdgeMil, poseDedupMil, maxStoredSolutions, includeLabels = true, roughLayoutPolicy = model.config.roughLayoutPolicy } = {}) {
+  model = blockLayoutStageModel(model, roughLayoutPolicy);
   const semantic = convertSemanticInputs(model, semanticPolicy);
   const initialProposal = { metadata: { mode: 'fresh', source: 'unseeded-coordinate-domain' },
     components: [...model.components.values()].map(c => ({ ref: c.ref, ...(model.fixed.get(c.ref) ?? { x: 0, y: 0, rotation: [...model.allowedRotations.get(c.ref)].sort((a, b) => a - b)[0] }) })),
@@ -60,10 +61,8 @@ export function compileSemanticCpSatProblem(model, settings = {}, { semanticPoli
     delete entity.preferredVariant;
     entity.variants.sort((a, b) => (a.bundle.maxX - a.bundle.minX) * (a.bundle.maxY - a.bundle.minY) - (b.bundle.maxX - b.bundle.minX) * (b.bundle.maxY - b.bundle.minY) || a.rotation - b.rotation || String(a.side).localeCompare(String(b.side)));
   }
-  const divisor = Object.entries(model.config.comparisonWeights).filter(([key]) => key !== 'uniformity').reduce((sum, [, value]) => sum + value, 0);
-  for (const link of semantic.inferredLinks) problem.links.push({ id: link.id, left: link.left, right: link.right, weight: (model.config.comparisonWeights.bypass ?? 0) / divisor / scoreReferenceMil(model, 'bypass') });
   problem.coverage.initialization = { mode: 'fresh', poseSource: 'unseeded-coordinate-domain', sourceLabelPositionsUsed: false, externalInitialHints: 0 };
-  problem.coverage.objective.semanticGroups = 'source-derived flexible physical group span; proxy only';
+  compileBlockCenterObjective(model, problem, semantic, roughLayoutPolicy);
   compileRoughLayoutPolicy(model, problem, roughLayoutPolicy);
   return { problem, semantic };
 }
@@ -72,6 +71,7 @@ export function compileSemanticCpSatProblem(model, settings = {}, { semanticPoli
 // OPTIMAL describes the quantized proxy model, never GND or native DRC.
 export async function runCpsatLayout(model, settings = {}, options = {}) {
   const { candidateCount = 1, maxRuns = candidateCount, runtime = {}, onProgress, problem: suppliedProblem, semantic: suppliedSemantic } = options;
+  validateSemanticPolicy(options.semanticPolicy === undefined ? model.config.semanticPolicy : options.semanticPolicy);
   if (['coldStart', 'coldSeconds'].some(key => Object.hasOwn(options, key))) throw Error('CPSAT_OBSOLETE_COLD_START_OPTIONS: each run now solves the full domain directly');
   if (![candidateCount, maxRuns].every(v => Number.isInteger(v) && v >= 1)) throw Error('INVALID_CPSAT_RUN_BUDGET');
   const compiled = suppliedProblem ? { problem: structuredClone(suppliedProblem), semantic: suppliedSemantic } : compileSemanticCpSatProblem(model, settings, options);
@@ -91,13 +91,6 @@ export async function runCpsatLayout(model, settings = {}, options = {}) {
         if (!candidate.validation.valid) { (run.rejected ??= []).push(candidate.validation.issues); continue; }
         const key = JSON.stringify(candidate.plan.components.map(p => [p.ref, Math.round(p.x / dedup), Math.round(p.y / dedup), p.rotation]).sort());
         if (seen.has(key)) continue; seen.add(key);
-        if (compiled.semantic) {
-          candidate.semanticGroups = semanticGroupMetrics(compiled.semantic, candidate.plan);
-          const semanticScore = candidate.semanticGroups.reduce((sum, g) => sum + g.weight * g.normalizedCompactness, 0);
-          candidate.semanticCompactnessScore = semanticScore * (problem.roughLayout?.groupCompactnessWeight ?? 1);
-          if(problem.roughLayout) candidate.semanticCompactnessUnscaledScore = semanticScore;
-        }
-        if(problem.roughLayout){candidate.roughLayoutMetrics=roughLayoutMetrics(problem,candidate.plan);candidate.roughLayoutScore=candidate.roughLayoutMetrics.weightedScore;}
         candidate.noInitialHints = problem.noInitialHints === true; candidate.run = name; run.accepted++; candidates.push(candidate);
       }
     } catch (error) { if (runtime.signal?.aborted) throw error; run.status = 'error'; run.error = error.message; }
@@ -105,8 +98,8 @@ export async function runCpsatLayout(model, settings = {}, options = {}) {
     // A proof over the unchanged full domain does not benefit from another seed.
     if (run.status === 'INFEASIBLE') break;
   }
-  candidates.sort((a, b) => (a.comparisonScore + (a.semanticCompactnessScore ?? 0) + (a.roughLayoutScore ?? 0)) - (b.comparisonScore + (b.semanticCompactnessScore ?? 0) + (b.roughLayoutScore ?? 0)));
+  candidates.sort((a, b) => a.comparisonScore - b.comparisonScore);
   const noCandidateReason = candidates.length ? undefined : runs.some(r => r.status === 'INFEASIBLE') ? 'infeasible' : runs.some(r => r.status === 'UNKNOWN') ? 'budget-exhausted' : runs.some(r => r.rejected?.length) ? 'validation-rejected' : 'error';
   return { status: candidates.length ? 'candidates-ready' : 'no-candidate', ...(noCandidateReason ? { noCandidateReason } : {}), candidates: candidates.slice(0, candidateCount), runs, semantic: compiled.semantic, problem: compiled.problem,
-    scope: { nativeWrites: 0, nativeDrcRun: false, groundVerified: false, optimization: 'quantized electrical and compactness proxy; exact layout validation after decoding' } };
+    scope: { nativeWrites: 0, nativeDrcRun: false, groundVerified: false, optimization: compiled.problem.blockLayout ? 'deduplicated physical-centre straight-distance approximation and explicit rough preferences' : 'supplied CP-SAT objective', independentBlockRegionAllocation: false } };
 }

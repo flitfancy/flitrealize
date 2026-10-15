@@ -6,13 +6,26 @@ import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 import {fineFixture} from '../helpers/pcb-fine-recovery-fixture.mjs';
 import {main} from '../../scripts/pcb-layout.mjs';
-import {preflightFineLayout} from '../../scripts/pcb-layout/fine/workflow.mjs';
+import {preflightFineLayout,adoptFineLayout,applyFineLayout} from '../../scripts/pcb-layout/fine/workflow.mjs';
 
 async function publicCall(f,stage,output,extra=[]){
   const result=await main(['fine','--stage',stage,'--project-root',f.f.projectRoot,'--from','solve','--output','evidence/'+output,...extra],
     {log:()=>{},executionOptions:{transport:f.f.transport,resolveWindow:async()=>f.f.options().windowId}});
   process.exitCode=0;return result;
 }
+
+test('explicit hard.fixed release reaches native write configuration while request-fixed bodies stay protected',async t=>{
+  const f=await fineFixture(t),source=f.inputs.snapshot.components.find(c=>c.ref==='U1');
+  f.inputs.config.hard.fixed=[{ref:'U1',x:source.x,y:source.y,rotation:source.rotation}];
+  f.request.releaseFixedRefs=['U1'];
+  await fs.writeFile(path.join(f.f.projectRoot,'design/PCB_LAYOUT_CONSTRAINTS.v1.json'),JSON.stringify(f.inputs.config));
+  const adopted=await adoptFineLayout({inputs:f.inputs,request:f.request,plan:f.solved.candidate.plan});assert.equal(adopted.result.status,'candidate-passed');
+  const applied=await applyFineLayout({inputs:f.inputs,request:f.request,candidate:adopted.candidate,result:adopted.result,options:f.f.options()});
+  assert.equal(applied.status,'verified',JSON.stringify(applied));assert.equal(applied.state.saved,true);assert.equal(f.f.control.saves,1);
+  const receipt=JSON.parse(await fs.readFile(applied.execution.resumeSaveReport,'utf8'));
+  assert.equal(receipt.config.lockedDesignators.includes('U1'),false);
+  assert.equal(receipt.config.lockedDesignators.includes('U2'),true);
+});
 test('preflight uses public apply checks, returns concrete source differences and never writes',async t=>{
   const f=await fineFixture(t),original=JSON.stringify(f.solved.candidate);
   const ready=await publicCall(f,'preflight','check');assert.equal(ready.status,'preflight-passed');assert.equal(ready.nextAction,'apply');
@@ -140,6 +153,29 @@ test('changed project rules block preflight while retaining the historical save 
 
 const outsideLabel=f=>{const l=f.attributes[1];l.X=-20;l.bbox={minX:-24,maxX:-16,minY:109,maxY:111};};
 const retainOutside=r=>{r.baselinePolicy='retain-outside-issues';};
+test('native qualification keeps outside label-distance defects but enforces the explicit active-owner cap',async t=>{
+ const f=await fineFixture(t,{moveMil:0}),{preflightLayout}=await import('../../scripts/pcb-layout/pcb-layout-execution.mjs'),{fineLabelRules}=await import('../../scripts/pcb-layout/fine/label-geometry.mjs');
+ const rules=fineLabelRules(f.solved.scope.model,{...f.solved.scope.request.labels,maxOwnerDistanceMil:1});
+ const plan=structuredClone(f.solved.candidate.plan);plan.labels=f.inputs.snapshot.items.map(l=>({...l,...l.original}));plan.geometryPolicy.labelRules=rules;
+ const options=f.f.options(),config={...options.config,boardBounds:plan.boardBounds,labelGeometryMode:'separate',labelRules:rules,labelOwnerMaxDistanceMil:1,
+  fineAcceptance:{schemaVersion:1,baselinePolicy:'retain-outside-issues',sourceHash:f.inputs.snapshot.sourceHash,liveScope:true,labelMovableOwnerRefs:[]}};
+ const outside=await preflightLayout({...options,plan,snapshot:f.inputs.snapshot,config});assert.equal(outside.status,'preflight-passed',JSON.stringify(outside));
+ config.fineAcceptance.labelMovableOwnerRefs=['U1'];
+ const active=await preflightLayout({...f.f.options(),plan,snapshot:f.inputs.snapshot,config});assert.equal(active.status,'preflight-blocked',JSON.stringify(active));assert.match(active.error.message,/FINE_LABEL_OWNER_DISTANCE/);
+ assert.deepEqual(f.f.control.modifications,[]);assert.equal(f.f.control.saves,0);
+});
+test('native live scope preserves require-clean while retain policy can prove a rotated old body-gap defect',async t=>{
+ const f=await fineFixture(t,{moveMil:0}),{preflightLayout}=await import('../../scripts/pcb-layout/pcb-layout-execution.mjs'),{fineLabelRules}=await import('../../scripts/pcb-layout/fine/label-geometry.mjs');
+ const rules=fineLabelRules(f.solved.scope.model,{...f.solved.scope.request.labels,clearancesMil:{body:8,pad:0,label:0}});
+ const plan=structuredClone(f.solved.candidate.plan);plan.labels=f.inputs.snapshot.items.map(l=>({...l,...l.original}));plan.geometryPolicy.labelRules=rules;
+ const target=plan.components.find(c=>c.ref==='U1');target.rotation=180;target.deltaRotation=180;
+ const options=f.f.options(),config={...options.config,boardBounds:plan.boardBounds,labelGeometryMode:'separate',labelRules:rules,
+  fineAcceptance:{schemaVersion:1,baselinePolicy:'retain-outside-issues',sourceHash:f.inputs.snapshot.sourceHash,liveScope:true,labelMovableOwnerRefs:['U1']}};
+ const retained=await preflightLayout({...options,plan,snapshot:f.inputs.snapshot,config});assert.equal(retained.status,'preflight-passed',JSON.stringify(retained));
+ config.fineAcceptance.baselinePolicy='require-clean';
+ const strict=await preflightLayout({...f.f.options(),plan,snapshot:f.inputs.snapshot,config});assert.equal(strict.status,'preflight-blocked',JSON.stringify(strict));assert.match(strict.error.message,/FINE_LABEL_BODY_GAP/);
+ assert.deepEqual(f.f.control.modifications,[]);assert.equal(f.f.control.saves,0);
+});
 test('local retained baseline passes the actual native preflight/apply/save/readback chain',async t=>{
  const f=await fineFixture(t,{configureNative:outsideLabel,configureRequest:retainOutside});
  assert.equal(f.solved.candidate.audit.nativeEligible,true);assert.equal(f.solved.candidate.audit.wholeBoardAccepted,false);

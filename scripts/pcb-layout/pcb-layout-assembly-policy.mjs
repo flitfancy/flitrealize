@@ -247,7 +247,8 @@ export function assemblyRuntime(compiled, components, pads) {
     const a = courtyards[i], b = courtyards[j];
     const overlapX = Math.min(a.bbox.maxX, b.bbox.maxX) - Math.max(a.bbox.minX, b.bbox.minX);
     const overlapY = Math.min(a.bbox.maxY, b.bbox.maxY) - Math.max(a.bbox.minY, b.bbox.minY);
-    if (overlapX > epsilon && overlapY > epsilon) issues.push({ code: 'ASSEMBLY_COURTYARD_OVERLAP', a: a.ref, b: b.ref, overlapXMil: overlapX, overlapYMil: overlapY });
+    if (overlapX > epsilon && overlapY > epsilon) issues.push({ code: 'ASSEMBLY_COURTYARD_OVERLAP', a: a.ref, b: b.ref, overlapXMil: overlapX, overlapYMil: overlapY,
+      penetrationXMil: Math.min(a.bbox.maxX-b.bbox.minX,b.bbox.maxX-a.bbox.minX), penetrationYMil: Math.min(a.bbox.maxY-b.bbox.minY,b.bbox.maxY-a.bbox.minY) });
     const pa = physicalByRef.get(a.ref), pb = physicalByRef.get(b.ref);
     const physicalGaps = [pb.minX - pa.maxX, pa.minX - pb.maxX, pb.minY - pa.maxY, pa.minY - pb.maxY];
     const courtyardGaps = [b.bbox.minX - a.bbox.maxX, a.bbox.minX - b.bbox.maxX, b.bbox.minY - a.bbox.maxY, a.bbox.minY - b.bbox.maxY];

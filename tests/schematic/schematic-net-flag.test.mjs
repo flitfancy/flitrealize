@@ -6,46 +6,61 @@ import { checkCreateRecovery } from '../helpers/create-action-recovery.mjs';
 
 const netFlagAction = await loadAction('schematic-net-flag', 'easyeda-pro');
 
-function createMockEda() {
+function createMockEda(hydration = null) {
   let sequence = 0;
   const components = [];
-  const nameVisibility = new Map();
-  const keyVisibility = new Map();
+  const imports = [];
+  let records = [
+    { head: { type: 'DOCHEAD', id: 'head' }, payload: { grid: 5, custom: { version: 7 } } },
+    { head: { type: 'TEXT', id: 'untouched-note' }, payload: { text: 'Keep this note', x: -40, y: 25, fontSize: 13 } },
+    { head: { type: 'CUSTOM', id: 'unknown-record' }, payload: { opaque: ['keep', { nested: true }] } },
+  ];
+  const payload = id => records.find(record => record.head.id === id)?.payload ?? {};
   function create(kind, net, x, y, rotation, mirror) {
     const id = `flag-${++sequence}`;
+    records.push(
+      { head: { type: 'COMPONENT', id, customHeader: 'retained' }, payload: { componentType: kind, net, x, y, rotation, mirror, custom: { source: 'fixture' } } },
+      { head: { type: 'ATTR', id: `attr-${id}`, customHeader: 3 }, payload: { parentId: id, key: 'Name', value: net,
+        valueVisible: true, keyVisible: true, x: x + 1.25, y: y - 2.5, fontSize: 11, align: 'LEFT', custom: { color: '#123456', keep: ['extra'] } } },
+    );
+    if (hydration) {
+      records.find(record => record.head.id === id).payload.attrs = { DeviceName: null, other: 'keep' };
+      records.push(
+        { head: { type: 'ATTR', id: `device-${id}` }, payload: { parentId: id, key: 'Device', value: 'device-native' } },
+        { head: { type: 'ATTR', id: `relevance-${id}` }, payload: { parentId: id, key: 'Relevance', value: '[]', zIndex: null } },
+      );
+    }
     const component = {
       getState_PrimitiveId: () => id, getState_Designator: () => '',
-      getState_Net: () => net, getState_ComponentType: () => kind,
-      getState_X: () => x, getState_Y: () => y,
-      getState_Rotation: () => rotation, getState_Mirror: () => mirror,
+      getState_Net: () => payload(id).net, getState_ComponentType: () => payload(id).componentType,
+      getState_X: () => payload(id).x, getState_Y: () => payload(id).y,
+      getState_Rotation: () => payload(id).rotation, getState_Mirror: () => payload(id).mirror,
     };
     components.push(component);
-    nameVisibility.set(id, true);
-    keyVisibility.set(id, true);
     return component;
   }
   function source() {
-    return components.flatMap((component) => {
-      const id = component.getState_PrimitiveId();
-      return [
-        `${JSON.stringify({ type: 'COMPONENT', id })}||${JSON.stringify({ componentType: component.getState_ComponentType(), rotation: component.getState_Rotation() })}|`,
-        `${JSON.stringify({ type: 'ATTR', id: `attr-${id}` })}||${JSON.stringify({ parentId: id, key: 'Name', value: component.getState_Net(), valueVisible: nameVisibility.get(id), keyVisible: keyVisibility.get(id) })}|`,
-      ];
-    }).join('\n');
+    return records.map(record => `${JSON.stringify(record.head)}||${JSON.stringify(record.payload)}|`).join('\n');
   }
   return {
+    imports,
     dmt_SelectControl: { async getCurrentDocumentInfo() { return { uuid: 'doc-flags', documentType: 1, parentProjectUuid: 'project' }; } },
     sys_FileManager: {
       async getDocumentSource() { return source(); },
       async setDocumentSource(value) {
-        for (const line of value.split(/\r?\n/).filter(Boolean)) {
+        imports.push({ before: source(), after: value });
+        records = value.split(/\r?\n/).filter(Boolean).map(line => {
           const split = line.indexOf('||');
           const head = JSON.parse(line.slice(0, split));
           const payload = JSON.parse(line.slice(split + 2).replace(/\|$/, ''));
-          if (head.type === 'ATTR' && payload.key === 'Name') {
-            nameVisibility.set(payload.parentId, payload.valueVisible !== false);
-            keyVisibility.set(payload.parentId, payload.keyVisible !== false);
+          return { head, payload };
+        });
+        if (hydration) for (const record of records) {
+          if (record.head.type === 'COMPONENT') {
+            record.payload.attrs.DeviceName = JSON.stringify({ name: 'Ground-GND', source: '', uuid: hydration === 'wrong-device' ? 'other-device' : 'device-native' });
+            if (hydration === 'moved') record.payload.x += 1;
           }
+          if (record.head.type === 'ATTR' && record.payload.key === 'Relevance') record.payload.zIndex = 0;
         }
         return true;
       },
@@ -59,7 +74,7 @@ function createMockEda() {
         for (let index = components.length - 1; index >= 0; index -= 1) {
           if (selected.has(components[index].getState_PrimitiveId())) components.splice(index, 1);
         }
-        for (const id of ids) nameVisibility.delete(id);
+        records = records.filter(record => !selected.has(record.head.id) && !selected.has(record.payload.parentId));
         return true;
       },
     },
@@ -69,6 +84,7 @@ function createMockEda() {
 test('marker creation, hidden names, verification and rollback preserve imported source fields', async () => {
 const eda = createMockEda();
 await eda.sch_PrimitiveComponent.createNetFlag('Power', 'EXISTING', 0, 0, 0, false);
+const originalSource = await eda.sys_FileManager.getDocumentSource();
 const planned = await netFlagAction(eda, {
   mode: 'plan',
   expectedDocumentUuid: 'doc-flags',
@@ -86,6 +102,25 @@ assert.equal(applied.status, 'applied');
 assert.equal(applied.created.length, 2);
 assert.equal(applied.saved, false);
 assert.match(await eda.sys_FileManager.getDocumentSource(), /"valueVisible":false/);
+assert.equal(eda.imports.length, 1);
+const parseRecords = source => source.split(/\r?\n/).filter(Boolean).map(line => {
+  const split = line.indexOf('||');
+  return { head: JSON.parse(line.slice(0, split)), payload: JSON.parse(line.slice(split + 2).replace(/\|$/, '')) };
+});
+const beforeImport = parseRecords(eda.imports[0].before), afterImport = parseRecords(await eda.sys_FileManager.getDocumentSource());
+assert.deepEqual(afterImport.map(record => record.head.id), beforeImport.map(record => record.head.id));
+const createdIds = new Set(applied.created.map(item => item.primitiveId));
+for (const [index, before] of beforeImport.entries()) {
+  const expected = structuredClone(before);
+  if (expected.head.type === 'ATTR' && expected.payload.key === 'Name' && createdIds.has(expected.payload.parentId)) {
+    assert.equal(expected.payload.fontSize, 11);
+    assert.equal(expected.payload.align, 'LEFT');
+    assert.deepEqual(expected.payload.custom, { color: '#123456', keep: ['extra'] });
+    expected.payload.valueVisible = false;
+    expected.payload.keyVisible = false;
+  }
+  assert.deepEqual(afterImport[index], expected, `Only requested visibility may change in ${before.head.id}`);
+}
 
 const verified = await netFlagAction(eda, {
   mode: 'verify', expectedDocumentUuid: 'doc-flags', created: applied.created,
@@ -94,6 +129,19 @@ assert.equal(verified.status, 'verified');
 
 const rolledBack = await netFlagAction(eda, applied.rollbackRequest);
 assert.equal(rolledBack.status, 'rolled-back');
+assert.equal(await eda.sys_FileManager.getDocumentSource(), originalSource);
+});
+
+test('desktop marker cache hydration is accepted only for the unchanged device and geometry', async () => {
+  for (const mode of ['normal', 'wrong-device', 'moved']) {
+    const eda = createMockEda(mode);
+    const plan = await netFlagAction(eda, { mode: 'plan', expectedDocumentUuid: 'doc-flags', items: [
+      { kind: 'netFlag', identification: 'Ground', net: 'GND', x: 100, y: 200, showName: false },
+    ] });
+    const result = await netFlagAction(eda, plan.applyRequest);
+    assert.equal(result.status, mode === 'normal' ? 'applied' : 'rolled-back');
+    if (mode !== 'normal') assert.equal(result.error.code, 'EXECUTION_SOURCE_CHANGED');
+  }
 });
 
 test('wrong marker target and oversized batches block planning', async () => {

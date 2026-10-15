@@ -8,6 +8,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
 import { prepareFixture, filterRelation, addIntent } from '../helpers/pcb-layout-prepare-fixture.mjs';
+import { prepareLayoutInputs } from '../../scripts/pcb-layout/pcb-layout-prepare.mjs';
+import { blockLayoutStageModel } from '../../scripts/pcb-layout/pcb-layout-block-objective.mjs';
 
 const cli=fileURLToPath(new URL('../../scripts/pcb-layout.mjs',import.meta.url)),exec=promisify(execFile);
 async function project() {
@@ -45,7 +47,15 @@ test('public CP-SAT CLI persists the weighted rough ranking',{skip:!process.env.
   await fs.writeFile(file,JSON.stringify(config));
   const result=await run(root,['--mode','solve','--backend','cpsat','--snapshot',path.join(root,'snapshot.json'),'--python',process.env.FLITREALIZE_CPSAT_PYTHON,'--seconds','2','--candidates','1']);
   assert.equal(result.ok,true,result.stderr);const output=result.lines.at(-1);assert.equal(output.nativeWrites,0);assert.equal(output.candidateCount,1);
-  const record=output.candidates[0];assert.ok(Number.isFinite(record.roughLayoutScore));assert.equal(record.rankingScore,record.score+record.semanticCompactnessScore+record.roughLayoutScore);
+  const record=output.candidates[0];assert.ok(Number.isFinite(record.roughLayoutScore));assert.equal(record.rankingScore,record.score);assert.equal(record.semanticCompactnessScore,0);
+  const baseline=JSON.parse(await fs.readFile(path.join(output.report,'baseline.json'))),receipt=JSON.parse(await fs.readFile(path.join(output.report,'layout-input.json'))),inputs=JSON.parse(await fs.readFile(path.join(output.report,'inputs.json')));
+  assert.equal(baseline.plan.clearanceMil,16);assert.equal(baseline.stats.decodedObjective,baseline.comparisonScore);assert.equal(baseline.blockLayout.stage,'functional-block-layout');assert.equal(receipt.board.placementClearanceMil,16);assert.equal(inputs.mechanical.clearanceMil,8);
+  const html=await fs.readFile(path.join(output.report,'comparison.html'),'utf8');
+  const command=/<code>(node [^<]*--weights-file [^<]*)<\/code>/.exec(html)?.[1];
+  assert.ok(command,'the report provides a rerun command');assert.match(command,/--backend cpsat/);
+  // --help parses every report flag, then returns before project or EDA access.
+  const parsed=await exec(process.execPath,[cli,...command.split(' ').slice(2),'--help']);
+  assert.match(parsed.stdout,/Default prepare reads and checks/);
  }finally{await fs.rm(root,{recursive:true,force:true});}
 });
 
@@ -66,6 +76,9 @@ test('portable CLI prepares immutable complete inputs and replays them without t
 test('solve consumes compiled upstream relationships and emits version-bound candidates without EDA',async()=>{
   const root=await project();
   try {
+    const configFile=path.join(root,'design/PCB_LAYOUT_CONSTRAINTS.v1.json'),config=JSON.parse(await fs.readFile(configFile));
+    config.spatial={uniformity:{targetMil:40,toleranceMil:10}};config.comparisonWeights.uniformity=.2;
+    await fs.writeFile(configFile,JSON.stringify(config));
     const r=await run(root,['--mode','solve','--snapshot',path.join(root,'snapshot.json'),'--start-mode','existing','--starts','1','--iterations','2']);assert.ok(r.ok,r.stderr);
     const result=r.lines.at(-1);assert.equal(result.status,'candidates-ready-not-applied');
     const manifest=JSON.parse(await fs.readFile(path.join(result.report,'manifest.json')));assert.equal(manifest.schemaVersion,3);assert.ok(manifest.candidates.length>=2);assert.ok(manifest.inputsHash);
@@ -75,6 +88,14 @@ test('solve consumes compiled upstream relationships and emits version-bound can
     }
     const candidate=JSON.parse(await fs.readFile(path.join(result.report,manifest.candidates.find(x=>x.name!=='baseline').name+'.json')));assert.equal(candidate.validation.valid,true);assert.ok(candidate.metrics.details.length>0);
     const report=await fs.readFile(path.join(result.report,'comparison.html'),'utf8');assert.match(report,/<title>PCB /);assert.ok(!/[A-Za-z]:[\\/]/.test(report));
+    const commands=[...report.matchAll(/<code>(node [^<]*)<\/code>/g)].map(match=>match[1]);
+    assert.equal(commands.length,2,'both weight and uniformity instructions provide current CLI commands');
+    for(const command of commands){
+      assert.match(command,/pcb-layout\.mjs --project-root .* --mode solve --backend search/);
+      assert.doesNotMatch(command,/pcb-layout-solve\.mjs|--spacing-target-mil|--spacing-tolerance-mil/);
+      const parsed=await exec(process.execPath,[cli,...command.split(' ').slice(2),'--help']);
+      assert.match(parsed.stdout,/Default prepare reads and checks/);
+    }
   }finally{await fs.rm(root,{recursive:true,force:true});}
 });
 
@@ -149,4 +170,18 @@ test('provided ownership can be inspected but a new real solve requires verified
     const solve=await run(root,['--mode','solve','--snapshot',file,'--starts','1','--iterations','1']);
     assert.equal(solve.ok,false);assert.match(solve.stderr,/REFRESH_NATIVE_OWNERSHIP/);
   }finally{await fs.rm(root,{recursive:true,force:true});}
+});
+
+test('stage recovery reconstructs its frozen spacing but preserves the existing successful-application evidence gate',async()=>{
+ const root=await project();
+ try{
+  const prepared=await run(root,['--snapshot',path.join(root,'snapshot.json')]);assert.equal(prepared.ok,true,prepared.stderr);
+  const report=prepared.lines.at(-1).report,bundle=JSON.parse(await fs.readFile(path.join(report,'inputs.json'))),manifest=JSON.parse(await fs.readFile(path.join(report,'manifest.json'))),stage=blockLayoutStageModel(prepareLayoutInputs(bundle).model);
+  manifest.blockLayoutSpacing=stage.blockLayoutSpacing;await fs.writeFile(path.join(report,'manifest.json'),JSON.stringify(manifest));
+  const receipt=path.join(report,'stage-receipt.json');await fs.writeFile(receipt,JSON.stringify({kind:'flitrealize.pcb-layout.apply-receipt',projectRoot:root,workflowFile:path.join(report,'layout-execution-result.json'),snapshot:bundle.snapshot,config:stage.mechanical}));
+  const recovered=await run(root,['--mode','apply','--window-id','offline-fixture','--resume-save',receipt]);assert.equal(recovered.ok,false);assert.match(recovered.stderr,/SUCCESSFUL_APPLY_REQUIRED/);assert.ok(!recovered.stderr.includes('RECOVERY_RULES_CHANGED'));
+  manifest.blockLayoutSpacing.requestedMil=24;await fs.writeFile(path.join(report,'manifest.json'),JSON.stringify(manifest));
+  const changed=await run(root,['--mode','apply','--window-id','offline-fixture','--resume-save',receipt]);assert.equal(changed.ok,false);assert.match(changed.stderr,/RECOVERY_RULES_CHANGED/);
+  assert.ok(!(await fs.readdir(report)).includes('layout-save.js'));
+ }finally{assert.equal(path.dirname(path.resolve(root)),path.resolve(tmpdir()));assert.ok(path.basename(root).startsWith('layout-portable-'));await fs.rm(root,{recursive:true,force:true});}
 });

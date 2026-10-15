@@ -128,9 +128,10 @@ return await (async () => {
     if (typeof eda?.sch_Document?.save !== 'function') return { saved: false, error: 'sch_Document.save is unavailable' };
     try {
       const result = await eda.sch_Document.save();
-      return { saved: Boolean(result), error: result ? null : 'sch_Document.save returned false' };
+      return result === true ? { saved: true, error: null } : result === false ? { saved: false, error: 'sch_Document.save returned false' }
+        : { saved: null, uncertainWrite: true, error: 'sch_Document.save did not return a confirmed outcome' };
     } catch (error) {
-      return { saved: false, error: error.message };
+      return { saved: null, uncertainWrite: true, error: error.message };
     }
   }
 
@@ -156,6 +157,49 @@ return await (async () => {
     }
   }
 
+  async function captureDrcBaseline(state, strict) {
+    const source = await optionalCall('sys_FileManager', 'getDocumentSource');
+    const drc = await runDrc(strict);
+    const final = await captureState();
+    assertIdentity(final, state.document.uuid, state.inspectionFingerprint, state.document.parentProjectUuid);
+    if (source.value != null) await guardSource(source.value);
+    return { document: state.document, strict, inspectionFingerprint: state.inspectionFingerprint, source: source.value, drc };
+  }
+
+  function compareDrc(current, baseline, document, strict) {
+    const strictResult = reason => ({ ...current, comparison: { passed: current.passed === true, coverage: 'strict-zero', reason } });
+    if (!baseline || baseline.strict !== strict || stableStringify(baseline.document) !== stableStringify(document)
+      || typeof baseline.source !== 'string' || !baseline.source.trim() || baseline.drc?.detailCoverage !== 'items' || current.detailCoverage !== 'items') {
+      return strictResult('Complete, source-bound before/after DRC items are unavailable.');
+    }
+    const keys = records => {
+      if (!Array.isArray(records)) throw new Error('Full DRC records are unavailable.');
+      return records.map(record => {
+        const ids = record.primitives ?? record.objs ?? record.objects ?? record.primitiveIds ?? record.primitiveId;
+        const bound = typeof ids === 'string' ? Boolean(ids.trim()) : Array.isArray(ids) && ids.length > 0 && ids.every(id => typeof id === 'string' ? id.trim() : id && typeof (id.primitiveId ?? id.id) === 'string');
+        if (!record || Object.hasOwn(record, 'count') || !bound || !(record.rule ?? record.ruleName ?? record.errorType)) throw new Error('A DRC item lacks reliable object/rule evidence.');
+        const validate = value => {
+          if (Array.isArray(value)) { value.forEach(validate); return; }
+          if (value && typeof value === 'object') { Object.values(value).forEach(validate); return; }
+          if (value === null || ['string', 'boolean'].includes(typeof value) || typeof value === 'number' && Number.isFinite(value)) return;
+          throw new Error('A DRC item is incomplete.');
+        };
+        validate(record);
+        return stableStringify(record);
+      });
+    };
+    try {
+      const remaining = keys(baseline.drc.results), records = keys(current.results);
+      let added = 0;
+      for (const record of records) { const index = remaining.indexOf(record); if (index < 0) added++; else remaining.splice(index, 1); }
+      return { ...current, comparison: { passed: added === 0, coverage: 'complete-records', newViolationCount: added,
+        retainedViolationCount: records.length - added, resolvedViolationCount: remaining.length,
+        measurementComparison: 'unsupported; changed records require reconciliation' } };
+    } catch (error) { return strictResult(error.message); }
+  }
+
+  const drcAccepted = drc => drc.passed === true || drc.comparison?.passed === true;
+
   function operationRequest(root) {
     return root.request || root.applyRequest || root;
   }
@@ -163,7 +207,8 @@ return await (async () => {
   const mode = request.mode ?? 'inspect';
   if (mode === 'inspect') {
     const state = await captureState();
-    return { schemaVersion: 2, status: 'inspected', readOnly: true, state };
+    const drcBaseline = request.runDrc === true ? await captureDrcBaseline(state, request.strict !== false) : null;
+    return { schemaVersion: 2, status: 'inspected', readOnly: true, state, ...(drcBaseline ? { drc: drcBaseline.drc, drcBaseline } : {}) };
   }
   if (mode === 'plan') {
     const state = await captureState();
@@ -171,6 +216,7 @@ return await (async () => {
     const expectedDocumentUuid = request.expectedDocumentUuid ?? state.document?.uuid;
     assertIdentity(state, expectedDocumentUuid, null, request.expectedProjectUuid);
     const strict = request.strict !== false;
+    const drcBaseline = request.runDrc === false ? null : request.drcBaseline ?? await captureDrcBaseline(state, strict);
     return {
       schemaVersion: 2,
       status: 'planned',
@@ -185,6 +231,7 @@ return await (async () => {
           strict,
           runDrc: request.runDrc !== false,
           executionSource: request.executionSource ?? null,
+          drcBaseline,
         },
       },
     };
@@ -197,17 +244,21 @@ return await (async () => {
     const immediateTarget = await optionalCall('dmt_SelectControl', 'getCurrentDocumentInfo');
     if (immediateTarget.value?.uuid !== before.document.uuid || immediateTarget.value?.parentProjectUuid !== before.document.parentProjectUuid || immediateTarget.value?.documentType !== 1) fail('DOCUMENT_MISMATCH', 'Target changed before saving.');
     const save = await saveDocument();
+    if (save.uncertainWrite) return { schemaVersion: 2, status: 'outcome-unknown', readOnly: false, saved: null, uncertainWrite: true,
+      drc: { available: false, passed: null, error: 'Save outcome is unknown; do not replay the request.' },
+      issues: [{ code: 'SAVE_OUTCOME_UNKNOWN', message: save.error }] };
+    try {
     const after = await captureState();
     const targetChanged = after.document?.uuid !== before.document?.uuid || after.document?.parentProjectUuid !== before.document?.parentProjectUuid;
     const drc = !save.saved ? { available: false, passed: null, error: 'DRC skipped because save failed' }
       : targetChanged ? { available: false, passed: null, error: 'DRC skipped because the document changed during save' }
-      : input.runDrc === false ? { available: null, passed: null, skipped: true } : await runDrc(input.strict !== false);
+      : input.runDrc === false ? { available: null, passed: null, skipped: true } : compareDrc(await runDrc(input.strict !== false), input.drcBaseline, before.document, input.strict !== false);
     const final = await captureState();
     const issues = [];
     try { await guardSource(input.executionSource); } catch (error) { issues.push({ code: error.code, message: error.message }); }
     if (!save.saved) issues.push({ code: 'SAVE_FAILED', message: save.error });
     if (save.saved && input.runDrc !== false && !drc.available) issues.push({ code: 'DRC_UNAVAILABLE', message: drc.error });
-    else if (drc.available && !drc.passed) issues.push({ code: 'DRC_FAILED', message: drc.error });
+    else if (drc.available && !drcAccepted(drc)) issues.push({ code: 'DRC_FAILED', message: drc.error, comparison: drc.comparison });
     if (after.document?.uuid !== before.document?.uuid || after.document?.parentProjectUuid !== before.document?.parentProjectUuid || after.inspectionFingerprint !== before.inspectionFingerprint) issues.push({ code: 'SAVE_READBACK_CHANGED' });
     if (final.document?.uuid !== before.document?.uuid || final.document?.parentProjectUuid !== before.document?.parentProjectUuid || final.inspectionFingerprint !== after.inspectionFingerprint) issues.push({ code: 'DRC_READBACK_CHANGED' });
     return {
@@ -220,17 +271,22 @@ return await (async () => {
       inspectionFingerprint: after.inspectionFingerprint,
       issues,
     };
+    } catch (error) {
+      return { schemaVersion: 2, status: 'apply-failed', readOnly: false, saved: save.saved,
+        drc: { available: false, passed: null, error: 'Save readback failed; DRC is unconfirmed.' },
+        issues: [...(!save.saved ? [{ code: 'SAVE_FAILED', message: save.error }] : []), { code: error.code || 'SAVE_READBACK_FAILED', message: error.message }] };
+    }
   }
   if (mode === 'verify') {
     const input = operationRequest(request);
     const state = await captureState();
     assertIdentity(state, input.expectedDocumentUuid, input.expectedInspectionFingerprint ?? null, input.expectedProjectUuid);
-    const drc = input.runDrc === false ? { available: null, passed: null, skipped: true } : await runDrc(input.strict !== false);
+    const drc = input.runDrc === false ? { available: null, passed: null, skipped: true } : compareDrc(await runDrc(input.strict !== false), input.drcBaseline, state.document, input.strict !== false);
     const final = await captureState();
     assertIdentity(final, state.document.uuid, state.inspectionFingerprint, state.document.parentProjectUuid);
     const issues = [];
     if (input.runDrc !== false && !drc.available) issues.push({ code: 'DRC_UNAVAILABLE', message: drc.error });
-    else if (drc.available && !drc.passed) issues.push({ code: 'DRC_FAILED', message: drc.error });
+    else if (drc.available && !drcAccepted(drc)) issues.push({ code: 'DRC_FAILED', message: drc.error, comparison: drc.comparison });
     return {
       schemaVersion: 2,
       status: issues.length ? 'verify-failed' : 'verified',

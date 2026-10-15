@@ -8,18 +8,18 @@ export const references = {
   '1.1': reference('1.1-requirements-and-architecture.md','需求与架构'),
   '1.2': reference('1.2-parts.md','器件'),
   '2.1': reference('2.1-schematic-contract.md','原理图契约'),
-  '2.2': reference(provider+'2.2-schematic-workflow.md','原理图工作流'),
-  '2.3': reference(provider+'2.3-component-batch.md','器件批量操作'),
+  '2.2': reference(provider+'2.1-r-schematic-workflow.md','原理图工作流'),
+  '2.3': reference(provider+'2.1-r-component-batch.md','器件批量操作'),
   '3.1': reference('3.1-pcb-review.md','PCB 设计与检查'),
-  '3.2': reference(provider+'3.2-pcb-foundation.md','板框、层叠与禁区'),
+  '3.2': reference('3.2-pcb-foundation.md','板框、层叠与禁区'),
   '3.3': reference('3.3-pcb-layout-inputs.md','布局输入与规则转置'),
-  '3.4': reference(provider+'3.4-pcb-net-color.md','网络与焊盘配色'),
-  '3.5': reference(provider+'3.5-pcb-placement.md','布局与空间'),
-  '3.6': reference(provider+'3.6-pcb-routing-plan.md','布线规则与优先级'),
-  '3.7': reference(provider+'3.7-pcb-trace-width.md','线宽调整'),
+  '3.4': reference(provider+'3.4-r-pcb-net-color.md','网络与焊盘配色'),
+  '3.5': reference(provider+'3.5-r-pcb-placement.md','布局与空间'),
+  '3.6': reference('3.6-pcb-routing-plan.md','布线规则与优先级'),
+  '3.7': reference(provider+'3.8-r-pcb-trace-width.md','线宽调整'),
   '3.8': reference('3.8-prerouting.md','走线与局部反馈'),
-  '3.9.1': reference(provider+'3.9.1-pcb-ground-pours.md','创建、重铺并检查实际铜'),
-  '3.9.2': reference(provider+'3.9.2-pcb-grounding.md','回流检查与必要接地过孔'),
+  '3.9.1': reference('3.9.1-pcb-ground-pours.md','创建、重铺并检查实际铜'),
+  '3.9.2': reference('3.9.2-pcb-grounding.md','回流检查与必要接地过孔'),
   '4.1': reference('4.1-production-handoff.md','制造交接'),
   '5.1': reference('5.1-prototype-validation.md','样机验证'),
   '6.1': reference('6.1-production-release.md','生产发布'),
@@ -40,7 +40,7 @@ const uiNames = {
   '0.4':['Environment & Connection','环境与连接'],
 };
 function referenceTitle(path) {
-  return path.split('/').at(-1).replace(/^\d+(?:\.\d+)+-|\.md$/g,'').split('-')
+  return path.split('/').at(-1).replace(/^\d+(?:\.\d+)+(?:-r)?-|\.md$/g,'').split('-')
     .map(word=>word==='pcb'?'PCB':word==='and'?'&':word[0].toUpperCase()+word.slice(1)).join(' ');
 }
 export function nameFor(code) {

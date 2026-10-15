@@ -17,7 +17,7 @@
           "新建PCB",
           "schematic to pcb"
         ],
-        "reference": "docs/providers/easyeda-pro/pcb-create.md",
+        "reference": "docs/providers/easyeda-pro/3.1-r-pcb-create.md",
         "entrypoint": "scripts/pcb-create.mjs",
         "limitations": [
           "必须使用封装入口；步骤清单不替代完整回读与保存。",
@@ -56,7 +56,7 @@
           "功能块重排",
           "reflow"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md",
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md",
         "entrypoint": "scripts/schematic-reflow.mjs",
         "limitations": [
           "只处理原理图，不是 PCB 布局优化器。"
@@ -96,7 +96,7 @@
           "中断续放",
           "component placement"
         ],
-        "reference": "docs/providers/easyeda-pro/2.3-component-batch.md",
+        "reference": "docs/providers/easyeda-pro/2.1-r-component-batch.md",
         "entrypoint": "scripts/schematic-components.mjs",
         "limitations": [
           "输入器件须先完成库存与身份确认；本流程不替代库存匹配或选料。",
@@ -171,7 +171,7 @@
           "网络标签",
           "connect"
         ],
-        "reference": "docs/providers/easyeda-pro/2.4-schematic-connect.md",
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-connect.md",
         "entrypoint": "scripts/schematic-connect.mjs",
         "limitations": [
           "入口默认只计划；--apply 写入与收尾，--check 只读验证。",
@@ -295,7 +295,7 @@
           "DRC",
           "finalize"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md"
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md"
       },
       "domain": "schematic",
       "provider": "easyeda-pro",
@@ -337,7 +337,7 @@
           "autorouting",
           "支路接续"
         ],
-        "reference": "docs/providers/easyeda-pro/pcb-autorouting.md",
+        "reference": "docs/providers/easyeda-pro/3.8-r-pcb-autorouting.md",
         "entrypoint": "scripts/pcb-route.mjs",
         "limitations": [
           "默认只准备或生成离线候选；用户授权写入时使用--apply。",
@@ -373,7 +373,7 @@
           "新建PCB",
           "schematic to pcb"
         ],
-        "reference": "docs/providers/easyeda-pro/pcb-create.md",
+        "reference": "docs/providers/easyeda-pro/3.1-r-pcb-create.md",
         "entrypoint": "scripts/pcb-create.mjs",
         "limitations": [
           "单页来源须为游离原理图或尚无 PCB 的 Board；显式关联同一 Board，只新建 PCB，不替换旧 PCB。",
@@ -432,7 +432,7 @@
           "方法参数",
           "类型查询"
         ],
-        "reference": "docs/0.3-easyeda-pro.md",
+        "reference": "docs/providers/easyeda-pro/0.4-r-environment.md",
         "entrypoint": "scripts/api-reference.mjs",
         "limitations": [
           "内置语料是历史快照，查到定义不代表当前 EDA 已验证支持。",
@@ -553,7 +553,7 @@
           "board outline",
           "矩形板框"
         ],
-        "reference": "docs/providers/easyeda-pro/3.2-pcb-foundation.md",
+        "reference": "docs/providers/easyeda-pro/3.2-r-pcb-foundation.md",
         "limitations": [
           "只用 pcb_PrimitivePolyline.create，不用 Line 写 layer 11。",
           "默认拒绝覆盖已有板框；replace:true 时仅允许替换唯一已有板框。",
@@ -614,7 +614,7 @@
           "placement",
           "空白检查"
         ],
-        "reference": "docs/providers/easyeda-pro/3.5-pcb-placement.md",
+        "reference": "docs/providers/easyeda-pro/3.5-r-pcb-placement.md",
         "entrypoint": "scripts/pcb-edit.mjs",
         "limitations": [
           "矩形边界和保守包围盒检查；不是自动电气布局优化器。",
@@ -679,7 +679,7 @@
           "主干宽度",
           "trace width"
         ],
-        "reference": "docs/providers/easyeda-pro/3.7-pcb-trace-width.md",
+        "reference": "docs/providers/easyeda-pro/3.8-r-pcb-trace-width.md",
         "entrypoint": "scripts/pcb-edit.mjs",
         "limitations": [
           "必须指定线段 ID；不根据电流自动算宽、不修改网络类或自动路由器规则。",
@@ -746,7 +746,7 @@
           "net color",
           "pcb color"
         ],
-        "reference": "docs/providers/easyeda-pro/3.4-pcb-net-color.md",
+        "reference": "docs/providers/easyeda-pro/3.4-r-pcb-net-color.md",
         "entrypoint": "scripts/pcb-edit.mjs",
         "limitations": [
           "仅重建选定已有网络类，不逐网络上色或清除历史覆盖；不自动建类或改变成员。",
@@ -802,7 +802,7 @@
           "routing priority",
           "net classes"
         ],
-        "reference": "docs/providers/easyeda-pro/3.6-pcb-routing-plan.md",
+        "reference": "docs/technical/pcb-prerouting.md",
         "limitations": [
           "只生成有序计划及已有线段的改宽/配色请求，不实际布线或写入 EDA 网络类。",
           "排序不等于自动路由器已按优先级执行；后续执行者需逐组完成并核对证据。"
@@ -829,7 +829,7 @@
           "功能块重排",
           "reflow"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md",
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md",
         "entrypoint": "scripts/schematic-reflow.mjs",
         "limitations": [
           "仅覆盖 initial/complete 模式支持的对象；自由备注与图形不参与避障。",
@@ -865,7 +865,7 @@
           "连接",
           "capabilities"
         ],
-        "reference": "docs/providers/easyeda-pro/0.4-environment.md"
+        "reference": "docs/providers/easyeda-pro/0.4-r-environment.md"
       },
       "contractVersion": 1,
       "domain": "system",
@@ -895,7 +895,7 @@
           "边界",
           "geometry"
         ],
-        "reference": "docs/providers/easyeda-pro/3.2-pcb-foundation.md",
+        "reference": "docs/providers/easyeda-pro/3.2-r-pcb-foundation.md",
         "limitations": [
           "只读几何，不负责移动器件或自动优化 PCB 分区。"
         ]
@@ -931,7 +931,7 @@
           "净空",
           "keepout"
         ],
-        "reference": "docs/providers/easyeda-pro/3.2-pcb-foundation.md"
+        "reference": "docs/providers/easyeda-pro/3.2-r-pcb-foundation.md"
       },
       "contractVersion": 1,
       "domain": "pcb",
@@ -981,7 +981,7 @@
           "地铜",
           "pours"
         ],
-        "reference": "docs/providers/easyeda-pro/3.9.1-pcb-ground-pours.md"
+        "reference": "docs/providers/easyeda-pro/3.9.1-r-pcb-ground-pours.md"
       },
       "contractVersion": 1,
       "domain": "pcb",
@@ -1033,7 +1033,7 @@
           "回流候选",
           "stitching"
         ],
-        "reference": "docs/providers/easyeda-pro/3.9.2-pcb-grounding.md",
+        "reference": "docs/providers/easyeda-pro/3.9.2-r-pcb-grounding.md",
         "limitations": [
           "生成候选不等于已写入过孔或已闭合回流。"
         ]
@@ -1077,7 +1077,7 @@
           "地孔",
           "ground vias"
         ],
-        "reference": "docs/providers/easyeda-pro/3.9.2-pcb-grounding.md"
+        "reference": "docs/providers/easyeda-pro/3.9.2-r-pcb-grounding.md"
       },
       "contractVersion": 1,
       "domain": "pcb",
@@ -1132,7 +1132,7 @@
           "回流检查",
           "grounding"
         ],
-        "reference": "docs/providers/easyeda-pro/3.9.2-pcb-grounding.md"
+        "reference": "docs/providers/easyeda-pro/3.9.2-r-pcb-grounding.md"
       },
       "contractVersion": 1,
       "domain": "pcb",
@@ -1167,7 +1167,7 @@
           "铜层",
           "stackup"
         ],
-        "reference": "docs/providers/easyeda-pro/3.2-pcb-foundation.md"
+        "reference": "docs/providers/easyeda-pro/3.2-r-pcb-foundation.md"
       },
       "contractVersion": 1,
       "domain": "pcb",
@@ -1242,7 +1242,7 @@
           "放置计划",
           "schematic layout"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md",
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md",
         "limitations": [
           "规划不等于实际放置；已有几何重排使用 schematic-reflow。"
         ]
@@ -1270,7 +1270,7 @@
           "短线规划",
           "wire plan"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md"
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md"
       },
       "contractVersion": 2,
       "internal": true,
@@ -1298,7 +1298,7 @@
           "原理图网表",
           "snapshot"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md"
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md"
       },
       "contractVersion": 4,
       "internal": true,
@@ -1330,7 +1330,7 @@
           "器件放置",
           "component place"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md"
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md"
       },
       "contractVersion": 6,
       "internal": true,
@@ -1382,7 +1382,7 @@
           "no connect",
           "NC"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md"
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md"
       },
       "contractVersion": 2,
       "internal": true,
@@ -1434,7 +1434,7 @@
           "符号封装",
           "bindings"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md"
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md"
       },
       "contractVersion": 4,
       "internal": true,
@@ -1472,7 +1472,7 @@
           "wire color",
           "wire create"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md",
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md",
         "limitations": [
           "颜色参数用于本次创建的原理图导线；不是已有导线批量改色或 PCB 网络配色工具。"
         ]
@@ -1527,7 +1527,7 @@
           "网络标签",
           "net flag"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md"
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md"
       },
       "contractVersion": 3,
       "internal": true,
@@ -1579,7 +1579,7 @@
           "DRC",
           "save verify"
         ],
-        "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md"
+        "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md"
       },
       "contractVersion": 4,
       "internal": true,

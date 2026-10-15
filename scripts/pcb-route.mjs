@@ -9,6 +9,7 @@ import {ensureRuntime} from './pcb-routing/runtime.mjs';
 import {activeWindow,executeNative,legacySnapshot,digest} from './providers/easyeda-pro/routing-provider.mjs';
 import {studyOutputDirectory,pcbImplementationFingerprint} from './lib/pcb-study.mjs';
 import {runWorkflow} from './pcb-routing/workflow.mjs';
+import {compareNativeDrc} from './providers/easyeda-pro/drc-summary.mjs';
 const help=`PCB routing with a single FR backend and native EDA verification.
 node <skill>/scripts/pcb-route.mjs --project-root <project> --mode prepare|plan|run
   --policy <project-relative-json> [default design/PCB_ROUTING_EXECUTION.v2.json]
@@ -36,7 +37,7 @@ export async function main(args=process.argv.slice(2),{log=value=>console.log(JS
   let snapshot,padRead,windowId=o['--window-id'];
   if(o['--from']){const dir=path.resolve(o['--from']);snapshot=legacySnapshot(await readJson(path.join(dir,'export-result.json')),await readJson(path.join(dir,'pad-map-inspect-with-footprints.json')));padRead=snapshot;}
   else if(o['--snapshot']){const r=await readJson(path.resolve(o['--snapshot']));snapshot=r.result??r;padRead=snapshot;}
-  else{windowId??=await activeWindow();if(!policy.projectUuid||!policy.pcbUuid)throw Error('POLICY_EDA_TARGET_REQUIRED');snapshot=await executeNative({directory,windowId,mode:'capture',input:{target:{project:policy.projectUuid,document:policy.pcbUuid}}});padRead=snapshot;if(snapshot.physicalDrcCount)throw Error('BASELINE_PHYSICAL_DRC');const current=snapshot.compatibility?.findings?.find(f=>f.source==='flitrealize-routing');if(current?current.state==='blocked':snapshot.activeTransaction&&!snapshot.activeTransaction.saved&&snapshot.activeTransaction.status!=='rolled-back')throw Object.assign(Error('UNRESOLVED_ROUTING_TRANSACTION'),{compatibility:snapshot.compatibility});}
+  else{windowId??=await activeWindow();if(!policy.projectUuid||!policy.pcbUuid)throw Error('POLICY_EDA_TARGET_REQUIRED');snapshot=await executeNative({directory,windowId,mode:'capture',input:{target:{project:policy.projectUuid,document:policy.pcbUuid}}});padRead=snapshot;if(snapshot.physicalDrcCount&&!compareNativeDrc(snapshot.drc,snapshot.drc).passed)throw Error('BASELINE_PHYSICAL_DRC');const current=snapshot.compatibility?.findings?.find(f=>f.source==='flitrealize-routing');if(current?current.state==='blocked':snapshot.activeTransaction&&!snapshot.activeTransaction.saved&&snapshot.activeTransaction.status!=='rolled-back')throw Object.assign(Error('UNRESOLVED_ROUTING_TRANSACTION'),{compatibility:snapshot.compatibility});}
   if(!snapshot.sourceInvariantHash)throw Error('SNAPSHOT_FINGERPRINT_REQUIRED');
   const board=normalizeBoard(snapshot,padRead,policy);let escapes={seeds:[],traceSeeds:[]};try{escapes=await readJson(path.resolve(root,o['--escapes']??'design/PCB_ROUTING_SEEDS.v1.json'));}catch(error){if(error.code!=='ENOENT')throw error;}
   prepared={schemaVersion:1,projectRoot:root,directory,windowId,board,policy,escapes,implementationHash:await implementationHash()};await fs.writeFile(path.join(directory,'prepared.json'),JSON.stringify(prepared));

@@ -93,9 +93,11 @@ test('PCB operations retain separate discovery guides while the viewer combines 
   assert.deepEqual(items[0].sources.map(n=>n.summary),['仅计划。','仅局部回读。','仅预览。']);
   assert.ok(items[0].sources.every(n=>!n.networkTable));
   const registry=JSON.parse(await readFile(new URL('../../scripts/actions/manifest.json',import.meta.url),'utf8'));
-  const refs=['pcb-net-color','pcb-routing-plan','pcb-trace-width'].map(name=>registry.actions[name].discovery.reference);
-  assert.deepEqual(items[0].references,refs);
-  for(const ref of refs)assert.ok((await readFile(new URL('../../'+ref,import.meta.url),'utf8')).length>0);
+  const stageRefs=['docs/providers/easyeda-pro/3.4-r-pcb-net-color.md','docs/3.6-pcb-routing-plan.md','docs/providers/easyeda-pro/3.8-r-pcb-trace-width.md'];
+  const actionRefs=['docs/providers/easyeda-pro/3.4-r-pcb-net-color.md','docs/technical/pcb-prerouting.md','docs/providers/easyeda-pro/3.8-r-pcb-trace-width.md'];
+  assert.deepEqual(items[0].references,stageRefs,'The panel links the engineering stages');
+  assert.deepEqual(['pcb-net-color','pcb-routing-plan','pcb-trace-width'].map(name=>registry.actions[name].discovery.reference),actionRefs,'Discovery links each Action implementation guide');
+  for(const ref of new Set([...stageRefs,...actionRefs]))assert.ok((await readFile(new URL('../../'+ref,import.meta.url),'utf8')).length>0);
   for(const source of items[0].sources){
     const url=new URL(sourceUrl('/project',source),'http://localhost');
     assert.equal(url.searchParams.get('heading'),source.heading);
@@ -155,8 +157,8 @@ test('actual copper and return inspection follow routing without changing source
   const pours=nodes.find(n=>n.code==='3.9.1'),returns=nodes.find(n=>n.code==='3.9.2');
   assert.equal(pours.sources[0].summary,'实际铜待重铺。');
   assert.equal(returns.sources[0].summary,'局部回流待核对。');
-  assert.equal(pours.reference,'docs/providers/easyeda-pro/3.9.1-pcb-ground-pours.md');
-  assert.equal(returns.reference,'docs/providers/easyeda-pro/3.9.2-pcb-grounding.md');
+  assert.equal(pours.reference,'docs/3.9.1-pcb-ground-pours.md');
+  assert.equal(returns.reference,'docs/3.9.2-pcb-grounding.md');
   assert.ok(!pours.title.includes('3.9.1'));assert.ok(!returns.title.includes('3.9.2'));
   for(const n of [pours,returns])assert.ok((await readFile(new URL('../../'+n.reference,import.meta.url),'utf8')).length);
   assert.deepEqual(snapshot,before);

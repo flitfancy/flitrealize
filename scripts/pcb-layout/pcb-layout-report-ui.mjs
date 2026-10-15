@@ -1,5 +1,5 @@
 // Embedded in the standalone report. Reweights existing candidates only.
-export function initializeReport(data) {
+export function initializeReport(data, scoreBlockLayoutMetrics) {
   const inputs = [...document.querySelectorAll('[data-weight]')];
   const buttons = [...document.querySelectorAll('[data-target]')];
   const status = document.getElementById('weight-status');
@@ -22,6 +22,7 @@ export function initializeReport(data) {
       return;
     }
     const ranked = data.candidates.map(c => {
+      if(c.blockLayoutMetrics){const score=scoreBlockLayoutMetrics(c.blockLayoutMetrics,w);return {...c,electrical:score.electrical,spatial:score.spatial,value:score.total};}
       const electrical = data.groups.reduce((sum, key) => sum + (w[key] ?? 0) * c.ratios[key], 0) / divisor;
       const spatial = (w.uniformity ?? 0) * (c.uniformity ?? 0);
       return { ...c, electrical, spatial, value: electrical + spatial };

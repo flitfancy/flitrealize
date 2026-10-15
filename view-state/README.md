@@ -47,7 +47,7 @@ node view-state/cli.mjs --project-root "<PROJECT_ROOT>"
 - CLI：按配置的可执行文件运行只读 `doctor`，核对连接、版本及结果通道；不创建会话、ensure、重连或执行操作。
 - Bridge：读取会话并请求 loopback `/health`，核对服务、协议、会话和 EDA 连接；不返回令牌。
 
-通道选择与配置见 [0.3](../docs/0.3-easyeda-pro.md#选择执行通道)。显式 `--home <FlitRealize目录>` 优先于环境默认宿主目录；Bridge 路径规则见 [适配器状态目录](../adapters/easyeda-pro/README.md#状态目录)。相对路径以服务启动目录解析。
+通道选择与配置见 [0.4-r](../docs/providers/easyeda-pro/0.4-r-environment.md#选择执行通道)。显式 `--home <FlitRealize目录>` 优先于环境默认宿主目录；Bridge 路径规则见 [适配器状态目录](../adapters/easyeda-pro/README.md#状态目录)。相对路径以服务启动目录解析。
 
 前台每 5 秒读取文稿和健康状态，也可手动刷新。刷新保留阅读位置；同项目读取失败保留旧内容并提示，切换失败不显示旧项目数据。连接健康只说明通道情况，不证明当前项目或设计已核验。
 

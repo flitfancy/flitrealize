@@ -11,7 +11,7 @@
 ```json
 {
   "keywords": ["原理图重排", "布局美化", "reflow"],
-  "reference": "docs/providers/easyeda-pro/2.2-schematic-workflow.md",
+  "reference": "docs/providers/easyeda-pro/2.1-r-schematic-workflow.md",
   "entrypoint": "scripts/schematic-reflow.mjs",
   "limitations": ["仅处理已支持的原理图对象。"]
 }
@@ -43,7 +43,7 @@
 
 ## PCB 编辑复核字段
 
-`result.json` 汇总分步证据。此入口只读 verify 不查询保存，返回 `saved: null, saveChecked: false`；保存状态与交接同步按 [0.3](../docs/0.3-easyeda-pro.md) 和[布局操作的项目主题说明](../docs/providers/easyeda-pro/3.5-pcb-placement.md#同步项目交接)。
+`result.json` 汇总分步证据。此入口只读 verify 不查询保存，返回 `saved: null, saveChecked: false`；保存状态与交接同步按 [0.3](../docs/0.3-easyeda-pro.md) 和[布局操作的项目主题说明](../docs/providers/easyeda-pro/3.5-r-pcb-placement.md#同步项目交接)。
 
 ## 网络配色保存字段
 

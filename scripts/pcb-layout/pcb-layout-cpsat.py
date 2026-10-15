@@ -226,7 +226,7 @@ def solve(data, compile_extension=None):
 
     def point(endpoint=None, ref=None):
         ref = ref or endpoint["ref"]
-        identity = endpoint["id"] if endpoint else None
+        identity = endpoint.get("id") if endpoint else None
         geometry = endpoint.get("geometry","anchor") if endpoint else "origin"
         key = (ref, identity, geometry)
         if key in points:
@@ -234,8 +234,9 @@ def solve(data, compile_extension=None):
         s = states[ref]
         result = {}
         for axis in "xy":
-            values = [s["entity"]["base"][axis] + v.get("originOffset", {}).get(axis, 0) + (v["padCenters" if geometry=="bbox-center" else "pads"][identity][axis] if identity else 0) for v in s["entity"]["variants"]]
-            result[axis] = s[axis] + element(s["choice"], [nearest(n) for n in values])
+            values = [s["entity"]["base"][axis] + v.get("originOffset", {}).get(axis, 0) + ((v["physical"]["min"+axis.upper()]+v["physical"]["max"+axis.upper()])/2 if geometry=="physical-center" else v["padCenters" if geometry=="bbox-center" else "pads"][identity][axis] if identity else 0) for v in s["entity"]["variants"]]
+            quantize = (lambda n: math.floor(n/unit+.5)) if geometry=="physical-center" else nearest
+            result[axis] = s[axis] + element(s["choice"], [quantize(n) for n in values])
             result[axis+"Error"] = max(abs(n-nearest(n)*unit) for n in values)
         points[key] = result
         return result
@@ -256,6 +257,11 @@ def solve(data, compile_extension=None):
     def no_overlap(kind, padding=0):
         xs, ys = [], []
         for ref in entities:
+            # Fine compilation partitions proven constant constraints and keeps
+            # exact fixed shapes for relational checks. Context zones and pair
+            # constraints still check every active/fixed interaction.
+            if data.get("fineScope") and entities[ref]["fixed"]:
+                continue
             if data.get("variantIntervals", False):
                 s, e = states[ref], entities[ref]
                 grouped = {}
@@ -290,6 +296,8 @@ def solve(data, compile_extension=None):
     no_overlap("bundle", global_gap)
     if data["assembly"]:
         no_overlap("courtyard")
+    if data.get("blockLayout"):
+        no_overlap("physical", global_gap)
     def courtyard_covers_floor(a, b, required):
         def margin(ref, key):
             sign = -1 if key.startswith("min") else 1
@@ -298,9 +306,9 @@ def solve(data, compile_extension=None):
                    (("maxX","minX"),("minX","maxX"),("maxY","minY"),("minY","maxY")))
     for pair in data["pairs"]:
         a, b = pair["a"], pair["b"]
-        if ceil(pair["gapMil"]) > global_gap:
+        if ceil(pair["gapMil"]) > global_gap or (data.get("fineScope") and (entities[a]["fixed"] or entities[b]["fixed"])):
             apart(box(a,"bundle"), box(b,"bundle"), ceil(pair["gapMil"]))
-        if data["assembly"] and not courtyard_covers_floor(a,b,pair["physicalGapMil"]):
+        if (data["assembly"] or data.get("blockLayout")) and (not courtyard_covers_floor(a,b,pair["physicalGapMil"]) or (data.get("fineScope") and (entities[a]["fixed"] or entities[b]["fixed"]))):
             apart(box(a,"physical"), box(b,"physical"), ceil(pair["physicalGapMil"]), gaps(box(a,"courtyard"), box(b,"courtyard")))
 
     distances = {}
@@ -321,6 +329,16 @@ def solve(data, compile_extension=None):
                 values.append(d + (error if conservative else 0))
         return minimum(values)
 
+    block_layout = data.get("blockLayout")
+    if block_layout:
+        metric=block_layout["metric"]
+        for edge in block_layout["relations"]:
+            if not edge["weight"]:
+                continue
+            a,b=(point({"ref":edge[side],"geometry":"physical-center"}) for side in ("a","b"))
+            dx,dy=absolute(a["x"]-b["x"]),absolute(a["y"]-b["y"])
+            length=maximum([x*dx+y*dy for x,y in metric["directions"]])
+            objective.append(unit/metric["coefficientScale"]*edge["weight"]*length)
     for link in data["links"]:
         if link["weight"]:
             objective.append(unit*link["weight"]*pin_distance(link["left"], link["right"]))
@@ -580,7 +598,7 @@ def solve(data, compile_extension=None):
     result = {"status":solver.status_name(status),"sourceHash":data["sourceHash"],"solver":{
         "engineVersion":ortools.__version__,"wallSeconds":solver.wall_time,"processCpuSeconds":process_cpu_seconds,"workers":settings["workers"],"branches":solver.num_branches,"conflicts":solver.num_conflicts,
         "variables":len(model.proto.variables),"constraints":len(model.proto.constraints),"resolutionMil":unit,"solverTimeBudgetSeconds":solver.parameters.max_time_in_seconds,
-        "objectiveScope":"compiled electrical objective plus source-derived physical-group compactness; independent JS quality score",
+        "objectiveScope":"same quantized physical-centre projection and explicit rough preferences as independent JS scoring" if block_layout else "compiled electrical objective",
         "initialHintCount":hint_count,"externalInitialHintCount":hint_count,"internallyGeneratedHintCount":generated_hint_count,"noInitialHints":data.get("noInitialHints",False),
         "semanticGroupCount":len(data.get("semanticGroups",[]))}}
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):

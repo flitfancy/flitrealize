@@ -52,7 +52,7 @@ test('Chinese and English reflow queries expose the real wrapper and verificatio
     assert.equal(action.entrypoint.file, 'scripts/schematic-reflow.mjs');
     assert.equal(action.entrypoint.kind, 'script');
     assert.ok(action.modes.some(m => m.mode === 'verify' && !m.mutates));
-    assert.ok(action.reference.endsWith('2.2-schematic-workflow.md'));
+    assert.ok(action.reference.endsWith('2.1-r-schematic-workflow.md'));
   }
 });
 
@@ -101,10 +101,10 @@ test('wire color capability is discoverable with its actual limited scope', () =
 test('PCB tools expose real PCB entrypoints without falling back to schematic capabilities', () => {
   for(const [query,name,reference] of [
     ['布局输入与规则转置','pcb-layout-prepare','3.3-pcb-layout-inputs.md'],
-    ['板框','pcb-board-outline','3.2-pcb-foundation.md'],
-    ['铺铜','pcb-ground-pours','3.9.1-pcb-ground-pours.md'],
-    ['回流检查','pcb-grounding-inspect','3.9.2-pcb-grounding.md'],
-    ['地孔','pcb-ground-vias','3.9.2-pcb-grounding.md'],
+    ['板框','pcb-board-outline','3.2-r-pcb-foundation.md'],
+    ['铺铜','pcb-ground-pours','3.9.1-r-pcb-ground-pours.md'],
+    ['回流检查','pcb-grounding-inspect','3.9.2-r-pcb-grounding.md'],
+    ['地孔','pcb-ground-vias','3.9.2-r-pcb-grounding.md'],
   ])assert.ok(getAction(lookup(query,'pcb'),name).reference.endsWith(reference),query);
   for (const [query, expected] of [['配色', 'pcb-net-color'], ['走线优先级', 'pcb-routing-plan']]) {
     const result = lookup(query, 'pcb');

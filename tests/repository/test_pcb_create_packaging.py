@@ -22,7 +22,7 @@ class PcbCreatePackagingTests(unittest.TestCase):
             "scripts/pcb-layout/pcb-footprint-audit.mjs",
             "scripts/pcb-layout/pcb-layout-netlist.mjs",
             "scripts/providers/easyeda-pro/pcb-layout-native/source.js",
-            "docs/providers/easyeda-pro/pcb-create.md",
+            "docs/providers/easyeda-pro/3.1-r-pcb-create.md",
         }
         self.assertTrue(required <= packaged, sorted(required - packaged))
         self.assertNotIn("tests/pcb-operations/pcb-create.test.mjs", packaged)

@@ -34,8 +34,8 @@ class DocumentLanguageTests(unittest.TestCase):
         self.assertIn("docs/3.1-pcb-review.md", packaged)
         self.assertIn("first-run.md", packaged)
         self.assertIn("docs/0.6-tool-development.md", packaged)
-        self.assertIn("docs/providers/easyeda-pro/pcb-create.md", packaged)
-        self.assertIn("docs/providers/easyeda-pro/pcb-autorouting.md", packaged)
+        self.assertIn("docs/providers/easyeda-pro/3.1-r-pcb-create.md", packaged)
+        self.assertIn("docs/providers/easyeda-pro/3.8-r-pcb-autorouting.md", packaged)
         removed_paths = {
             "docs/pcb-layout-inputs.md", "docs/3.3-ground-space.md",
             "docs/providers/easyeda-pro/3.3-ground-space.md",

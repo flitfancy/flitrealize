@@ -6,7 +6,7 @@
 
 FlitRealize is a skill for developing electronic hardware projects. Start at the project's current stage and keep the design rationale, actual results, and open issues so work can continue.
 
-Current release: `v3.0.0`. Changes are in the [release notes](CHANGELOG.md#300---2026-10-14).
+Current release: `v3.1.0`. Changes are in the [release notes](CHANGELOG.md#310---2026-10-15).
 
 ## Start or continue
 
