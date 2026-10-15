@@ -156,7 +156,7 @@ jobs:
               exit 0
             fi
           else
-            create_args=("$tag" --verify-tag --target "$SOURCE_COMMIT" --draft --title "$title" --notes-file "$NOTES_FILE")
+            create_args=("$tag" --verify-tag --draft --title "$title" --notes-file "$NOTES_FILE")
             if [[ "$version" == *-* ]]; then
               create_args+=(--prerelease)
             fi
